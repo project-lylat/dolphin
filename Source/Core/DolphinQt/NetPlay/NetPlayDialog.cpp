@@ -472,7 +472,7 @@ void NetPlayDialog::OnCoinFlip()
 void NetPlayDialog::OnCoinFlipResult(int coinNum)
 {
   if (coinNum == 1)
-    DisplayMessage(tr("Heads"), "lightsteelblue");
+    DisplayMessage(tr("Heads"), "lightslategray");
   else
     DisplayMessage(tr("Tails"), "lightslategray");
 }
@@ -502,7 +502,7 @@ void NetPlayDialog::OnSuperstarEnabled(bool is_stars)
   if (is_stars)
     DisplayMessage(tr("Superstar Characters Enabled"), "goldenrod");
   else
-    DisplayMessage(tr("Superstar Characters Disabled"), "sandybrown");
+    DisplayMessage(tr("Superstar Characters Disabled"), "orangered");
 }
 
 void NetPlayDialog::OnRankedEnabled(bool is_ranked)
