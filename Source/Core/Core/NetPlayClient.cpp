@@ -467,6 +467,10 @@ void NetPlayClient::OnData(sf::Packet& packet)
   case MessageID::MD5Abort:
     OnMD5Abort();
     break;
+
+  case MessageID::SuperstarBox:
+    OnSuperstarBoxMsg(packet);
+    break;
   
   case MessageID::RankedBox:
     OnRankedBoxMsg(packet);
@@ -1494,6 +1498,13 @@ void NetPlayClient::OnMD5Abort()
 {
   m_should_compute_MD5 = false;
   m_dialog->AbortMD5();
+}
+
+void NetPlayClient::OnSuperstarBoxMsg(sf::Packet& packet)
+{
+  bool stars_on;
+  packet >> stars_on;
+  m_dialog->OnSuperstarEnabled(stars_on);
 }
 
 void NetPlayClient::OnRankedBoxMsg(sf::Packet& packet)

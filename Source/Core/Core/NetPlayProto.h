@@ -142,6 +142,7 @@ enum class MessageID : u8
   ChunkedDataComplete = 0x44,
   ChunkedDataAbort = 0x45,
 
+  SuperstarBox = 0x5e,
   RankedBox = 0x5f,
 
   PadData = 0x60,

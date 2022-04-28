@@ -466,7 +466,17 @@ ConnectionError NetPlayServer::OnConnect(ENetPeer* socket, sf::Packet& rpac)
   // send ranked box state
   spac.clear();
   spac << MessageID::RankedBox;
+  m_current_ranked_value =
+      Config::LobbyNameVector(Config::Get(Config::NETPLAY_INDEX_NAME))[1] == "Ranked";
   spac << m_current_ranked_value;
+  Send(player.socket, spac);
+
+  // send superstar box state
+  spac.clear();
+  spac << MessageID::SuperstarBox;
+  bool stars_on =
+      Config::LobbyNameVector(Config::Get(Config::NETPLAY_INDEX_NAME))[2] == "Superstars On";
+  spac << stars_on;
   Send(player.socket, spac);
 
   // send night stadium state
