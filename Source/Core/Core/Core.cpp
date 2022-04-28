@@ -495,7 +495,7 @@ void SetAvgPing()
     return;
 
   // checks if GameID is set and that the end game flag hasn't been hit yet
-  bool inGame = Memory::Read_U32(aGameId) != 0 && Memory::Read_U32(aEndOfGameFlag) == 0 ?
+  bool inGame = Memory::Read_U32(aGameId) != 0 /*&& Memory::Read_U8(aEndOfGameFlag) == 0*/ ?
                     true :
                     false;
   if (!inGame) {
@@ -663,8 +663,6 @@ void Stop()  // - Hammertime!
 
   s_timer.Stop();
 
-  s_stat_tracker->init(); // Stop blank stat file from being output if a game is closed out before json output
-
   CallOnStateChangedCallbacks(State::Stopping);
 
   // Dump left over jobs
@@ -689,6 +687,12 @@ void Stop()  // - Hammertime!
   }
 
   s_last_actual_emulation_speed = 1.0;
+
+  if (s_stat_tracker) {
+    s_stat_tracker->dumpGame();
+    std::cout << "Emulation stopped. Dumping game." << std::endl;
+    s_stat_tracker->init();
+  }
 }
 
 void DeclareAsCPUThread()
