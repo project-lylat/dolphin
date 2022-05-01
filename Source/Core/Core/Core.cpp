@@ -213,15 +213,19 @@ void AutoGolfMode()
     u8 FielderPort = Memory::Read_U8(aFielderPort);
     bool isField = Memory::Read_U8(aIsField) == 1;
 
+    if (BatterPort == 0)
+      return;  // means game hasn't started yet
+
+    // makes the player who paused the golfer
+    if (Memory::Read_U8(aWhoPaused) == 2)
+      isField = true;
+
     // add barrel batter functionality
     if (Memory::Read_U8(aMinigameID) == 3)
     {
       BatterPort = Memory::Read_U8(aBarrelBatterPort) + 1;
       isField = false;
     }
-
-    if (BatterPort == 0)
-      return;  // means game hasn't started yet
 
     NetPlay::NetPlayClient::AutoGolfMode(isField, BatterPort, FielderPort);
   }
