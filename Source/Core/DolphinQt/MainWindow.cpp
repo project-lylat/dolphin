@@ -54,6 +54,7 @@
 #include "Core/HotkeyManager.h"
 #include "Core/IOS/USB/Bluetooth/BTEmu.h"
 #include "Core/IOS/USB/Bluetooth/WiimoteDevice.h"
+#include "Core/Lylat/LylatMatchmakingClient.h"
 #include "Core/Movie.h"
 #include "Core/NetPlayClient.h"
 #include "Core/NetPlayProto.h"
@@ -208,6 +209,9 @@ MainWindow::MainWindow(std::unique_ptr<BootParameters> boot_parameters,
                        const std::string& movie_path)
     : QMainWindow(nullptr)
 {
+  qRegisterMetaType<std::shared_ptr<const UICommon::GameFile>>();
+  qRegisterMetaType<UICommon::GameFile>("UICommon::GameFile");
+
   setWindowTitle(QString::fromStdString(Common::GetScmRevStr()));
   setWindowIcon(Resources::GetAppIcon());
   setUnifiedTitleAndToolBarOnMac(true);
@@ -232,7 +236,6 @@ MainWindow::MainWindow(std::unique_ptr<BootParameters> boot_parameters,
   InitCoreCallbacks();
 
   NetPlayInit();
-
 #if defined(__unix__) || defined(__unix) || defined(__APPLE__)
   auto* daemon = new SignalDaemon(this);
 
@@ -295,6 +298,7 @@ MainWindow::~MainWindow()
   Settings::Instance().ResetNetPlayClient();
   Settings::Instance().ResetNetPlayServer();
 
+  delete m_lylat_matchmaking_client;
   delete m_render_widget;
   delete m_netplay_dialog;
 
@@ -1397,7 +1401,12 @@ void MainWindow::NetPlayInit()
   connect(m_netplay_dialog, &NetPlayDialog::Stop, this, &MainWindow::ForceStop);
   connect(m_netplay_dialog, &NetPlayDialog::rejected, this, &MainWindow::NetPlayQuit);
   connect(m_netplay_setup_dialog, &NetPlaySetupDialog::Join, this, &MainWindow::NetPlayJoin);
+  connect(m_netplay_setup_dialog, &NetPlaySetupDialog::Search, this, &MainWindow::NetPlaySearch);
   connect(m_netplay_setup_dialog, &NetPlaySetupDialog::Host, this, &MainWindow::NetPlayHost);
+
+  connect(this, &MainWindow::OnMatchmakingConnection, this, &MainWindow::OnNetPlayMatchResult);
+  connect(this, &MainWindow::OnMatchmakingError, this, &MainWindow::OnNetPlayMatchResultFailed);
+
 #ifdef USE_DISCORD_PRESENCE
   connect(m_netplay_discord, &DiscordHandler::Join, this, &MainWindow::NetPlayJoin);
 
@@ -1408,6 +1417,61 @@ void MainWindow::NetPlayInit()
           &MainWindow::UpdateScreenSaverInhibition);
   connect(&Settings::Instance(), &Settings::EmulationStateChanged, this,
           &MainWindow::UpdateScreenSaverInhibition);
+}
+
+bool MainWindow::OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHost,
+                                      std::string host_ip, u16 host_port, u16 local_port)
+{
+  Config::SetBaseOrCurrent(Config::NETPLAY_TRAVERSAL_CHOICE, "direct");
+  Config::SetBaseOrCurrent(Config::NETPLAY_HOST_PORT, local_port);
+  if (isHost)
+  {
+    return NetPlayHost(game);
+  }
+  // Wait for a bit to allow host to create their server
+  sleep(5);
+  Config::SetBaseOrCurrent(Config::NETPLAY_ADDRESS, host_ip);
+  Config::SetBaseOrCurrent(Config::NETPLAY_CONNECT_PORT, host_port);
+
+  return NetPlayJoin();
+}
+
+bool MainWindow::OnNetPlayMatchResultFailed(const UICommon::GameFile& game,
+                                            std::string errorMessage)
+{
+  ModalMessageBox::critical(nullptr, tr("Error"), tr(errorMessage.c_str()));
+  return true;
+}
+
+bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
+{
+  if (Core::IsRunning())
+  {
+    ModalMessageBox::critical(nullptr, tr("Error"),
+                              tr("Can't start a NetPlay Session while a game is still running!"));
+    return false;
+  }
+
+  if (m_netplay_dialog->isVisible())
+  {
+    ModalMessageBox::critical(nullptr, tr("Error"),
+                              tr("A NetPlay Session is already in progress!"));
+    return false;
+  }
+
+  m_lylat_matchmaking_client = new LylatMatchmakingClient();
+  m_lylat_matchmaking_client->Match(
+      game,
+      [this](const UICommon::GameFile& game, bool isHost, std::string ip, unsigned short port, unsigned short local_port) {
+        //this->OnNetPlayMatchResult(game, isHost, ip, port);
+        emit this->OnMatchmakingConnection(game, isHost, ip, port, local_port);
+      },
+      [this](const UICommon::GameFile& game, std::string errorMessage) {
+        emit this->OnMatchmakingError(game, errorMessage);
+        //ModalMessageBox::critical(this, tr("Error"), tr(m_lylat_matchmaking_client->m_errorMsg.c_str()));
+      });
+
+  return true;
 }
 
 bool MainWindow::NetPlayJoin()

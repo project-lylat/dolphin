@@ -17,7 +17,7 @@ const Info<std::string> NETPLAY_TRAVERSAL_SERVER{{System::Main, "NetPlay", "Trav
                                                  "stun.dolphin-emu.org"};
 const Info<u16> NETPLAY_TRAVERSAL_PORT{{System::Main, "NetPlay", "TraversalPort"}, 6262};
 const Info<std::string> NETPLAY_TRAVERSAL_CHOICE{{System::Main, "NetPlay", "TraversalChoice"},
-                                                 "direct"};
+                                                 "lylat"};
 const Info<std::string> NETPLAY_INDEX_URL{{System::Main, "NetPlay", "IndexServer"},
                                           "https://lobby.dolphin-emu.org"};
 

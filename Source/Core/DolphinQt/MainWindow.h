@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include "Core/Lylat/LylatMatchmakingClient.h"
 
 class QStackedWidget;
 class QString;
@@ -77,6 +78,8 @@ public:
 signals:
   void ReadOnlyModeChanged(bool read_only);
   void RecordingStatusChanged(bool recording);
+  bool OnMatchmakingConnection(const UICommon::GameFile& game, bool isHost, std::string ip, unsigned short port, unsigned short local_port);
+  bool OnMatchmakingError(const UICommon::GameFile& game, std::string errorMessage);
 
 private:
   void Open();
@@ -162,8 +165,12 @@ private:
 
   void NetPlayInit();
   bool NetPlayJoin();
+  bool NetPlaySearch(const UICommon::GameFile& game);
   bool NetPlayHost(const UICommon::GameFile& game);
   void NetPlayQuit();
+  bool OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHost, std::string host_ip,
+                            unsigned short host_port, unsigned short local_port);
+  bool OnNetPlayMatchResultFailed(const UICommon::GameFile& game, std::string errorMessage);
 
   void OnBootGameCubeIPL(DiscIO::Region region);
   void OnImportNANDBackup();
@@ -240,4 +247,5 @@ private:
   WatchWidget* m_watch_widget;
   CheatsManager* m_cheats_manager;
   QByteArray m_render_widget_geometry;
+  LylatMatchmakingClient* m_lylat_matchmaking_client;
 };

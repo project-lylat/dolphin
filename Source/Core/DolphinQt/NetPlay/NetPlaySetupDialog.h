@@ -4,7 +4,9 @@
 #pragma once
 
 #include <QDialog>
+#include <QLayout>
 
+#include "Core/Lylat/LylatUser.h"
 #include "DolphinQt/GameList/GameListModel.h"
 
 class QCheckBox;
@@ -32,14 +34,33 @@ public:
   void accept() override;
   void show();
 
+  enum ConnectionType: int {
+    CONN_TYPE_LYLAT = 0,
+    CONN_TYPE_DIRECT = 1,
+    CONN_TYPE_TRAVERSAL = 2,
+  };
+
+  std::map<ConnectionType, std::string> TraversalChoiceMap {
+      {CONN_TYPE_LYLAT, "lylat"},
+      {CONN_TYPE_DIRECT, "direct"},
+      {CONN_TYPE_TRAVERSAL, "traversal"},
+  };
+
+  std::map<std::string, ConnectionType> TraversalChoiceReversedMap {
+      {"lylat", CONN_TYPE_LYLAT},
+      {"direct", CONN_TYPE_DIRECT},
+      {"traversal", CONN_TYPE_TRAVERSAL},
+  };
+
 signals:
   bool Join();
+  bool Search(const UICommon::GameFile& game);
   bool Host(const UICommon::GameFile& game);
 
 private:
   void CreateMainLayout();
   void ConnectWidgets();
-  void PopulateGameList();
+  void PopulateGameList(QListWidget* list, QString selected_game);
   void ResetTraversalHost();
 
   void SaveSettings();
@@ -74,6 +95,16 @@ private:
   QLineEdit* m_host_server_name;
   QLineEdit* m_host_server_password;
   QComboBox* m_host_server_region;
+
+  // Lylat Widget
+  QWidget* m_lylat_widget;
+  QWidget* m_lylat_sign_in_widget;
+  QWidget* m_lylat_connect_widget;
+  QPushButton* m_lylat_toggle_login_button;
+  QPushButton* m_lylat_reload_button;
+  QPushButton* m_lylat_connect_button;
+  LylatUser* m_lylat_user;
+  QListWidget* m_lylat_games;
 
 #ifdef USE_UPNP
   QCheckBox* m_host_upnp;

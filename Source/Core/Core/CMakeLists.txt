@@ -404,6 +404,10 @@ add_library(core
   IOS/WFS/WFSSRV.h
   LibusbUtils.cpp
   LibusbUtils.h
+  Lylat/LylatMatchmakingClient.cpp
+  Lylat/LylatMatchmakingClient.h
+  Lylat/LylatUser.cpp
+  Lylat/LylatUser.h
   MemTools.cpp
   MemTools.h
   Movie.cpp
