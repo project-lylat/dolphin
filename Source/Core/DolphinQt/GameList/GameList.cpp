@@ -474,15 +474,20 @@ void GameList::ShowContextMenu(const QPoint&)
 
     menu->addSeparator();
 
+    QAction* netplay_search = new QAction(tr("Find Match with Lylat"), menu);
+    netplay_search->setEnabled(!Core::IsRunning());
+    connect(netplay_search, &QAction::triggered, [this, game] { emit NetPlaySearch(*game); });
+    menu->addAction(netplay_search);
+
     QAction* netplay_host = new QAction(tr("Host with NetPlay"), menu);
 
     connect(netplay_host, &QAction::triggered, [this, game] { emit NetPlayHost(*game); });
 
     connect(&Settings::Instance(), &Settings::EmulationStateChanged, menu, [=](Core::State state) {
       netplay_host->setEnabled(state == Core::State::Uninitialized);
+      netplay_search->setEnabled(state == Core::State::Uninitialized);
     });
     netplay_host->setEnabled(!Core::IsRunning());
-
     menu->addAction(netplay_host);
   }
 

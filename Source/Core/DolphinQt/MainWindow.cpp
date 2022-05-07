@@ -644,6 +644,7 @@ void MainWindow::ConnectToolBar()
   connect(m_tool_bar, &ToolBar::OpenPressed, this, &MainWindow::Open);
   connect(m_tool_bar, &ToolBar::RefreshPressed, this, &MainWindow::RefreshGameList);
 
+  connect(m_tool_bar, &ToolBar::SearchPressed, this, &MainWindow::SearchAndPlay);
   connect(m_tool_bar, &ToolBar::PlayPressed, this, [this]() { Play(); });
   connect(m_tool_bar, &ToolBar::PausePressed, this, &MainWindow::Pause);
   connect(m_tool_bar, &ToolBar::StopPressed, this, &MainWindow::RequestStop);
@@ -663,7 +664,8 @@ void MainWindow::ConnectToolBar()
 
 void MainWindow::ConnectGameList()
 {
-  connect(m_game_list, &GameList::GameSelected, this, [this]() { Play(); });
+  connect(m_game_list, &GameList::GameSelected, this, &MainWindow::SearchAndPlay);
+  connect(m_game_list, &GameList::NetPlaySearch, this, &MainWindow::NetPlaySearch);
   connect(m_game_list, &GameList::NetPlayHost, this, &MainWindow::NetPlayHost);
   connect(m_game_list, &GameList::OnStartWithRiivolution, this,
           &MainWindow::ShowRiivolutionBootWidget);
@@ -766,11 +768,43 @@ void MainWindow::EjectDisc()
   Core::RunAsCPUThread([] { DVDInterface::EjectDisc(DVDInterface::EjectCause::User); });
 }
 
+void MainWindow::SearchAndOpen()
+{
+  QStringList files = PromptFileNames();
+  if (!files.isEmpty()){
+    std::shared_ptr<const UICommon::GameFile> game = m_game_list->FindGame(files[0].toStdString());
+    NetPlaySearch(*game);
+  }
+}
+
 void MainWindow::Open()
 {
   QStringList files = PromptFileNames();
   if (!files.isEmpty())
     StartGame(StringListToStdVector(files));
+}
+
+void MainWindow::SearchAndPlay()
+{
+  std::shared_ptr<const UICommon::GameFile> selection = m_game_list->GetSelectedGame();
+  if (selection)
+  {
+    this->NetPlaySearch(*selection);
+  }
+  else
+  {
+    const QString default_path = QString::fromStdString(Config::Get(Config::MAIN_DEFAULT_ISO));
+    if (!default_path.isEmpty() && QFile::exists(default_path))
+    {
+      std::shared_ptr<const UICommon::GameFile> game =
+          m_game_list->FindGame(default_path.toStdString());
+      this->NetPlaySearch(*game);
+    }
+    else
+    {
+      SearchAndOpen();
+    }
+  }
 }
 
 void MainWindow::Play(const std::optional<std::string>& savestate_path)
@@ -1441,7 +1475,7 @@ bool MainWindow::OnNetPlayMatchResultFailed(const UICommon::GameFile& game,
                                             std::string errorMessage)
 {
   m_lylat_progress_dialog->Reset();
-//  m_lylat_progress_dialog->GetRaw()->close();
+  //  m_lylat_progress_dialog->GetRaw()->close();
   ModalMessageBox::critical(nullptr, tr("Error"), tr(errorMessage.c_str()));
   return true;
 }
@@ -1473,12 +1507,16 @@ bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
   if (m_lylat_matchmaking_client != nullptr && m_lylat_matchmaking_client->IsSearching())
   {
     ModalMessageBox::critical(nullptr, tr("Error"), tr("You are already searching for a match!"));
-    m_lylat_progress_dialog->GetRaw()->show();
-    m_lylat_progress_dialog->GetRaw()->raise();
+    if (m_lylat_progress_dialog != nullptr)
+    {
+      m_lylat_progress_dialog->GetRaw()->show();
+      m_lylat_progress_dialog->GetRaw()->raise();
+    }
     return false;
   }
 
-  m_lylat_progress_dialog = new ParallelProgressDialog(tr("Finding Match..."), tr("Cancel"), 10, 100);
+  m_lylat_progress_dialog =
+      new ParallelProgressDialog(tr("Finding Match on Lylat..."), tr("Cancel"), 10, 100);
   m_lylat_progress_dialog->GetRaw()->show();
   m_lylat_progress_dialog->GetRaw()->raise();
   m_lylat_progress_dialog->SetValue(50);

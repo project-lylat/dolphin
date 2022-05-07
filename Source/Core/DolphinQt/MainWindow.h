@@ -90,6 +90,8 @@ private:
   void Play(const std::optional<std::string>& savestate_path = {});
   void Pause();
   void TogglePause();
+  void SearchAndPlay();
+  void SearchAndOpen();
 
   // May ask for confirmation. Returns whether or not it actually stopped.
   bool RequestStop();
