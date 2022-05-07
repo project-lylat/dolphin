@@ -35,7 +35,6 @@ NetPlaySetupDialog::NetPlaySetupDialog(const GameListModel& game_list_model, QWi
 {
   setWindowTitle(tr("NetPlay Setup"));
   setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
-
   CreateMainLayout();
 
   bool use_index = Config::Get(Config::NETPLAY_USE_INDEX);
