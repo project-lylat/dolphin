@@ -376,7 +376,8 @@
     <ClInclude Include="Core\IOS\WFS\WFSI.h" />
     <ClInclude Include="Core\IOS\WFS\WFSSRV.h" />
     <ClInclude Include="Core\LibusbUtils.h" />
-    <ClInclude Include="Core\LylatUser.h" />
+    <ClInclude Include="Core\Lylat\LylatMatchmakingClient.h" />
+    <ClInclude Include="Core\Lylat\LylatUser.h" />
     <ClInclude Include="Core\MachineContext.h" />
     <ClInclude Include="Core\MemTools.h" />
     <ClInclude Include="Core\Movie.h" />
@@ -971,6 +972,8 @@
     <ClCompile Include="Core\IOS\WFS\WFSI.cpp" />
     <ClCompile Include="Core\IOS\WFS\WFSSRV.cpp" />
     <ClCompile Include="Core\LibusbUtils.cpp" />
+    <ClInclude Include="Core\Lylat\LylatMatchmakingClient.cpp" />
+    <ClInclude Include="Core\Lylat\LylatUser.cpp" />
     <ClCompile Include="Core\MemTools.cpp" />
     <ClCompile Include="Core\Movie.cpp" />
     <ClCompile Include="Core\NetPlayClient.cpp" />

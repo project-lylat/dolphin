@@ -6,7 +6,7 @@ if (NOT Qt5_DIR AND MSVC)
   endif()
 endif()
 
-find_package(Qt5 5.9 REQUIRED COMPONENTS Gui Widgets)
+find_package(Qt5 5.9 REQUIRED COMPONENTS Gui Widgets WebEngine WebView)
 
 set_property(TARGET Qt5::Core PROPERTY INTERFACE_COMPILE_FEATURES "")
 message(STATUS "Found Qt version ${Qt5Core_VERSION}")
@@ -358,6 +358,8 @@ target_link_libraries(dolphin-emu
 PRIVATE
   core
   Qt5::Widgets
+  Qt5::WebEngine
+  Qt5::WebView
   uicommon
   imgui
 )
@@ -375,6 +377,8 @@ if (MSVC)
   target_compile_options(dolphin-emu PRIVATE /experimental:external)
   target_compile_options(dolphin-emu PRIVATE /external:W0)
   set(qtGui "")
+  set(qtWebEngine "")
+  set(qtWebView "")
   set(qtGuiPriv "")
   set(qtWidgetsPriv "")
   list(TRANSFORM Qt5Gui_INCLUDE_DIRS PREPEND "/external:I" OUTPUT_VARIABLE qtGui)
@@ -383,6 +387,8 @@ if (MSVC)
   target_compile_options(dolphin-emu PRIVATE "${qtGui}")
   target_compile_options(dolphin-emu PRIVATE "${qtGuiPriv}")
   target_compile_options(dolphin-emu PRIVATE "${qtWidgets}")
+  target_compile_options(dolphin-emu PRIVATE "${qtWebEngine}")
+  target_compile_options(dolphin-emu PRIVATE "${qtWebView}")
 endif()
 
 if(WIN32)
