@@ -198,6 +198,7 @@ void NetPlaySetupDialog::CreateMainLayout()
   auto lylat_layout = new QGridLayout;
   auto lylat_sign_in_layout = new QGridLayout;
   auto lylat_connect_layout = new QGridLayout;
+  m_lylat_webview = new QtWebView;
 
   auto sign_in_label =
       new QLabel(tr("SIGN IN:<br /><br />"

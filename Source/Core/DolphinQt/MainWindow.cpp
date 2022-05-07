@@ -1490,6 +1490,14 @@ void MainWindow::NetPlayMatchCancel()
 
 bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
 {
+  if (!LylatUser::GetUser())
+  {
+    ShowNetPlaySetupDialog();
+    ModalMessageBox::critical(nullptr, tr("Error"),
+                              tr("You must log in to Lylat in order to find a Match!"));
+    return false;
+  }
+
   if (Core::IsRunning())
   {
     ModalMessageBox::critical(nullptr, tr("Error"),
