@@ -7,6 +7,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <mutex>
 
 #ifndef _WIN32
 #include <arpa/inet.h>
