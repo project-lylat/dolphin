@@ -98,7 +98,6 @@
 #include "DolphinQt/QtUtils/DolphinFileDialog.h"
 #include "DolphinQt/QtUtils/FileOpenEventFilter.h"
 #include "DolphinQt/QtUtils/ModalMessageBox.h"
-#include "DolphinQt/QtUtils/ParallelProgressDialog.h"
 #include "DolphinQt/QtUtils/QueueOnObject.h"
 #include "DolphinQt/QtUtils/RunOnObject.h"
 #include "DolphinQt/QtUtils/WindowActivationEventFilter.h"
@@ -1422,6 +1421,8 @@ void MainWindow::NetPlayInit()
 bool MainWindow::OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHost,
                                       std::string host_ip, u16 host_port, u16 local_port)
 {
+  m_lylat_progress_dialog->SetValue(100);
+  m_lylat_progress_dialog->Finished(100);
   Config::SetBaseOrCurrent(Config::NETPLAY_TRAVERSAL_CHOICE, "direct");
   Config::SetBaseOrCurrent(Config::NETPLAY_HOST_PORT, local_port);
   if (isHost)
@@ -1429,7 +1430,7 @@ bool MainWindow::OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHos
     return NetPlayHost(game);
   }
   // Wait for a bit to allow host to create their server
-  sleep(5);
+  sleep(1);
   Config::SetBaseOrCurrent(Config::NETPLAY_ADDRESS, host_ip);
   Config::SetBaseOrCurrent(Config::NETPLAY_CONNECT_PORT, host_port);
 
@@ -1439,8 +1440,18 @@ bool MainWindow::OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHos
 bool MainWindow::OnNetPlayMatchResultFailed(const UICommon::GameFile& game,
                                             std::string errorMessage)
 {
+  m_lylat_progress_dialog->Reset();
+//  m_lylat_progress_dialog->GetRaw()->close();
   ModalMessageBox::critical(nullptr, tr("Error"), tr(errorMessage.c_str()));
   return true;
+}
+
+void MainWindow::NetPlayMatchCancel()
+{
+  if (m_lylat_matchmaking_client)
+  {
+    m_lylat_matchmaking_client->CancelSearch();
+  }
 }
 
 bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
@@ -1459,16 +1470,30 @@ bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
     return false;
   }
 
+  if (m_lylat_matchmaking_client != nullptr && m_lylat_matchmaking_client->IsSearching())
+  {
+    ModalMessageBox::critical(nullptr, tr("Error"), tr("You are already searching for a match!"));
+    m_lylat_progress_dialog->GetRaw()->show();
+    m_lylat_progress_dialog->GetRaw()->raise();
+    return false;
+  }
+
+  m_lylat_progress_dialog = new ParallelProgressDialog(tr("Finding Match..."), tr("Cancel"), 10, 100);
+  m_lylat_progress_dialog->GetRaw()->show();
+  m_lylat_progress_dialog->GetRaw()->raise();
+  m_lylat_progress_dialog->SetValue(50);
+  connect(m_lylat_progress_dialog->GetRaw(), &QProgressDialog::canceled, this,
+          &MainWindow::NetPlayMatchCancel);
+
   m_lylat_matchmaking_client = new LylatMatchmakingClient();
   m_lylat_matchmaking_client->Match(
       game,
-      [this](const UICommon::GameFile& game, bool isHost, std::string ip, unsigned short port, unsigned short local_port) {
-        //this->OnNetPlayMatchResult(game, isHost, ip, port);
+      [this](const UICommon::GameFile& game, bool isHost, std::string ip, unsigned short port,
+             unsigned short local_port) {
         emit this->OnMatchmakingConnection(game, isHost, ip, port, local_port);
       },
       [this](const UICommon::GameFile& game, std::string errorMessage) {
         emit this->OnMatchmakingError(game, errorMessage);
-        //ModalMessageBox::critical(this, tr("Error"), tr(m_lylat_matchmaking_client->m_errorMsg.c_str()));
       });
 
   return true;

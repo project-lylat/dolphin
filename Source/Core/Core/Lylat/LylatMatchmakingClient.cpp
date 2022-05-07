@@ -6,10 +6,11 @@
 #include "Common/Timer.h"
 #include "UICommon/GameFile.h"
 
-LylatMatchmakingClient* LylatMatchmakingClient::singleton = NULL;
+LylatMatchmakingClient* LylatMatchmakingClient::singleton = nullptr;
 std::string MmMessageType::CREATE_TICKET = "create-ticket";
 std::string MmMessageType::CREATE_TICKET_RESP = "create-ticket-resp";
 std::string MmMessageType::GET_TICKET_RESP = "get-ticket-resp";
+static std::mutex search_mutex;
 
 LylatMatchmakingClient::LylatMatchmakingClient()
 {
@@ -20,6 +21,10 @@ LylatMatchmakingClient::LylatMatchmakingClient()
   m_server = nullptr;
   m_game = nullptr;
   generator = std::default_random_engine(Common::Timer::GetTimeMs());
+  if(singleton != nullptr) {
+    delete singleton;
+  }
+  singleton = this;
 }
 
 LylatMatchmakingClient::~LylatMatchmakingClient()
@@ -39,6 +44,13 @@ LylatMatchmakingClient* LylatMatchmakingClient::GetClient()
   return singleton == NULL ? new LylatMatchmakingClient() : singleton;
 }
 
+void LylatMatchmakingClient::CancelSearch(){
+  std::lock_guard<std::mutex> lk(search_mutex);
+  m_state = ProcessState::ERROR_ENCOUNTERED;
+  m_errorMsg = "Search Canceled!";
+  m_onFailureCallback(*m_game, m_errorMsg);
+}
+
 void LylatMatchmakingClient::Match(
     const UICommon::GameFile& game,
     std::function<void(const UICommon::GameFile& game, bool isHost, std::string ip,
@@ -46,6 +58,8 @@ void LylatMatchmakingClient::Match(
         onSuccessCallback,
     std::function<void(const UICommon::GameFile&, std::string)> onFailureCallback)
 {
+  std::lock_guard<std::mutex> lk(search_mutex);
+
   m_game = &game;
   m_searchSettings.mode = LylatMatchmakingClient::OnlinePlayMode::UNRANKED;
   m_onSuccessCallback = onSuccessCallback;
@@ -60,6 +74,8 @@ void LylatMatchmakingClient::MatchmakeThread()
 
   while (IsSearching())
   {
+    std::lock_guard<std::mutex> lk(search_mutex);
+
     std::cout << "MatchmakeThread::running" << "\n";
 
     switch (m_state)
@@ -84,6 +100,8 @@ void LylatMatchmakingClient::MatchmakeThread()
 
 bool LylatMatchmakingClient::IsSearching()
 {
+  //std::lock_guard<std::mutex> lk(search_mutex);
+
   std::cout << "isSearching()" << "\n";
   std::cout << "Current STATE: " << m_state << "\n";
   return searchingStates.count(m_state) != 0;

@@ -6,11 +6,13 @@
 #include <QMainWindow>
 #include <QStringList>
 
+#include <QProgressDialog>
 #include <array>
 #include <memory>
 #include <optional>
 #include <string>
 #include "Core/Lylat/LylatMatchmakingClient.h"
+#include "DolphinQt/QtUtils/ParallelProgressDialog.h"
 
 class QStackedWidget;
 class QString;
@@ -78,7 +80,8 @@ public:
 signals:
   void ReadOnlyModeChanged(bool read_only);
   void RecordingStatusChanged(bool recording);
-  bool OnMatchmakingConnection(const UICommon::GameFile& game, bool isHost, std::string ip, unsigned short port, unsigned short local_port);
+  bool OnMatchmakingConnection(const UICommon::GameFile& game, bool isHost, std::string ip,
+                               unsigned short port, unsigned short local_port);
   bool OnMatchmakingError(const UICommon::GameFile& game, std::string errorMessage);
 
 private:
@@ -171,6 +174,7 @@ private:
   bool OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHost, std::string host_ip,
                             unsigned short host_port, unsigned short local_port);
   bool OnNetPlayMatchResultFailed(const UICommon::GameFile& game, std::string errorMessage);
+  void NetPlayMatchCancel();
 
   void OnBootGameCubeIPL(DiscIO::Region region);
   void OnImportNANDBackup();
@@ -247,5 +251,6 @@ private:
   WatchWidget* m_watch_widget;
   CheatsManager* m_cheats_manager;
   QByteArray m_render_widget_geometry;
-  LylatMatchmakingClient* m_lylat_matchmaking_client;
+  LylatMatchmakingClient* m_lylat_matchmaking_client = nullptr;
+  ParallelProgressDialog* m_lylat_progress_dialog;
 };

@@ -75,8 +75,9 @@ public:
                  onSuccessCallback,
              std::function<void(const UICommon::GameFile&, std::string)> onFailureCallback);
   void MatchmakeThread();
-
+  void CancelSearch();
   bool IsSearching();
+
   std::string m_errorMsg = "";
 
 protected:
