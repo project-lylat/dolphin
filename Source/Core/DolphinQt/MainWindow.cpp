@@ -1464,7 +1464,7 @@ bool MainWindow::OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHos
     return NetPlayHost(game);
   }
   // Wait for a bit to allow host to create their server
-  sleep(1);
+  std::this_thread::sleep_for(std::chrono::seconds(1));
   Config::SetBaseOrCurrent(Config::NETPLAY_ADDRESS, host_ip);
   Config::SetBaseOrCurrent(Config::NETPLAY_CONNECT_PORT, host_port);
 

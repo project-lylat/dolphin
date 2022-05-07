@@ -205,7 +205,7 @@ void LylatMatchmakingClient::startMatchmaking()
   char lanAddr[30] = "";
 
   char host[256];
-  char* IP;
+  char* IP = (char*)"";
   struct hostent* host_entry;
   int hostname;
   hostname = gethostname(host, sizeof(host));  // find the host name
@@ -230,7 +230,6 @@ void LylatMatchmakingClient::startMatchmaking()
         // WARN_LOG(SLIPPI_ONLINE, "[Matchmaking] IP at idx %d: %s", i, IP);
         i++;
       }
-
       sprintf(lanAddr, "%s:%d", IP, m_hostPort);
     }
   }
@@ -274,7 +273,7 @@ void LylatMatchmakingClient::startMatchmaking()
 
   picojson::object jSearch;
   jSearch["mode"] = picojson::value((double)m_searchSettings.mode);
-  u8* connectCodeArr = &connectCodeBuf[0];
+  //u8* connectCodeArr = &connectCodeBuf[0];
   jSearch["connectCode"] = picojson::value(m_searchSettings.connectCode);
   jSearch["game"] = picojson::value(jGame);
 
