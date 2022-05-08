@@ -125,7 +125,6 @@
 
 #include "VideoCommon/NetPlayChatUI.h"
 #include "VideoCommon/VideoConfig.h"
-#include <QtWebView/QtWebView>
 
 #ifdef HAVE_XRANDR
 #include "UICommon/X11Utils.h"
@@ -211,7 +210,6 @@ MainWindow::MainWindow(std::unique_ptr<BootParameters> boot_parameters,
 {
   qRegisterMetaType<std::shared_ptr<const UICommon::GameFile>>();
   qRegisterMetaType<UICommon::GameFile>("UICommon::GameFile");
-  QtWebView::initialize();
 
   setWindowTitle(QString::fromStdString(Common::GetScmRevStr()));
   setWindowIcon(Resources::GetAppIcon());
