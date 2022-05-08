@@ -28,6 +28,8 @@ public:
   explicit GameList(QWidget* parent = nullptr);
   ~GameList();
 
+  void SetWindowTheme(std::shared_ptr<const UICommon::GameFile>);
+
   std::shared_ptr<const UICommon::GameFile> GetSelectedGame() const;
   QList<std::shared_ptr<const UICommon::GameFile>> GetSelectedGames() const;
   bool HasMultipleSelected() const;

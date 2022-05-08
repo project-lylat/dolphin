@@ -147,7 +147,9 @@ void GameList::MakeListView()
   connect(m_list, &QTableView::customContextMenuRequested, this, &GameList::ShowContextMenu);
   connect(m_list->selectionModel(), &QItemSelectionModel::selectionChanged,
           [this](const QItemSelection&, const QItemSelection&) {
-            emit SelectionChanged(GetSelectedGame());
+            auto game = GetSelectedGame();
+            SetWindowTheme(game);
+            emit SelectionChanged(game);
           });
 
   QHeaderView* hor_header = m_list->horizontalHeader();
@@ -215,6 +217,23 @@ GameList::~GameList()
   Settings::GetQSettings().setValue(QStringLiteral("tableheader/state"),
                                     m_list->horizontalHeader()->saveState());
   Settings::GetQSettings().setValue(QStringLiteral("gridview/scale"), m_model.GetScale());
+}
+
+void GameList::SetWindowTheme(std::shared_ptr<const UICommon::GameFile> game)
+{
+  auto gameId = game.get()->GetGameID();
+  if (gameId == "ID-Project+ Launcher")
+  {
+    Settings::Instance().SetThemeName(QStringLiteral(PPLUS_THEME_DIR));
+  }
+  else if (gameId == "ID-vBrawl Launcher")
+  {
+    Settings::Instance().SetThemeName(QStringLiteral(VBRAWL_THEME_DIR));
+  }
+  else
+  {
+    Settings::Instance().SetThemeName(QStringLiteral(DEFAULT_THEME_DIR));
+  }
 }
 
 void GameList::UpdateColumnVisibility()
@@ -304,7 +323,9 @@ void GameList::MakeGridView()
   connect(m_grid, &QTableView::customContextMenuRequested, this, &GameList::ShowContextMenu);
   connect(m_grid->selectionModel(), &QItemSelectionModel::selectionChanged,
           [this](const QItemSelection&, const QItemSelection&) {
-            emit SelectionChanged(GetSelectedGame());
+            auto game = GetSelectedGame();
+            SetWindowTheme(game);
+            emit SelectionChanged(game);
           });
 }
 

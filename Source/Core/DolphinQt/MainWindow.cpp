@@ -33,6 +33,7 @@
 #include "Common/ScopeGuard.h"
 #include "Common/Version.h"
 #include "Common/WindowSystemInfo.h"
+#include "Common/CommonPaths.h"
 
 #include "Core/Boot/Boot.h"
 #include "Core/BootManager.h"
@@ -220,7 +221,6 @@ MainWindow::MainWindow(std::unique_ptr<BootParameters> boot_parameters,
   InitControllers();
 
   CreateComponents();
-
   ConnectGameList();
   ConnectHost();
   ConnectToolBar();
@@ -487,6 +487,8 @@ void MainWindow::CreateComponents()
     if (Core::GetState() == Core::State::Paused)
       m_code_widget->SetAddress(address, CodeViewWidget::SetAddressUpdate::WithDetailedUpdate);
   });
+
+  Settings::Instance().SetThemeName(QStringLiteral(DEFAULT_THEME_DIR));
 }
 
 void MainWindow::ConnectMenuBar()

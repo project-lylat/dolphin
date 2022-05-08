@@ -79,6 +79,12 @@
 // The theme directory used by default
 #define DEFAULT_THEME_DIR "Clean"
 
+// The theme directory used by P+
+#define PPLUS_THEME_DIR "Clean Emerald"
+
+// The theme directory used by vBrawl
+#define VBRAWL_THEME_DIR "Clean Blue"
+
 // Filenames
 // Files in the directory returned by GetUserPath(D_CONFIG_IDX)
 #define DOLPHIN_CONFIG "Dolphin.ini"
