@@ -608,7 +608,7 @@ void NetPlayDialog::UpdateGUI()
 
   m_players_list->clear();
   m_players_list->setHorizontalHeaderLabels(
-      {tr("Player"), tr("Game Status"), tr("Ping"), tr("Mapping"), tr("Revision")});
+      {tr("Player"), tr("Game Status"), tr("Ping"), tr("Recommended Buffer"), tr("Mapping"), tr("Revision")});
   m_players_list->setRowCount(m_player_count);
 
   static const std::map<NetPlay::SyncIdentifierComparison, QString> player_status{
@@ -626,6 +626,8 @@ void NetPlayDialog::UpdateGUI()
                                                  player_status.at(p->game_status) :
                                                  QStringLiteral("?"));
     auto* ping_item = new QTableWidgetItem(QStringLiteral("%1 ms").arg(p->ping));
+
+    auto* recommended_buffer_item = new QTableWidgetItem(QStringLiteral("%1").arg((int) std::ceil(std::max((float)p->ping/8.0f, 4.0f))));
     auto* mapping_item =
         new QTableWidgetItem(QString::fromStdString(NetPlay::GetPlayerMappingString(
             p->pid, client->GetPadMapping(), client->GetGBAConfig(), client->GetWiimoteMapping())));
@@ -640,8 +642,9 @@ void NetPlayDialog::UpdateGUI()
     m_players_list->setItem(i, 0, name_item);
     m_players_list->setItem(i, 1, status_item);
     m_players_list->setItem(i, 2, ping_item);
-    m_players_list->setItem(i, 3, mapping_item);
-    m_players_list->setItem(i, 4, revision_item);
+    m_players_list->setItem(i, 3, recommended_buffer_item);
+    m_players_list->setItem(i, 4, mapping_item);
+    m_players_list->setItem(i, 5, revision_item);
 
     if (p->pid == selection_pid)
       m_players_list->selectRow(i);
