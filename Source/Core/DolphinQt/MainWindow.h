@@ -86,6 +86,7 @@ signals:
 
 private:
   void Open();
+  bool OpenLylatJSON(std::optional<std::string> path);
   void RefreshGameList();
   void Play(const std::optional<std::string>& savestate_path = {});
   void Pause();
