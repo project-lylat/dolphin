@@ -771,10 +771,46 @@ void MainWindow::EjectDisc()
 void MainWindow::SearchAndOpen()
 {
   QStringList files = PromptFileNames();
-  if (!files.isEmpty()){
+  if (!files.isEmpty())
+  {
     std::shared_ptr<const UICommon::GameFile> game = m_game_list->FindGame(files[0].toStdString());
     NetPlaySearch(*game);
   }
+}
+
+bool MainWindow::OpenLylatJSON(std::optional<std::string> path)
+{
+  std::string jsonPath;
+
+  if (path.has_value())
+  {
+    jsonPath = path.value();
+  }
+  else
+  {
+    QStringList files = PromptFileNames();
+    if (files.isEmpty())
+      return false;  // No error, user just cancelled.
+    if(files.length() <= 0) return false;
+    if(files.at(0).isEmpty()) return false;
+
+    jsonPath = files.at(0).toStdString();
+  }
+
+  auto user = LylatUser::GetUserFromDisk(jsonPath);
+  if (!user)
+  {
+    ModalMessageBox::critical(this, tr("Error"),
+                              tr("Failed to parse Lylat user information from file!"),
+                              QMessageBox::Ok);
+    return false;
+  }
+
+  File::Copy(jsonPath, LylatUser::GetFilePath());
+  if (m_netplay_setup_dialog)
+    m_netplay_setup_dialog->Refresh();
+
+  return true;
 }
 
 void MainWindow::Open()
@@ -1436,6 +1472,8 @@ void MainWindow::NetPlayInit()
   connect(m_netplay_setup_dialog, &NetPlaySetupDialog::Join, this, &MainWindow::NetPlayJoin);
   connect(m_netplay_setup_dialog, &NetPlaySetupDialog::Search, this, &MainWindow::NetPlaySearch);
   connect(m_netplay_setup_dialog, &NetPlaySetupDialog::Host, this, &MainWindow::NetPlayHost);
+  connect(m_netplay_setup_dialog, &NetPlaySetupDialog::OpenLylatJSON, this,
+          &MainWindow::OpenLylatJSON);
 
   connect(this, &MainWindow::OnMatchmakingConnection, this, &MainWindow::OnNetPlayMatchResult);
   connect(this, &MainWindow::OnMatchmakingError, this, &MainWindow::OnNetPlayMatchResultFailed);
@@ -1490,6 +1528,13 @@ void MainWindow::NetPlayMatchCancel()
 
 bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
 {
+  if(!LylatUser::GetUser()) {
+    m_netplay_setup_dialog->show();
+    ModalMessageBox::critical(nullptr, tr("Error"),
+                              tr("You must sign in to lylat first!"));
+    return false;
+  }
+
   if (Core::IsRunning())
   {
     ModalMessageBox::critical(nullptr, tr("Error"),

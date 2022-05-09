@@ -25,6 +25,7 @@ public:
   static LylatUser* GetUser(bool reloadFromDisk, bool refreshFromServer);
   static LylatUser* GetUser(bool reloadFromDisk);
   static LylatUser* GetUser();
+  static LylatUser* GetUserFromDisk(const std::string& path);
   static bool DeleteUserFile();
   static std::string GetFilePath();
 
@@ -35,4 +36,3 @@ private:
   static LylatUser* getUserFromDisk();
   static LylatUser* refreshUserFromSever(LylatUser* user);
 };
-

@@ -6,7 +6,7 @@
 #include "Common/FileUtil.h"
 #include "picojson.h"
 
-LylatUser* LylatUser::singleton = NULL;
+LylatUser* LylatUser::singleton = nullptr;
 
 LylatUser* LylatUser::GetUser(bool reloadFromDisk, bool refreshFromServer)
 {
@@ -34,8 +34,10 @@ bool LylatUser::DeleteUserFile()
   std::string path = LylatUser::GetFilePath();
   if (File::Exists(path))
   {
-    if(File::Delete(path)) {
-      singleton = NULL;
+    if (File::Delete(path))
+    {
+      singleton = nullptr;
+      return true;
     }
     return false;
   }
@@ -43,14 +45,13 @@ bool LylatUser::DeleteUserFile()
   return false;
 }
 
-std::string LylatUser::GetFilePath() {
+std::string LylatUser::GetFilePath()
+{
   return File::GetUserPath(D_USER_IDX) + "lylat.json";
 }
 
-
-LylatUser* LylatUser::getUserFromDisk()
+LylatUser* LylatUser::GetUserFromDisk(const std::string& path)
 {
-  std::string path = LylatUser::GetFilePath();
   std::string data;
   if (File::Exists(path) && File::ReadFileToString(path, data))
   {
@@ -58,9 +59,10 @@ LylatUser* LylatUser::getUserFromDisk()
     const auto error = picojson::parse(json, data);
 
     // TODO: show error because of invalid json
-    if (!error.empty()) return NULL;
+    if (!error.empty())
+      return nullptr;
 
-    LylatUser* user = new LylatUser();
+    auto user = new LylatUser();
     user->uid = json.get("uid").to_str();
     user->displayName = json.get("displayName").to_str();
     user->playKey = json.get("playKey").to_str();
@@ -77,16 +79,21 @@ LylatUser* LylatUser::getUserFromDisk()
     return user;
   }
 
-  return NULL;
+  return nullptr;
 }
 
+LylatUser* LylatUser::getUserFromDisk()
+{
+  std::string path = LylatUser::GetFilePath();
+  return GetUserFromDisk(path);
+}
 
 LylatUser* LylatUser::refreshUserFromSever(LylatUser* user)
 {
-
-  return NULL;
+  // TODO: implement
+  return nullptr;
 }
 void LylatUser::OverwriteLatestVersion(std::string version)
 {
-  this->latestVersion = version;
+  this->latestVersion = std::move(version);
 }

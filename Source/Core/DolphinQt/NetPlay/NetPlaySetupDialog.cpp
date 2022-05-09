@@ -27,8 +27,58 @@
 #include "DolphinQt/QtUtils/UTF8CodePointCountValidator.h"
 #include "DolphinQt/Settings.h"
 
+#include <QDropEvent>
+#include <QMimeData>
+#include "Common/FileUtil.h"
 #include "UICommon/GameFile.h"
 #include "UICommon/NetPlayIndex.h"
+
+static std::string SIGN_IN_STR =
+    "SIGN IN:<br /><br />"
+    "Click on the Sign In Button Above to login.<br /><br />"
+    "If that doesn't work, <a href=\"https://lylat.gg/users/enable\">Click "
+    "Here</a> or open your browser at <a "
+    "href=\"https://lylat.gg/users/enable\">https://lylat.gg/"
+    "users/enable</a> and follow the steps to sign in. <br /><br /><br /> "
+    "AFTER YOU HAVE DOWNLOADED YOUR \"lylat.json\" FILE, DRAG AND DROP IT HERE OR "
+    "CLICK THE \"Attach lylat.json\" BUTTON TO FINISH SET UP!";
+
+void LylatWidget::dragEnterEvent(QDragEnterEvent* event)
+{
+  setBackgroundRole(QPalette::Highlight);
+  m_netplay_setup_dialog->m_sign_in_label->setText(tr("Drop your lylat.json here!"));
+
+  if (event->mimeData()->hasText())
+    event->acceptProposedAction();
+}
+
+void LylatWidget::dragLeaveEvent(QDragLeaveEvent* event)
+{
+  setBackgroundRole(QPalette::Base);
+  m_netplay_setup_dialog->m_sign_in_label->setText(tr(SIGN_IN_STR.c_str()));
+  event->accept();
+}
+
+void LylatWidget::dropEvent(QDropEvent* event)
+{
+  m_netplay_setup_dialog->m_sign_in_label->setText(tr(SIGN_IN_STR.c_str()));
+
+  const QMimeData* mimeData = event->mimeData();
+  if (!mimeData->hasText())
+    return;
+
+  if (mimeData->text().isEmpty())
+    return;
+
+  auto jsonPath = mimeData->text().toStdString();
+  jsonPath = ReplaceAll(std::move(jsonPath), "file://", "");
+  auto user = LylatUser::GetUserFromDisk(jsonPath);
+  if (!user)
+    return;
+
+  File::Copy(jsonPath, LylatUser::GetFilePath());
+  m_netplay_setup_dialog->Refresh();
+}
 
 NetPlaySetupDialog::NetPlaySetupDialog(const GameListModel& game_list_model, QWidget* parent)
     : QDialog(parent), m_game_list_model(game_list_model)
@@ -192,29 +242,27 @@ void NetPlaySetupDialog::CreateMainLayout()
   host_widget->setLayout(host_layout);
 
   // Lylat Sign In Widget
-  m_lylat_widget = new QWidget;
+  m_lylat_widget = new LylatWidget;
   m_lylat_sign_in_widget = new QWidget;
   m_lylat_connect_widget = new QWidget;
   auto lylat_layout = new QGridLayout;
   auto lylat_sign_in_layout = new QGridLayout;
   auto lylat_connect_layout = new QGridLayout;
+  m_lylat_attach_json_button = new NonDefaultQPushButton(tr("Attach lylat.json"));
 
-  auto sign_in_label =
-      new QLabel(tr("SIGN IN:<br /><br />"
-                    "Click on the Sign In Button Above to login.<br /><br />"
-                    "If that doesn't work, <a href=\"https://lylat.gg/users/enable\">Click "
-                    "Here</a> or open your browser at <a "
-                    "href=\"https://lylat.gg/users/enable\">https://lylat.gg/"
-                    "users/enable</a> and follow the steps to sign in."));
+  m_lylat_widget->m_netplay_setup_dialog = this;
+  m_lylat_widget->setAcceptDrops(true);
+  m_lylat_widget->autoFillBackground();
 
-  sign_in_label->setTextFormat(Qt::RichText);
-  sign_in_label->setTextInteractionFlags(Qt::TextBrowserInteraction);
-  sign_in_label->setOpenExternalLinks(true);
+  m_sign_in_label = new QLabel(tr(SIGN_IN_STR.c_str()));
+
+  m_sign_in_label->setTextFormat(Qt::RichText);
+  m_sign_in_label->setTextInteractionFlags(Qt::TextBrowserInteraction);
+  m_sign_in_label->setOpenExternalLinks(true);
 
   // Lylat Sign In Layout
-  lylat_sign_in_layout->addWidget(sign_in_label, 0, 0, -1, -1);
-  //  lylat_sign_in_layout->addWidget(alert_label, 1, 0, -1, -1);
-
+  lylat_sign_in_layout->addWidget(m_sign_in_label, 0, 0, 4, -1);
+  lylat_sign_in_layout->addWidget(m_lylat_attach_json_button, 5, 0, 1, -1);
   // Lylat Connect Layout
   m_lylat_connect_button = new NonDefaultQPushButton(tr("Connect"));
 
@@ -311,6 +359,10 @@ void NetPlaySetupDialog::ConnectWidgets()
       QDesktopServices::openUrl(QUrl(tr("http://lylat.gg/users/enable"), QUrl::TolerantMode));
     }
   });
+
+  connect(m_lylat_attach_json_button, &QPushButton::clicked, this,
+          [this]() { emit OpenLylatJSON(std::nullopt); });
+
   connect(m_lylat_reload_button, &QPushButton::clicked, this,
           [this]() { this->OnConnectionTypeChanged(this->m_connection_type->currentIndex()); });
   connect(m_lylat_connect_button, &QPushButton::clicked, this, &QDialog::accept);
@@ -366,6 +418,11 @@ enum TabIndexes : int
   TAB_HOST,
   TAB_LYLAT,
 };
+
+void NetPlaySetupDialog::Refresh()
+{
+  OnConnectionTypeChanged(m_connection_type->currentIndex());
+}
 
 void NetPlaySetupDialog::OnConnectionTypeChanged(int index)
 {
