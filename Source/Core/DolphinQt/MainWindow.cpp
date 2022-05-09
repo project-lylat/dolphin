@@ -1551,6 +1551,13 @@ bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
     return false;
   }
 
+   if (&game == NULL)
+  {
+    ModalMessageBox::critical(nullptr, tr("Error"),
+                              tr("Select a game from the list first!"));
+    return false;
+  }
+
   if (m_lylat_matchmaking_client != nullptr && m_lylat_matchmaking_client->IsSearching())
   {
     ModalMessageBox::critical(nullptr, tr("Error"), tr("You are already searching for a match!"));

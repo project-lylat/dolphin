@@ -5,7 +5,6 @@
 
 #include <QDialog>
 #include <QLayout>
-#include <QtWebView/QtWebView>
 
 #include "Core/Lylat/LylatUser.h"
 #include "DolphinQt/GameList/GameListModel.h"
