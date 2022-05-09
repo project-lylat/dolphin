@@ -1528,10 +1528,12 @@ void MainWindow::NetPlayMatchCancel()
 
 bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
 {
-  if(!LylatUser::GetUser()) {
-    m_netplay_setup_dialog->show();
+
+  if (!LylatUser::GetUser())
+  {
+    ShowNetPlaySetupDialog();
     ModalMessageBox::critical(nullptr, tr("Error"),
-                              tr("You must sign in to lylat first!"));
+                              tr("You must log in to Lylat in order to find a Match!"));
     return false;
   }
 
@@ -1546,6 +1548,13 @@ bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
   {
     ModalMessageBox::critical(nullptr, tr("Error"),
                               tr("A NetPlay Session is already in progress!"));
+    return false;
+  }
+
+   if (&game == NULL)
+  {
+    ModalMessageBox::critical(nullptr, tr("Error"),
+                              tr("Select a game from the list first!"));
     return false;
   }
 
