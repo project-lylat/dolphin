@@ -40,7 +40,7 @@ static std::string SIGN_IN_STR =
     "Here</a> or open your browser at <a "
     "href=\"https://lylat.gg/users/enable\">https://lylat.gg/"
     "users/enable</a> and follow the steps to sign in. <br /><br /><br /> "
-    "AFTER YOU HAVE DOWNLOADED YOUR \"lylat.json\" FILE, DRAG AND DROP IT HERE OR "
+    "AFTER YOU HAVE DOWNLOADED YOUR \"lylat.json\" FILE, DRAG AND DROP IT HERE OR <br />"
     "CLICK THE \"Attach lylat.json\" BUTTON TO FINISH SET UP!";
 
 void LylatWidget::dragEnterEvent(QDragEnterEvent* event)

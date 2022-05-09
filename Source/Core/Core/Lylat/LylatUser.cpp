@@ -63,13 +63,39 @@ LylatUser* LylatUser::GetUserFromDisk(const std::string& path)
       return nullptr;
 
     auto user = new LylatUser();
+
+    if (!json.contains("uid"))
+      return nullptr;
+    if (!json.contains("displayName"))
+      return nullptr;
+    if (!json.contains("playKey"))
+      return nullptr;
+    if (!json.contains("connectCode"))
+      return nullptr;
+    if (!json.contains("latestVersion"))
+      return nullptr;
+
     user->uid = json.get("uid").to_str();
     user->displayName = json.get("displayName").to_str();
     user->playKey = json.get("playKey").to_str();
     user->connectCode = json.get("connectCode").to_str();
     user->latestVersion = json.get("latestVersion").to_str();
 
+    if (!json.contains("slippi"))
+      return user;
     auto slp = json.get("slippi");
+
+    if (!slp.contains("uid"))
+      return user;
+    if (!slp.contains("displayName"))
+      return user;
+    if (!slp.contains("playKey"))
+      return user;
+    if (!slp.contains("connectCode"))
+      return user;
+    if (!slp.contains("latestVersion"))
+      return user;
+
     user->slp_uid = slp.get("uid").to_str();
     user->slp_displayName = slp.get("displayName").to_str();
     user->slp_playKey = slp.get("playKey").to_str();
