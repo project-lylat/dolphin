@@ -14,71 +14,71 @@ on:
       - "**.ini"
 
 jobs:
-   windows:
-     strategy:
-       fail-fast: false
-       matrix:
-         build_type: [Netplay]
-         include:
-           - build_type: Netplay
-             artifact_name: windows64-netplay
-             build_config: -G "Ninja" -DCMAKE_BUILD_TYPE="Release" -DQt5_DIR:STRING="D:\a\dolphin\dolphin\Externals\Qt\Qt5.15.0\msvc2019_64\lib\cmake\Qt5"
-     env:
-       DXSDK_DIR: "C:\\Program Files (x86)\\Microsoft DirectX SDK (June 2010)\\"
-     name: "Windows ${{ matrix.build_type }}"
-     runs-on: windows-2019
-     steps:
-       - name: "Checkout"
-         uses: actions/checkout@v2
-         with:
-           submodules: recursive
-       - name: 'Fetch Git Tags'
-         shell: bash
-         if: success()
-         run: |
-           git fetch --prune --unshallow
-           echo "GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_ENV
-           echo "GIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-           echo "GIT_TAG=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
-           echo "CURR_DATE=$(date +%Y-%m-%d)" >> $GITHUB_ENV
-       - uses: seanmiddleditch/gha-setup-ninja@master
-       - uses: egor-tensin/vs-shell@v2
-       - name: "Build ${{ matrix.build_type }} Dolphin"
-         shell: cmd
-         working-directory: ${{ github.workspace }}
-         run: |
-           mkdir build
-           cd build
-           dir ..\Externals\Qt\Qt5.15.0\msvc2019_64\lib\cmake\Qt5
-           cmake ${{ matrix.build_config }} ..
-           ninja
-       - name: "Package ${{ matrix.build_type }}"
-         working-directory: ${{ github.workspace }}
-         run: |
-           Xcopy /Y /E /I .\Data\Sys .\Binary\x64\Sys
-           cd .\Binary\x64\
-           fsutil file createnew FIX-VCRUNTIME140-ERROR.txt 0
-           echo "Download and install this: https://aka.ms/vs/16/release/vc_redist.x64.exe" > .\FIX-VCRUNTIME140-ERROR.txt
-       - name: Package Artifact
-         working-directory: ${{ github.workspace }}
-         run: |
-           $FILE_NAME="${{ env.CURR_DATE }}-${{ env.GIT_HASH }}-${{ env.GIT_TAG }}-${{ matrix.artifact_name }}.zip"
-           mkdir artifact
-           cd .\Binary\x64\
-           fsutil file createnew portable.txt 0
-           7z a $FILE_NAME .\*
-           move $FILE_NAME ..\..\artifact\
-       - name: "Publish"
-         if: success()
-         uses: actions/upload-artifact@v2-preview
-         with:
-           name: ${{ matrix.artifact_name }}
-           path: "./artifact/"
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [ Netplay ]
+        include:
+          - build_type: Netplay
+            artifact_name: windows64-netplay
+            build_config: -G "Ninja" -DCMAKE_BUILD_TYPE="Release" -DQt5_DIR:STRING="D:\a\dolphin\dolphin\Externals\Qt\Qt5.15.0\msvc2019_64\lib\cmake\Qt5"
+    env:
+      DXSDK_DIR: "C:\\Program Files (x86)\\Microsoft DirectX SDK (June 2010)\\"
+    name: "Windows ${{ matrix.build_type }}"
+    runs-on: windows-2019
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+      - name: 'Fetch Git Tags'
+        shell: bash
+        if: success()
+        run: |
+          git fetch --prune --unshallow
+          echo "GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_ENV
+          echo "GIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "GIT_TAG=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
+          echo "CURR_DATE=$(date +%Y-%m-%d)" >> $GITHUB_ENV
+      - uses: seanmiddleditch/gha-setup-ninja@master
+      - uses: egor-tensin/vs-shell@v2
+      - name: "Build ${{ matrix.build_type }} Dolphin"
+        shell: cmd
+        working-directory: ${{ github.workspace }}
+        run: |
+          mkdir build
+          cd build
+          dir ..\Externals\Qt\Qt5.15.0\msvc2019_64\lib\cmake\Qt5
+          cmake ${{ matrix.build_config }} ..
+          ninja
+      - name: "Package ${{ matrix.build_type }}"
+        working-directory: ${{ github.workspace }}
+        run: |
+          Xcopy /Y /E /I .\Data\Sys .\Binary\x64\Sys
+          cd .\Binary\x64\
+          fsutil file createnew FIX-VCRUNTIME140-ERROR.txt 0
+          echo "Download and install this: https://aka.ms/vs/16/release/vc_redist.x64.exe" > .\FIX-VCRUNTIME140-ERROR.txt
+      - name: Package Artifact
+        working-directory: ${{ github.workspace }}
+        run: |
+          $FILE_NAME="${{ env.CURR_DATE }}-${{ env.GIT_HASH }}-${{ env.GIT_TAG }}-${{ matrix.artifact_name }}.zip"
+          mkdir artifact
+          cd .\Binary\x64\
+          fsutil file createnew portable.txt 0
+          7z a $FILE_NAME .\*
+          move $FILE_NAME ..\..\artifact\
+      - name: "Publish"
+        if: success()
+        uses: actions/upload-artifact@v2-preview
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: "./artifact/"
   linux:
     strategy:
       fail-fast: false
       matrix:
-        build_type: [Netplay]
+        build_type: [ Netplay ]
         include:
           - build_type: Netplay
             artifact_name: linux
@@ -169,7 +169,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build_type: [Netplay]
+        build_type: [ Netplay ]
         include:
           - build_type: Netplay
             artifact_name: macOS-netplay
