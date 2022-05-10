@@ -7,8 +7,8 @@ DATA_SYS_PATH="./Data/Sys/"
 BINARY_PATH="./build/Binaries/"
 
 # Move into the build directory, run CMake, and compile the project
-mkdir -p linux-build
-pushd linux-build
+mkdir -p build
+pushd build
 cmake .. ${CMAKE_FLAGS}
 make -j$(nproc)
 popd
@@ -16,4 +16,4 @@ popd
 # Copy the Sys folder in
 cp -r -n ${DATA_SYS_PATH} ${BINARY_PATH}
 
-touch ./linux-build/Binaries/portable.txt
+touch ./build/Binaries/portable.txt
