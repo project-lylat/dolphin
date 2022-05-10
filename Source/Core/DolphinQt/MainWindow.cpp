@@ -1498,7 +1498,7 @@ bool MainWindow::OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHos
   Config::SetBaseOrCurrent(Config::NETPLAY_TRAVERSAL_CHOICE, "direct");
   Config::SetBaseOrCurrent(Config::NETPLAY_HOST_PORT, local_port);
 
-  ModalMessageBox::question(this, tr("Connected!"),
+  ModalMessageBox::information(this, tr("Connected!"),
                             tr("If your opponent does not connect after a few seconds, please quit the Netplay window and try again."));
 
   if (isHost)
