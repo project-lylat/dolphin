@@ -263,7 +263,7 @@ void SetUserDirectory(std::string custom_path)
     RegCloseKey(hkey);
   }
 
-  local = local != 0 || File::Exists(File::GetExeDirectory() + DIR_SEP "portable.txt");
+  local = true; // always use portable
 
   // Get Documents path in case we need it.
   // TODO: Maybe use WIL when it's available?
@@ -318,7 +318,7 @@ void SetUserDirectory(std::string custom_path)
     //    http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html
     user_path = home_path + "." DOLPHIN_DATA_DIR DIR_SEP;
     std::string exe_path = File::GetExeDirectory();
-    if (File::Exists(exe_path + DIR_SEP "portable.txt"))
+    if (true) // always use portable
     {
       user_path = exe_path + DIR_SEP "User" DIR_SEP;
     }
