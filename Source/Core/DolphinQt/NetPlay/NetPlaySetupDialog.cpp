@@ -447,9 +447,33 @@ void NetPlaySetupDialog::OnConnectionTypeChanged(int index)
   m_lylat_toggle_login_button->setHidden(index != CONN_TYPE_LYLAT);
   m_lylat_reload_button->setHidden(index != CONN_TYPE_LYLAT);
 
+#if QT_VERSION < QT_VERSION_CHECK(5, 15, 0)
+
+  m_tab_widget->setTabEnabled(TAB_CONNECT, type != CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_CONNECT)->setVisible(type != CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_CONNECT)->setEnabled(type != CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_CONNECT)->setHidden(type == CONN_TYPE_LYLAT);
+
+  m_tab_widget->setTabEnabled(TAB_HOST, type != CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_HOST)->setVisible(type != CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_HOST)->setEnabled(type != CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_HOST)->setHidden(type == CONN_TYPE_LYLAT);
+
+  m_tab_widget->setTabEnabled(TAB_LYLAT, type == CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_LYLAT)->setVisible(type == CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_LYLAT)->setEnabled(type == CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_LYLAT)->setHidden(type != CONN_TYPE_LYLAT);
+#else
   m_tab_widget->setTabVisible(TAB_CONNECT, type != CONN_TYPE_LYLAT);
   m_tab_widget->setTabVisible(TAB_HOST, type != CONN_TYPE_LYLAT);
   m_tab_widget->setTabVisible(TAB_LYLAT, type == CONN_TYPE_LYLAT);
+#endif
+  if(type == CONN_TYPE_LYLAT)
+  {
+    m_tab_widget->setCurrentIndex(TAB_LYLAT);
+    auto current_widget = m_tab_widget->widget(TAB_LYLAT);
+    if(current_widget) m_tab_widget->setCurrentWidget(current_widget);
+  }
 
   switch (type)
   {

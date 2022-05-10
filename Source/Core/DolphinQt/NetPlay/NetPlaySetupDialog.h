@@ -9,6 +9,8 @@
 #include "Core/Lylat/LylatUser.h"
 #include "DolphinQt/GameList/GameListModel.h"
 
+#include <optional>
+
 class QCheckBox;
 class QComboBox;
 class QDialogButtonBox;

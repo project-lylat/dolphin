@@ -1528,9 +1528,12 @@ void NetPlayClient::SendAsync(sf::Packet&& packet, const u8 channel_id)
 // called from ---NETPLAY--- thread
 void NetPlayClient::ThreadFunc()
 {
+  m_dialog->AppendChat(Common::GetStringT("If your opponent does not connect after a few seconds, please quit the Netplay window and try again."));
+
   Common::QoSSession qos_session;
   if (Config::Get(Config::NETPLAY_ENABLE_QOS))
   {
+
     qos_session = Common::QoSSession(m_server);
 
     if (qos_session.Successful())

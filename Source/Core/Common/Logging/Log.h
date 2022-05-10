@@ -47,6 +47,7 @@ enum class LogType : int
   IOS_WFS,
   IOS_WIIMOTE,
   MASTER_LOG,
+  LYLAT,
   MEMMAP,
   MEMCARD_MANAGER,
   NETPLAY,
