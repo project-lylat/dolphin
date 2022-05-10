@@ -1497,18 +1497,19 @@ bool MainWindow::OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHos
   m_lylat_progress_dialog->Finished(100);
   Config::SetBaseOrCurrent(Config::NETPLAY_TRAVERSAL_CHOICE, "direct");
   Config::SetBaseOrCurrent(Config::NETPLAY_HOST_PORT, local_port);
+  Config::SetBaseOrCurrent(Config::NETPLAY_ADDRESS, host_ip);
+  Config::SetBaseOrCurrent(Config::NETPLAY_CONNECT_PORT, host_port);
 
   ModalMessageBox::information(this, tr("Connected!"),
-                            tr("If your opponent does not connect after a few seconds, please quit the Netplay window and try again."));
+                               tr("If your opponent does not connect after a few seconds, please "
+                                  "quit the Netplay window and try again."));
 
   if (isHost)
   {
     return NetPlayHost(game);
   }
   // Wait for a bit to allow host to create their server
-  std::this_thread::sleep_for(std::chrono::seconds(3));
-  Config::SetBaseOrCurrent(Config::NETPLAY_ADDRESS, host_ip);
-  Config::SetBaseOrCurrent(Config::NETPLAY_CONNECT_PORT, host_port);
+  std::this_thread::sleep_for(std::chrono::seconds(5));
 
   return NetPlayJoin();
 }
@@ -1532,7 +1533,6 @@ void MainWindow::NetPlayMatchCancel()
 
 bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
 {
-
   if (!LylatUser::GetUser())
   {
     ShowNetPlaySetupDialog();
@@ -1555,10 +1555,9 @@ bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
     return false;
   }
 
-   if (&game == NULL)
+  if (&game == NULL)
   {
-    ModalMessageBox::critical(nullptr, tr("Error"),
-                              tr("Select a game from the list first!"));
+    ModalMessageBox::critical(nullptr, tr("Error"), tr("Select a game from the list first!"));
     return false;
   }
 
