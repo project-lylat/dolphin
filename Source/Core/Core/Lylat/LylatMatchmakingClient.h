@@ -83,8 +83,8 @@ public:
 
 protected:
   static LylatMatchmakingClient* singleton;
-//  const std::string MM_HOST = "lylat.gg";
-  const std::string MM_HOST = "localhost";
+  const std::string MM_HOST = "lylat.gg";
+//  const std::string MM_HOST = "localhost";
   const u16 MM_PORT = 43113;
 
   ENetHost* m_client;
