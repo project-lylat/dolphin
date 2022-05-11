@@ -5,6 +5,7 @@
 #include "Common/Common.h"
 #include "Common/Logging/Log.h"
 #include "Common/Timer.h"
+#include "Common/Version.h"
 #include "UICommon/GameFile.h"
 
 LylatMatchmakingClient* LylatMatchmakingClient::singleton = nullptr;
@@ -280,7 +281,8 @@ void LylatMatchmakingClient::startMatchmaking()
   jGame["ex_id"] = picojson::value(m_game->GetLylatID());
   jGame["revision"] = picojson::value((double)m_game->GetRevision());
   jGame["type"] = picojson::value("DolphinNetplay");
-  jGame["name"] = picojson::value(m_game->GetInternalName());
+  jGame["name"] =
+      picojson::value(m_game->GetInternalName() + ":" + Common::GetScmDescStr().c_str());
 
   picojson::object jSearch;
   jSearch["mode"] = picojson::value((double)m_searchSettings.mode);
@@ -510,14 +512,17 @@ void LylatMatchmakingClient::handleConnecting()
   }
 
   LylatUser remoteUser;
-  for(int i=0;i<m_playerInfo.size();i++) {
+  for (int i = 0; i < m_playerInfo.size(); i++)
+  {
     auto info = m_playerInfo.at(i);
-    if(!info.isLocal) {
+    if (!info.isLocal)
+    {
       remoteUser = info;
       break;
     }
   }
-  INFO_LOG_FMT(LYLAT, "[Matchmaking] Connect with: {} at {}", remoteUser.displayName, remoteUser.connectCode);
+  INFO_LOG_FMT(LYLAT, "[Matchmaking] Connect with: {} at {}", remoteUser.displayName,
+               remoteUser.connectCode);
 
   // Connection success, our work is done
   m_state = ProcessState::CONNECTION_SUCCESS;
