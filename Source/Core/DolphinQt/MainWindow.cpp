@@ -1505,11 +1505,13 @@ bool MainWindow::OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHos
   }
 
   ModalMessageBox::information(m_netplay_dialog, tr("Connected!"),
-                               tr("If your opponent does not connect after a few seconds, please "
-                                  "quit the Netplay window and try again."));
-
   if (isHost)
   {
+    ModalMessageBox::information(m_netplay_dialog, tr("Connected!"),
+                                 tr("If your opponent does not connect after a few seconds, please "
+                                    "quit the Netplay window and try again."));
+
+    m_netplay_dialog->setVisible(true);
     m_netplay_dialog->raise();
     return true;
     //    return NetPlayHost(game);
@@ -1534,11 +1536,12 @@ bool MainWindow::OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHos
 bool MainWindow::OnNetPlayMatchResultFailed(const UICommon::GameFile& game,
                                             std::string errorMessage)
 {
-  m_lylat_progress_dialog->Reset();
+  if (m_lylat_progress_dialog) m_lylat_progress_dialog->Reset();
   //  m_lylat_progress_dialog->GetRaw()->close();
   ModalMessageBox::critical(nullptr, tr("Error"), tr(errorMessage.c_str()));
   NetPlayQuit();
-  m_netplay_dialog->ForceReject();
+  if (m_netplay_dialog->isVisible())
+    m_netplay_dialog->ForceReject();
   return true;
 }
 
@@ -1592,8 +1595,11 @@ bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
   }
 
   m_lylat_matchmaking_client = new LylatMatchmakingClient();
+  Config::SetBaseOrCurrent(Config::NETPLAY_TRAVERSAL_CHOICE, "traversal");
   Config::SetBaseOrCurrent(Config::NETPLAY_LISTEN_PORT, 2626 + (generator() % 10000));
   NetPlayHost(game);
+
+  m_netplay_dialog->hide();
 
   m_lylat_progress_dialog =
       new ParallelProgressDialog(tr("Finding Match on Lylat..."), tr("Cancel"), 10, 100);

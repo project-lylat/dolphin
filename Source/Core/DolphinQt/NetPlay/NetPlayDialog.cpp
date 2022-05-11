@@ -631,7 +631,7 @@ void NetPlayDialog::UpdateGUI()
                                                  QStringLiteral("?"));
     auto* ping_item = new QTableWidgetItem(QStringLiteral("%1 ms").arg(p->ping));
 
-    auto* recommended_buffer_item = new QTableWidgetItem(QStringLiteral("%1").arg((int) std::ceil(std::max((float)p->ping/8.0f, 4.0f))));
+    auto* recommended_buffer_item = new QTableWidgetItem(QStringLiteral("%1").arg((int) std::ceil(std::max((float)p->ping/16.0f, 4.0f))));
     auto* mapping_item =
         new QTableWidgetItem(QString::fromStdString(NetPlay::GetPlayerMappingString(
             p->pid, client->GetPadMapping(), client->GetGBAConfig(), client->GetWiimoteMapping())));
@@ -876,6 +876,7 @@ void NetPlayDialog::OnMsgPowerButton()
 void NetPlayDialog::OnPlayerConnect(const std::string& player)
 {
   DisplayMessage(tr("%1 has joined").arg(QString::fromStdString(player)), "darkcyan");
+  
 }
 
 void NetPlayDialog::OnPlayerDisconnect(const std::string& player)
