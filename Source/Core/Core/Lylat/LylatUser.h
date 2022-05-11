@@ -20,6 +20,7 @@ public:
   std::string slp_connectCode;
   std::string slp_latestVersion;
 
+  bool isLocal;
   int port;
 
   static LylatUser* GetUser(bool reloadFromDisk, bool refreshFromServer);

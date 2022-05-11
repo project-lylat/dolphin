@@ -55,7 +55,7 @@ void LylatMatchmakingClient::CancelSearch()
 }
 
 void LylatMatchmakingClient::Match(
-    const UICommon::GameFile& game,
+    const UICommon::GameFile& game, std::string traversalRoomId,
     std::function<void(const UICommon::GameFile& game, bool isHost, std::string ip,
                        unsigned short port, unsigned short local_port)>
         onSuccessCallback,
@@ -64,6 +64,7 @@ void LylatMatchmakingClient::Match(
   std::lock_guard<std::mutex> lk(search_mutex);
 
   m_game = &game;
+  m_traversal_room_id = traversalRoomId;
   m_searchSettings.mode = LylatMatchmakingClient::OnlinePlayMode::UNRANKED;
   m_onSuccessCallback = onSuccessCallback;
   m_onFailureCallback = onFailureCallback;
@@ -283,6 +284,7 @@ void LylatMatchmakingClient::startMatchmaking()
 
   picojson::object jSearch;
   jSearch["mode"] = picojson::value((double)m_searchSettings.mode);
+  jSearch["traversalRoomId"] = picojson::value(m_traversal_room_id);
   // u8* connectCodeArr = &connectCodeBuf[0];
   jSearch["connectCode"] = picojson::value(m_searchSettings.connectCode);
   jSearch["game"] = picojson::value(jGame);
@@ -404,6 +406,7 @@ void LylatMatchmakingClient::handleMatchmaking()
       playerInfo.displayName = el.get("displayName").to_str();
       playerInfo.connectCode = el.get("connectCode").to_str();
       playerInfo.port = (int)el.get("port").get<double>();
+      playerInfo.isLocal = isLocal;
       m_playerInfo.push_back(playerInfo);
 
       if (isLocal)
@@ -505,11 +508,20 @@ void LylatMatchmakingClient::handleConnecting()
   {
     ipLog << m_remoteIps[i] << ", ";
   }
-  // INFO_LOG(SLIPPI_ONLINE, "[Matchmaking] My port: %d || %s", m_hostPort, ipLog.str());
+
+  LylatUser remoteUser;
+  for(int i=0;i<m_playerInfo.size();i++) {
+    auto info = m_playerInfo.at(i);
+    if(!info.isLocal) {
+      remoteUser = info;
+      break;
+    }
+  }
+  INFO_LOG_FMT(LYLAT, "[Matchmaking] Connect with: {} at {}", remoteUser.displayName, remoteUser.connectCode);
 
   // Connection success, our work is done
   m_state = ProcessState::CONNECTION_SUCCESS;
-  m_onSuccessCallback(*m_game, m_isHost, addrs[0], ports[0], m_hostPort);
+  m_onSuccessCallback(*m_game, m_isHost, remoteUser.connectCode, ports[0], m_hostPort);
   terminateMmConnection();
 }
 

@@ -13,7 +13,7 @@
 #include <string>
 #include "Core/Lylat/LylatMatchmakingClient.h"
 #include "DolphinQt/QtUtils/ParallelProgressDialog.h"
-
+#include <random>
 class QStackedWidget;
 class QString;
 
@@ -225,6 +225,7 @@ private:
   bool m_is_screensaver_inhibited = false;
   int m_state_slot = 1;
   std::unique_ptr<BootParameters> m_pending_boot;
+  std::default_random_engine generator;
 
   ControllersWindow* m_controllers_window = nullptr;
   SettingsWindow* m_settings_window = nullptr;

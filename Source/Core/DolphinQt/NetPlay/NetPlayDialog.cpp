@@ -469,6 +469,10 @@ void NetPlayDialog::OnStart()
     SetOptionsEnabled(false);
 }
 
+void NetPlayDialog::ForceReject() {
+  QDialog::reject();
+}
+
 void NetPlayDialog::reject()
 {
   if (ModalMessageBox::question(this, tr("Confirmation"),

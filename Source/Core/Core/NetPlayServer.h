@@ -69,6 +69,9 @@ public:
 
   void KickPlayer(PlayerId player);
 
+  std::string GetServerID();
+  std::function<void(std::string)> OnTraversalConnectCallback;
+
   u16 GetPort() const;
 
   std::unordered_set<std::string> GetInterfaceSet() const;

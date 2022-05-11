@@ -44,6 +44,7 @@ public:
 
   void show(std::string nickname, bool use_traversal);
   void reject() override;
+  void ForceReject();
 
   // NetPlayUI methods
   void BootGame(const std::string& filename,

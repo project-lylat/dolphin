@@ -70,7 +70,7 @@ public:
 
   static LylatMatchmakingClient* GetClient();
 
-  void Match(const UICommon::GameFile& game,
+  void Match(const UICommon::GameFile& game, std::string traversalRoomId,
              std::function<void(const UICommon::GameFile& game, bool isHost, std::string ip,
                                 unsigned short port, unsigned short localPort)>
                  onSuccessCallback,
@@ -83,13 +83,14 @@ public:
 
 protected:
   static LylatMatchmakingClient* singleton;
-  const std::string MM_HOST = "lylat.gg";
-//  const std::string MM_HOST = "localhost";
+//  const std::string MM_HOST = "lylat.gg";
+  const std::string MM_HOST = "localhost";
   const u16 MM_PORT = 43113;
 
   ENetHost* m_client;
   ENetPeer* m_server;
   const UICommon::GameFile* m_game;
+  std::string m_traversal_room_id;
 
   std::default_random_engine generator;
 
