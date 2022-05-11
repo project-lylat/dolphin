@@ -1504,7 +1504,6 @@ bool MainWindow::OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHos
     NetPlayQuit();
   }
 
-  ModalMessageBox::information(m_netplay_dialog, tr("Connected!"),
   if (isHost)
   {
     ModalMessageBox::information(m_netplay_dialog, tr("Connected!"),
