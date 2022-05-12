@@ -19,7 +19,6 @@
 #include "DolphinQt/Settings.h"
 
 #include "UICommon/GameFile.h"
-#include <GameList.h>
 
 // NOTE: Qt likes to be case-sensitive here even though it shouldn't be thus this ugly regex hack
 static const QStringList game_filters{
