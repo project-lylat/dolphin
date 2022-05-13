@@ -927,6 +927,7 @@ public:
 
     //Quit function
     void onGameQuit();
+    bool shouldSubmitGame();
 
     //RunnerInfo
     std::optional<Runner> logRunnerInfo(u8 base);

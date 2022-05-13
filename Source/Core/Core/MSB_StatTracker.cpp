@@ -378,12 +378,14 @@ void StatTracker::lookForTriggerEvents(){
                 json = getStatJSON(false);
                 //File::WriteStringToFile(jsonPath, json);
                 //https://projectrio-api-1.api.projectrio.app/populate_db
-                const Common::HttpRequest::Response response =
-                m_http.Post("https://projectrio-api-1.api.projectrio.app/populate_db/", json,
-                    {
-                        {"Content-Type", "application/json"},
-                    }
-                );
+                if (shouldSubmitGame()) {
+                    const Common::HttpRequest::Response response =
+                    m_http.Post("https://projectrio-api-1.api.projectrio.app/populate_db/", json,
+                        {
+                            {"Content-Type", "application/json"},
+                        }
+                    );
+                }
 
                 std::cout << "Logging to " << jsonPath << std::endl;
 
@@ -1620,6 +1622,12 @@ void StatTracker::setRecordStatus(bool inBool) {
     mTrackerInfo.mRecord = inBool;
 }
 
+bool StatTracker::shouldSubmitGame() {
+    bool cpuInGame = (m_game_info.getAwayTeamPlayer().GetUserID() == "CPU") || (m_game_info.getHomeTeamPlayer().GetUserID() == "CPU");
+    std::cout << "Checking game submission... " << "mTrackerInfo.mSubmit: " << mTrackerInfo.mSubmit << " cpuInGame: " << cpuInGame << std::endl;
+    return (!cpuInGame && mTrackerInfo.mSubmit);
+}
+
 void StatTracker::setNetplaySession(bool netplay_session, bool is_host, std::string opponent_name){
     m_state.m_netplay_session = netplay_session;
     m_state.m_is_host = is_host;
@@ -1713,12 +1721,15 @@ void StatTracker::onGameQuit(){
     json = getStatJSON(false);
     
     File::WriteStringToFile(jsonPath, json);
-    const Common::HttpRequest::Response response =
-    m_http.Post("https://projectrio-api-1.api.projectrio.app/populate_db/", json,
-        {
-            {"Content-Type", "application/json"},
-        }
-    );
+
+    if (shouldSubmitGame()) {
+        const Common::HttpRequest::Response response =
+        m_http.Post("https://projectrio-api-1.api.projectrio.app/populate_db/", json,
+            {
+                {"Content-Type", "application/json"},
+            }
+        );
+    }
 
     //Clean up partial files
     jsonPath = getStatJsonPath("partial.");
