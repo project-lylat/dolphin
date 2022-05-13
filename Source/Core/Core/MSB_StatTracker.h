@@ -452,7 +452,7 @@ public:
 
     struct TrackerInfo{
         bool mRecord;
-        bool mSubmit;
+        bool mSubmit = true;
     };
     TrackerInfo mTrackerInfo;
 
