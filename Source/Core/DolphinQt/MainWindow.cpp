@@ -1499,6 +1499,8 @@ bool MainWindow::OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHos
 {
   m_lylat_progress_dialog->SetValue(100);
   m_lylat_progress_dialog->Finished(100);
+  m_lylat_progress_dialog->Reset();
+
   // if not host, make sure to quit current netplay
   if (!isHost)
   {
