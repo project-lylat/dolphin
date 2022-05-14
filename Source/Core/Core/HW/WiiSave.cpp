@@ -70,7 +70,7 @@ public:
 
   bool SaveExists() const override
   {
-    return !m_files_list.empty() &&
+    return !m_files_list.empty() ||
            (m_uid && m_gid && m_fs->GetMetadata(*m_uid, *m_gid, m_data_dir + "/banner.bin"));
   }
 
