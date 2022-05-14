@@ -14,6 +14,7 @@
 #include <thread>
 #include <type_traits>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include <fmt/format.h>
@@ -115,7 +116,7 @@ NetPlayServer::~NetPlayServer()
 
 // called from ---GUI--- thread
 NetPlayServer::NetPlayServer(const u16 port, const bool forward_port, NetPlayUI* dialog,
-                             const NetTraversalConfig& traversal_config)
+                             const NetTraversalConfig& traversal_config, std::function<void(std::string)> onTraversalConnectCallback)
     : m_dialog(dialog)
 {
   //--use server time
@@ -125,7 +126,7 @@ NetPlayServer::NetPlayServer(const u16 port, const bool forward_port, NetPlayUI*
   }
 
   // empty callback
-  OnTraversalConnectCallback = [this](std::string traversalRoomId){};
+  OnTraversalConnectCallback = std::move(onTraversalConnectCallback);
 
   m_pad_map.fill(0);
   m_gba_config.fill({});

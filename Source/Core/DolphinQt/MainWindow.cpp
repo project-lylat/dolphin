@@ -1594,21 +1594,7 @@ bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
   }
 
   m_lylat_matchmaking_client = new LylatMatchmakingClient();
-  Config::SetBaseOrCurrent(Config::NETPLAY_TRAVERSAL_CHOICE, "traversal");
-  Config::SetBaseOrCurrent(Config::NETPLAY_LISTEN_PORT, 2626 + (generator() % 10000));
-  NetPlayHost(game);
-
-  m_netplay_dialog->hide();
-
-  m_lylat_progress_dialog =
-      new ParallelProgressDialog(tr("Finding Match on Lylat..."), tr("Cancel"), 10, 100);
-  m_lylat_progress_dialog->GetRaw()->show();
-  m_lylat_progress_dialog->GetRaw()->raise();
-  m_lylat_progress_dialog->SetValue(50);
-  connect(m_lylat_progress_dialog->GetRaw(), &QProgressDialog::canceled, this,
-          &MainWindow::NetPlayMatchCancel);
-
-  Settings::Instance().GetNetPlayServer()->OnTraversalConnectCallback =
+  m_room_id_callback =
       [this, game](std::string traversalRoomId) {
         m_lylat_matchmaking_client->Match(
             game, traversalRoomId,
@@ -1620,6 +1606,20 @@ bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
               emit this->OnMatchmakingError(game, errorMessage);
             });
       };
+
+  Config::SetBaseOrCurrent(Config::NETPLAY_TRAVERSAL_CHOICE, "traversal");
+  Config::SetBaseOrCurrent(Config::NETPLAY_LISTEN_PORT, 2626 + (generator() % 10000));
+  NetPlayHostWithCallback(game, m_room_id_callback);
+
+  m_netplay_dialog->hide();
+
+  m_lylat_progress_dialog =
+      new ParallelProgressDialog(tr("Finding Match on Lylat..."), tr("Cancel"), 10, 100);
+  m_lylat_progress_dialog->GetRaw()->show();
+  m_lylat_progress_dialog->GetRaw()->raise();
+  m_lylat_progress_dialog->SetValue(50);
+  connect(m_lylat_progress_dialog->GetRaw(), &QProgressDialog::canceled, this,
+          &MainWindow::NetPlayMatchCancel);
 
   return true;
 }
@@ -1672,7 +1672,8 @@ bool MainWindow::NetPlayJoin()
     server->AdjustPadBufferSize(Config::Get(Config::NETPLAY_BUFFER_SIZE));
   }
 
-  INFO_LOG_FMT(LYLAT, "[Matchmaking] Connecting {}:{} at {}:{} is traversal:{}", host_ip, host_port, traversal_host, traversal_port, is_traversal);
+  INFO_LOG_FMT(LYLAT, "[Matchmaking] Connecting {}:{} at {}:{} is traversal:{}", host_ip, host_port,
+               traversal_host, traversal_port, is_traversal);
 
   // Create Client
   const bool is_hosting_netplay = server != nullptr;
@@ -1694,6 +1695,11 @@ bool MainWindow::NetPlayJoin()
 }
 
 bool MainWindow::NetPlayHost(const UICommon::GameFile& game)
+{
+  return NetPlayHostWithCallback(game, [this](std::string traversalRoomId){});
+}
+
+bool MainWindow::NetPlayHostWithCallback(const UICommon::GameFile& game, std::function<void(std::string)> roomCallback)
 {
   if (Core::IsRunning())
   {
@@ -1722,9 +1728,11 @@ bool MainWindow::NetPlayHost(const UICommon::GameFile& game)
     host_port = Config::Get(Config::NETPLAY_LISTEN_PORT);
 
   // Create Server
-  Settings::Instance().ResetNetPlayServer(new NetPlay::NetPlayServer(
-      host_port, use_upnp, m_netplay_dialog,
-      NetPlay::NetTraversalConfig{is_traversal, traversal_host, traversal_port}));
+  auto server = new NetPlay::NetPlayServer(
+                    host_port, use_upnp, m_netplay_dialog,
+                    NetPlay::NetTraversalConfig{is_traversal, traversal_host, traversal_port}, std::move(roomCallback));
+
+  Settings::Instance().ResetNetPlayServer(server);
 
   if (!Settings::Instance().GetNetPlayServer()->is_connected)
   {

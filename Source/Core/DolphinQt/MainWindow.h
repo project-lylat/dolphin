@@ -173,6 +173,7 @@ private:
   bool NetPlayJoin();
   bool NetPlaySearch(const UICommon::GameFile& game);
   bool NetPlayHost(const UICommon::GameFile& game);
+  bool NetPlayHostWithCallback(const UICommon::GameFile& game, std::function<void(std::string)> onTraversalConnectCallback);
   void NetPlayQuit();
   bool OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHost, std::string host_ip,
                             unsigned short host_port, unsigned short local_port);
@@ -226,6 +227,8 @@ private:
   int m_state_slot = 1;
   std::unique_ptr<BootParameters> m_pending_boot;
   std::default_random_engine generator;
+
+  std::function<void(std::string)> m_room_id_callback;
 
   ControllersWindow* m_controllers_window = nullptr;
   SettingsWindow* m_settings_window = nullptr;
