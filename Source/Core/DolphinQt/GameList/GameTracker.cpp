@@ -354,14 +354,6 @@ void GameTracker::LoadGame(const QString& path)
     bool cache_changed = false;
     auto game = m_cache.AddOrGet(converted_path, &cache_changed);
     if (game)
-      if (game->GetGameID().find("RSBE01") != std::string::npos)
-      {
-        if (!game)
-          return;
-
-        Settings::Instance().SetDefaultGame(
-            QDir::toNativeSeparators(QString::fromStdString(game->GetFilePath())));
-      }
       emit GameLoaded(std::move(game));
     if (cache_changed)
       m_cache.Save();
