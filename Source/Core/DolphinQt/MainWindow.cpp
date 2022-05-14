@@ -1614,7 +1614,7 @@ bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
   m_netplay_dialog->hide();
 
   m_lylat_progress_dialog =
-      new ParallelProgressDialog(tr("Finding Match on Lylat..."), tr("Cancel"), 10, 100);
+      new ParallelProgressDialog(tr("Finding Match on Lylat..."), tr("Cancel"), 0, 0);
   m_lylat_progress_dialog->GetRaw()->show();
   m_lylat_progress_dialog->GetRaw()->raise();
   m_lylat_progress_dialog->SetValue(50);
