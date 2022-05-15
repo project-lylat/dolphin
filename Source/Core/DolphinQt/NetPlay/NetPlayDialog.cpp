@@ -135,6 +135,10 @@ void NetPlayDialog::CreateMainLayout()
   m_splitter = new QSplitter(Qt::Horizontal);
   m_menu_bar = new QMenuBar(this);
 
+
+  m_quit_button->setDefault(false);
+  m_quit_button->setAutoDefault(false);
+
   m_data_menu = m_menu_bar->addMenu(tr("Data"));
   m_data_menu->setToolTipsVisible(true);
   m_write_save_data_action = m_data_menu->addAction(tr("Write Save Data"));
@@ -242,9 +246,9 @@ void NetPlayDialog::CreateChatLayout()
   m_chat_send_button = new QPushButton(tr("Send"));
 
   // This button will get re-enabled when something gets entered into the chat box
-  m_chat_send_button->setEnabled(false);
-  m_chat_send_button->setDefault(false);
-  m_chat_send_button->setAutoDefault(false);
+  m_chat_send_button->setEnabled(true);
+  m_chat_send_button->setDefault(true);
+  m_chat_send_button->setAutoDefault(true);
 
   m_chat_edit->setReadOnly(true);
 
@@ -321,7 +325,9 @@ void NetPlayDialog::ConnectWidgets()
   connect(m_chat_send_button, &QPushButton::clicked, this, &NetPlayDialog::OnChat);
   connect(m_chat_type_edit, &QLineEdit::returnPressed, this, &NetPlayDialog::OnChat);
   connect(m_chat_type_edit, &QLineEdit::textChanged, this,
-          [this] { m_chat_send_button->setEnabled(!m_chat_type_edit->text().isEmpty()); });
+          [this] {
+      //m_chat_send_button->setEnabled(!m_chat_type_edit->text().isEmpty());
+    });
 
   // Other
   connect(m_buffer_size_box, qOverload<int>(&QSpinBox::valueChanged), [this](int value) {
@@ -790,6 +796,8 @@ void NetPlayDialog::OnMsgChangeGame(const NetPlay::SyncIdentifier& sync_identifi
     UpdateDiscordPresence();
   });
   DisplayMessage(tr("Game changed to \"%1\"").arg(qname), "magenta");
+  // Just a hack to make sure send button is always default
+  m_chat_send_button->setDefault(true);
 }
 
 void NetPlayDialog::OnMsgChangeGBARom(int pad, const NetPlay::GBAConfig& config)
