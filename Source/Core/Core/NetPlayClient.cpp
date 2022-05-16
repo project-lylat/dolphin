@@ -519,7 +519,11 @@ void NetPlayClient::OnChatMessage(sf::Packet& packet)
 
   if(!Config::Get(Config::NETPLAY_ENABLE_CHAT)) {
     DEBUG_LOG_FMT(NETPLAY, "Blocking Incoming Message from Player {}", player.name);
-    SendChatMessage("Has Chat Disabled!");
+
+    sf::Packet dpacket;
+    dpacket << MessageID::ChatMessage;
+    dpacket << "Has Chat Disabled!";
+    SendAsync(std::move(dpacket));
     return;
   }
 
