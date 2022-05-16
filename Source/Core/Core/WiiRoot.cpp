@@ -18,6 +18,7 @@
 #include "Common/StringUtil.h"
 #include "Core/Boot/Boot.h"
 #include "Core/CommonTitles.h"
+#include "Core/Config/NetplaySettings.h"
 #include "Core/Config/SessionSettings.h"
 #include "Core/ConfigManager.h"
 #include "Core/HW/WiiSave.h"
@@ -217,6 +218,15 @@ void InitializeWiiRoot(bool use_temporary)
   {
     s_temp_wii_root = File::GetUserPath(D_USER_IDX) + "WiiSession" DIR_SEP;
     s_temp_redirect_root = File::GetUserPath(D_USER_IDX) + "RedirectSession" DIR_SEP;
+
+    bool netplayLoadPreloadedSaves = Config::Get(Config::NETPLAY_PRELOADED_SAVES);
+    if (netplayLoadPreloadedSaves && NetPlay::IsNetPlayRunning())
+    {
+      auto sourcePath = File::GetSysDirectory() + WII_USER_DIR + "/title";
+      WARN_LOG_FMT(IOS_FS, "Loading Preloaded Save Files from {} for minimal Wii FS", sourcePath);
+      File::CopyDir(sourcePath, s_temp_wii_root);
+    }
+
     WARN_LOG_FMT(IOS_FS, "Using temporary directory {} for minimal Wii FS", s_temp_wii_root);
     WARN_LOG_FMT(IOS_FS, "Using temporary directory {} for redirected saves", s_temp_redirect_root);
 

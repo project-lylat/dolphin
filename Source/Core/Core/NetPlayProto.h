@@ -95,6 +95,7 @@ struct NetSettings
   int m_EFBAccessTileSize = 0;
   bool m_EFBAccessDeferInvalidation = false;
 
+  bool m_LoadPreloadedSaveFiles = true;
   bool m_StrictSettingsSync = false;
   bool m_SyncSaveData = false;
   bool m_SyncCodes = false;

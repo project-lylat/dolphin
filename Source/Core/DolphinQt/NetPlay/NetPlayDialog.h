@@ -144,6 +144,7 @@ private:
   QLabel* m_buffer_label;
   QSpinBox* m_buffer_size_box;
   QAction* m_write_save_data_action;
+  QAction* m_use_preloaded_saves_action;
   QAction* m_load_wii_action;
   QAction* m_sync_save_data_action;
   QAction* m_sync_codes_action;

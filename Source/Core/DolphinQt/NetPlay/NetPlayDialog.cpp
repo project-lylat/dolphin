@@ -143,6 +143,8 @@ void NetPlayDialog::CreateMainLayout()
   m_data_menu->setToolTipsVisible(true);
   m_write_save_data_action = m_data_menu->addAction(tr("Write Save Data"));
   m_write_save_data_action->setCheckable(true);
+  m_use_preloaded_saves_action = m_data_menu->addAction(tr("Load Preloaded Saves"));
+  m_use_preloaded_saves_action->setCheckable(true);
   m_load_wii_action = m_data_menu->addAction(tr("Load Wii Save"));
   m_load_wii_action->setCheckable(true);
   m_sync_save_data_action = m_data_menu->addAction(tr("Sync Saves"));
@@ -396,6 +398,7 @@ void NetPlayDialog::ConnectWidgets()
   connect(m_buffer_size_box, qOverload<int>(&QSpinBox::valueChanged), this,
           &NetPlayDialog::SaveSettings);
   connect(m_write_save_data_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
+  connect(m_use_preloaded_saves_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_load_wii_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_sync_save_data_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_sync_codes_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
@@ -825,14 +828,15 @@ void NetPlayDialog::SetOptionsEnabled(bool enabled)
   {
     m_start_button->setEnabled(enabled);
     m_game_button->setEnabled(enabled);
-    m_load_wii_action->setEnabled(enabled);
+    m_use_preloaded_saves_action->setEnabled(enabled);
+    m_load_wii_action->setEnabled(enabled && !m_use_preloaded_saves_action->isChecked());
     m_write_save_data_action->setEnabled(enabled);
-    m_sync_save_data_action->setEnabled(enabled);
+    m_sync_save_data_action->setEnabled(enabled && !m_use_preloaded_saves_action->isChecked());
     m_sync_codes_action->setEnabled(enabled);
     m_assign_ports_button->setEnabled(enabled);
     m_strict_settings_sync_action->setEnabled(enabled);
     m_host_input_authority_action->setEnabled(enabled);
-    m_sync_all_wii_saves_action->setEnabled(enabled && m_sync_save_data_action->isChecked());
+    m_sync_all_wii_saves_action->setEnabled(enabled && m_sync_save_data_action->isChecked() && !m_use_preloaded_saves_action->isChecked());
     m_golf_mode_action->setEnabled(enabled);
     m_fixed_delay_action->setEnabled(enabled);
   }
@@ -1097,6 +1101,7 @@ void NetPlayDialog::LoadSettings()
 {
   const int buffer_size = Config::Get(Config::NETPLAY_BUFFER_SIZE);
   const bool write_save_data = Config::Get(Config::NETPLAY_WRITE_SAVE_DATA);
+  const bool load_preloaded_saves = Config::Get(Config::NETPLAY_PRELOADED_SAVES);
   const bool load_wii_save = Config::Get(Config::NETPLAY_LOAD_WII_SAVE);
   const bool sync_saves = Config::Get(Config::NETPLAY_SYNC_SAVES);
   const bool sync_codes = Config::Get(Config::NETPLAY_SYNC_CODES);
@@ -1108,6 +1113,7 @@ void NetPlayDialog::LoadSettings()
 
   m_buffer_size_box->setValue(buffer_size);
   m_write_save_data_action->setChecked(write_save_data);
+  m_use_preloaded_saves_action->setChecked(load_preloaded_saves);
   m_load_wii_action->setChecked(load_wii_save);
   m_sync_save_data_action->setChecked(sync_saves);
   m_sync_codes_action->setChecked(sync_codes);
@@ -1148,6 +1154,7 @@ void NetPlayDialog::SaveSettings()
     Config::SetBase(Config::NETPLAY_BUFFER_SIZE, m_buffer_size_box->value());
 
   Config::SetBase(Config::NETPLAY_WRITE_SAVE_DATA, m_write_save_data_action->isChecked());
+  Config::SetBase(Config::NETPLAY_PRELOADED_SAVES, m_use_preloaded_saves_action->isChecked());
   Config::SetBase(Config::NETPLAY_LOAD_WII_SAVE, m_load_wii_action->isChecked());
   Config::SetBase(Config::NETPLAY_SYNC_SAVES, m_sync_save_data_action->isChecked());
   Config::SetBase(Config::NETPLAY_SYNC_CODES, m_sync_codes_action->isChecked());

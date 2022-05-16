@@ -50,11 +50,13 @@ const Info<bool> NETPLAY_LOAD_WII_SAVE{{System::Main, "NetPlay", "LoadWiiSave"},
 const Info<bool> NETPLAY_SYNC_SAVES{{System::Main, "NetPlay", "SyncSaves"}, true};
 const Info<bool> NETPLAY_SYNC_CODES{{System::Main, "NetPlay", "SyncCodes"}, true};
 const Info<bool> NETPLAY_RECORD_INPUTS{{System::Main, "NetPlay", "RecordInputs"}, false};
+const Info<bool> NETPLAY_PRELOADED_SAVES{{System::Main, "NetPlay", "LoadPreloadedSaves"},
+                                              true};
 const Info<bool> NETPLAY_STRICT_SETTINGS_SYNC{{System::Main, "NetPlay", "StrictSettingsSync"},
                                               false};
 const Info<std::string> NETPLAY_NETWORK_MODE{{System::Main, "NetPlay", "NetworkMode"},
                                              "fixeddelay"};
-const Info<bool> NETPLAY_SYNC_ALL_WII_SAVES{{System::Main, "NetPlay", "SyncAllWiiSaves"}, false};
+const Info<bool> NETPLAY_SYNC_ALL_WII_SAVES{{System::Main, "NetPlay", "SyncAllWiiSaves"}, true};
 const Info<bool> NETPLAY_GOLF_MODE_OVERLAY{{System::Main, "NetPlay", "GolfModeOverlay"}, true};
 const Info<bool> NETPLAY_HIDE_REMOTE_GBAS{{System::Main, "NetPlay", "HideRemoteGBAs"}, false};
 

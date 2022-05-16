@@ -1392,6 +1392,7 @@ bool NetPlayServer::SetupNetSettings()
   settings.m_EFBAccessTileSize = Config::Get(Config::GFX_HACK_EFB_ACCESS_TILE_SIZE);
   settings.m_EFBAccessDeferInvalidation = Config::Get(Config::GFX_HACK_EFB_DEFER_INVALIDATION);
 
+  settings.m_LoadPreloadedSaveFiles = Config::Get(Config::NETPLAY_PRELOADED_SAVES);
   settings.m_StrictSettingsSync = Config::Get(Config::NETPLAY_STRICT_SETTINGS_SYNC);
   settings.m_SyncSaveData = Config::Get(Config::NETPLAY_SYNC_SAVES);
   settings.m_SyncCodes = Config::Get(Config::NETPLAY_SYNC_CODES);
@@ -1570,6 +1571,7 @@ bool NetPlayServer::StartGame()
   spac << m_settings.m_DeferEFBCopies;
   spac << m_settings.m_EFBAccessTileSize;
   spac << m_settings.m_EFBAccessDeferInvalidation;
+  spac << m_settings.m_LoadPreloadedSaveFiles;
   spac << m_settings.m_StrictSettingsSync;
   spac << initial_rtc;
   spac << m_settings.m_SyncSaveData;
