@@ -222,9 +222,9 @@ void InitializeWiiRoot(bool use_temporary)
     bool netplayLoadPreloadedSaves = Config::Get(Config::NETPLAY_PRELOADED_SAVES);
     if (netplayLoadPreloadedSaves && NetPlay::IsNetPlayRunning())
     {
-      auto sourcePath = File::GetSysDirectory() + WII_USER_DIR + "/title";
+      auto sourcePath = File::GetSysDirectory() + WII_USER_DIR + "/title" DIR_SEP;
       WARN_LOG_FMT(IOS_FS, "Loading Preloaded Save Files from {} for minimal Wii FS", sourcePath);
-      File::CopyDir(sourcePath, s_temp_wii_root);
+      File::CopyDir(sourcePath, s_temp_wii_root + "/title" DIR_SEP);
     }
 
     WARN_LOG_FMT(IOS_FS, "Using temporary directory {} for minimal Wii FS", s_temp_wii_root);
