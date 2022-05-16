@@ -205,12 +205,17 @@ void NetPlayDialog::CreateMainLayout()
   });
 
   m_other_menu = m_menu_bar->addMenu(tr("Other"));
+  m_enable_chat_action = m_other_menu->addAction(tr("Enable Chat"));
+  m_enable_chat_action->setToolTip(
+      tr("Uncheck this to disable chat messages. You won't be able to send or receive messages."));
+  m_enable_chat_action->setCheckable(true);
   m_record_input_action = m_other_menu->addAction(tr("Record Inputs"));
   m_record_input_action->setCheckable(true);
   m_golf_mode_overlay_action = m_other_menu->addAction(tr("Show Golf Mode Overlay"));
   m_golf_mode_overlay_action->setCheckable(true);
   m_hide_remote_gbas_action = m_other_menu->addAction(tr("Hide Remote GBAs"));
   m_hide_remote_gbas_action->setCheckable(true);
+  m_enable_chat_action->setChecked(true);
 
   m_game_button->setDefault(false);
   m_game_button->setAutoDefault(false);
@@ -357,6 +362,13 @@ void NetPlayDialog::ConnectWidgets()
           [hia_function] { hia_function(true); });
   connect(m_golf_mode_action, &QAction::toggled, this, [hia_function] { hia_function(true); });
   connect(m_fixed_delay_action, &QAction::toggled, this, [hia_function] { hia_function(false); });
+  connect(m_enable_chat_action, &QAction::toggled, this, [this] {
+    // Save Settings and toggle send chat button
+    this->SaveSettings();
+    auto isChecked = m_enable_chat_action->isChecked();
+    m_chat_send_button->setEnabled(isChecked);
+    m_chat_type_edit->setEnabled(isChecked);
+  });
 
   connect(m_start_button, &QPushButton::clicked, this, &NetPlayDialog::OnStart);
   connect(m_quit_button, &QPushButton::clicked, this, &NetPlayDialog::reject);
@@ -423,6 +435,10 @@ void NetPlayDialog::SendMessage(const std::string& msg)
 
 void NetPlayDialog::OnChat()
 {
+  if(!m_enable_chat_action->isChecked()) {
+    DEBUG_LOG_FMT(NETPLAY, "Chat Disabled: Blocking Outgoing Message Attempt!");
+    return;
+  }
   QueueOnObject(this, [this] {
     auto msg = m_chat_type_edit->text().toStdString();
 
@@ -1110,6 +1126,7 @@ void NetPlayDialog::LoadSettings()
   const bool sync_all_wii_saves = Config::Get(Config::NETPLAY_SYNC_ALL_WII_SAVES);
   const bool golf_mode_overlay = Config::Get(Config::NETPLAY_GOLF_MODE_OVERLAY);
   const bool hide_remote_gbas = Config::Get(Config::NETPLAY_HIDE_REMOTE_GBAS);
+  const bool enable_chat = Config::Get(Config::NETPLAY_ENABLE_CHAT);
 
   m_buffer_size_box->setValue(buffer_size);
   m_write_save_data_action->setChecked(write_save_data);
@@ -1122,6 +1139,10 @@ void NetPlayDialog::LoadSettings()
   m_sync_all_wii_saves_action->setChecked(sync_all_wii_saves);
   m_golf_mode_overlay_action->setChecked(golf_mode_overlay);
   m_hide_remote_gbas_action->setChecked(hide_remote_gbas);
+  m_enable_chat_action->setChecked(enable_chat);
+
+  m_chat_send_button->setEnabled(enable_chat);
+  m_chat_type_edit->setEnabled(enable_chat);
 
   const std::string network_mode = Config::Get(Config::NETPLAY_NETWORK_MODE);
 
@@ -1163,6 +1184,7 @@ void NetPlayDialog::SaveSettings()
   Config::SetBase(Config::NETPLAY_SYNC_ALL_WII_SAVES, m_sync_all_wii_saves_action->isChecked());
   Config::SetBase(Config::NETPLAY_GOLF_MODE_OVERLAY, m_golf_mode_overlay_action->isChecked());
   Config::SetBase(Config::NETPLAY_HIDE_REMOTE_GBAS, m_hide_remote_gbas_action->isChecked());
+  Config::SetBase(Config::NETPLAY_ENABLE_CHAT, m_enable_chat_action->isChecked());
 
   std::string network_mode;
   if (m_fixed_delay_action->isChecked())

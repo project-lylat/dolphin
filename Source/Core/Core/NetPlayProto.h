@@ -110,6 +110,8 @@ struct NetSettings
   bool m_IsHosting = false;
   bool m_HostInputAuthority = false;
   std::array<std::string, 4> m_GBARomPaths{};
+  bool m_isChatEnabled = true;
+
 };
 
 struct NetTraversalConfig
