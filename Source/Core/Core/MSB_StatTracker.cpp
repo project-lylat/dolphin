@@ -114,8 +114,7 @@ void StatTracker::lookForTriggerEvents(){
                 //1. Are runners stealing and pitcher stepped off the mound
                 //2. Has pitch started?
                 //Watch for Runners Stealing
-                if (Memory::Read_U8(aAB_PitchThrown)
-                 || (anyRunnerStealing(m_game_info.getCurrentEvent()) && Memory::Read_U8(aAB_PickoffAttempt))){
+                if (Memory::Read_U8(aAB_PitchThrown) || Memory::Read_U8(aAB_PickoffAttempt)){
                     //If HUD not produced for this event, produce HUD JSON
                     logGameInfo();
 
@@ -157,25 +156,19 @@ void StatTracker::lookForTriggerEvents(){
                         m_game_info.getCurrentEvent().pitch->potential_db = false;
                     }
                 }
-                //If the ball gets behind the batter, record ball position for visualization
-                if ((Memory::Read_U16(aAB_FramesUnitlBallArrivesBatter) == 1)
-                && (Memory::Read_U16(aAB_FramesUnitlBallArrivesBatter) != 0)){
-                    logPitch(m_game_info.getCurrentEvent());
-                    m_game_info.getCurrentEvent().pitch->logged = true;
-
-                }
-                //HBP or miss
-                if ((Memory::Read_U8(aAB_HitByPitch) == 1) || (Memory::Read_U8(aAB_PitchThrown) == 0)){
-                    m_game_info.getCurrentEvent().result_of_atbat = Memory::Read_U8(aAB_FinalResult);
-                    logContactMiss(m_game_info.getCurrentEvent()); //Strike or Swing or Bunt
-                    if (!m_game_info.getCurrentEvent().pitch->logged) { logPitch(m_game_info.getCurrentEvent()); }
-                    m_event_state = EVENT_STATE::MONITOR_RUNNERS;
-                }
                 //Contact
-                else if (Memory::Read_U32(aAB_BallVel_X)){
+                if (Memory::Read_U32(aAB_BallVel_X)){
                     logPitch(m_game_info.getCurrentEvent());
                     logContact(m_game_info.getCurrentEvent());
                     m_event_state = EVENT_STATE::CONTACT;
+                }
+                //If the ball gets behind the batter, record miss
+                else if (Memory::Read_U8(aAB_PitcherHasCtrlofPitch) == 1) {
+                    if ((Memory::Read_U16(aAB_FramesUnitlBallArrivesBatter) <= 0)){
+                        logPitch(m_game_info.getCurrentEvent());
+                        logContactMiss(m_game_info.getCurrentEvent()); //Strike or Swing or Bunt
+                        m_event_state = EVENT_STATE::MONITOR_RUNNERS;
+                    }
                 }
 
                 //While pitch is in flight, record runner activity 
