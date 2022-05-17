@@ -144,6 +144,8 @@ void NetPlayDialog::CreateMainLayout()
   m_write_save_data_action = m_data_menu->addAction(tr("Write Save Data"));
   m_write_save_data_action->setCheckable(true);
   m_use_preloaded_saves_action = m_data_menu->addAction(tr("Load Preloaded Saves"));
+  m_use_preloaded_saves_action->setToolTip(
+      tr("If enabled, dolphin will load preloaded save files instead of empty saves. \nIf you desync on start, try turning this off and turning Load Wii Save + Sync All Wii Saves On instead."));
   m_use_preloaded_saves_action->setCheckable(true);
   m_load_wii_action = m_data_menu->addAction(tr("Load Wii Save"));
   m_load_wii_action->setCheckable(true);
@@ -857,14 +859,14 @@ void NetPlayDialog::SetOptionsEnabled(bool enabled)
     m_start_button->setEnabled(enabled);
     m_game_button->setEnabled(enabled);
     m_use_preloaded_saves_action->setEnabled(enabled);
-    m_load_wii_action->setEnabled(enabled && !m_use_preloaded_saves_action->isChecked());
+    m_load_wii_action->setEnabled(enabled);
     m_write_save_data_action->setEnabled(enabled);
-    m_sync_save_data_action->setEnabled(enabled && !m_use_preloaded_saves_action->isChecked());
+    m_sync_save_data_action->setEnabled(enabled);
     m_sync_codes_action->setEnabled(enabled);
     m_assign_ports_button->setEnabled(enabled);
     m_strict_settings_sync_action->setEnabled(enabled);
     m_host_input_authority_action->setEnabled(enabled);
-    m_sync_all_wii_saves_action->setEnabled(enabled && m_sync_save_data_action->isChecked() && !m_use_preloaded_saves_action->isChecked());
+    m_sync_all_wii_saves_action->setEnabled(enabled && m_sync_save_data_action->isChecked());
     m_golf_mode_action->setEnabled(enabled);
     m_fixed_delay_action->setEnabled(enabled);
   }
