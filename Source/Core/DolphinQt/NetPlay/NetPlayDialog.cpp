@@ -205,6 +205,10 @@ void NetPlayDialog::CreateMainLayout()
   });
 
   m_other_menu = m_menu_bar->addMenu(tr("Other"));
+  m_auto_start_game_action = m_other_menu->addAction(tr("Auto Start Game"));
+  m_auto_start_game_action->setToolTip(
+      tr("If this is enabled, game will launch as soon as guest joins."));
+  m_auto_start_game_action->setCheckable(true);
   m_enable_chat_action = m_other_menu->addAction(tr("Enable Chat"));
   m_enable_chat_action->setToolTip(
       tr("Uncheck this to disable chat messages. You won't be able to send or receive messages."));
@@ -216,6 +220,7 @@ void NetPlayDialog::CreateMainLayout()
   m_hide_remote_gbas_action = m_other_menu->addAction(tr("Hide Remote GBAs"));
   m_hide_remote_gbas_action->setCheckable(true);
   m_enable_chat_action->setChecked(true);
+  m_auto_start_game_action->setChecked(false);
 
   m_game_button->setDefault(false);
   m_game_button->setAutoDefault(false);
@@ -332,7 +337,7 @@ void NetPlayDialog::ConnectWidgets()
   connect(m_chat_send_button, &QPushButton::clicked, this, &NetPlayDialog::OnChat);
   connect(m_chat_type_edit, &QLineEdit::returnPressed, this, &NetPlayDialog::OnChat);
   connect(m_chat_type_edit, &QLineEdit::textChanged, this,
-          [this] {
+          [] {
       //m_chat_send_button->setEnabled(!m_chat_type_edit->text().isEmpty());
     });
 
@@ -362,6 +367,7 @@ void NetPlayDialog::ConnectWidgets()
           [hia_function] { hia_function(true); });
   connect(m_golf_mode_action, &QAction::toggled, this, [hia_function] { hia_function(true); });
   connect(m_fixed_delay_action, &QAction::toggled, this, [hia_function] { hia_function(false); });
+  connect(m_auto_start_game_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_enable_chat_action, &QAction::toggled, this, [this] {
     // Save Settings and toggle send chat button
     this->SaveSettings();
@@ -753,6 +759,11 @@ void NetPlayDialog::UpdateGUI()
     m_hostcode_action_button->setText(tr("Copy"));
     m_is_copy_button_retry = false;
   }
+
+  if(m_start_game_on_update && Settings::Instance().GetNetPlayClient()->DoAllPlayersHaveGame()){
+    m_start_game_on_update = false;
+    OnStart();
+  }
 }
 
 // NetPlayUI methods
@@ -781,6 +792,7 @@ bool NetPlayDialog::IsHosting() const
 void NetPlayDialog::Update()
 {
   QueueOnObject(this, &NetPlayDialog::UpdateGUI);
+
 }
 
 void NetPlayDialog::DisplayMessage(const QString& msg, const std::string& color, int duration)
@@ -904,7 +916,10 @@ void NetPlayDialog::OnMsgPowerButton()
 void NetPlayDialog::OnPlayerConnect(const std::string& player)
 {
   DisplayMessage(tr("%1 has joined").arg(QString::fromStdString(player)), "darkcyan");
-  
+
+  if(m_player_count >= 1 && m_auto_start_game_action->isChecked() && IsHosting()) {
+    m_start_game_on_update = true;
+  }
 }
 
 void NetPlayDialog::OnPlayerDisconnect(const std::string& player)
@@ -1127,6 +1142,7 @@ void NetPlayDialog::LoadSettings()
   const bool golf_mode_overlay = Config::Get(Config::NETPLAY_GOLF_MODE_OVERLAY);
   const bool hide_remote_gbas = Config::Get(Config::NETPLAY_HIDE_REMOTE_GBAS);
   const bool enable_chat = Config::Get(Config::NETPLAY_ENABLE_CHAT);
+  const bool enable_auto_start_game = Config::Get(Config::NETPLAY_ENABLE_AUTO_START_GAME);
 
   m_buffer_size_box->setValue(buffer_size);
   m_write_save_data_action->setChecked(write_save_data);
@@ -1140,6 +1156,7 @@ void NetPlayDialog::LoadSettings()
   m_golf_mode_overlay_action->setChecked(golf_mode_overlay);
   m_hide_remote_gbas_action->setChecked(hide_remote_gbas);
   m_enable_chat_action->setChecked(enable_chat);
+  m_auto_start_game_action->setChecked(enable_auto_start_game);
 
   m_chat_send_button->setEnabled(enable_chat);
   m_chat_type_edit->setEnabled(enable_chat);
@@ -1185,6 +1202,7 @@ void NetPlayDialog::SaveSettings()
   Config::SetBase(Config::NETPLAY_GOLF_MODE_OVERLAY, m_golf_mode_overlay_action->isChecked());
   Config::SetBase(Config::NETPLAY_HIDE_REMOTE_GBAS, m_hide_remote_gbas_action->isChecked());
   Config::SetBase(Config::NETPLAY_ENABLE_CHAT, m_enable_chat_action->isChecked());
+  Config::SetBase(Config::NETPLAY_ENABLE_AUTO_START_GAME, m_auto_start_game_action->isChecked());
 
   std::string network_mode;
   if (m_fixed_delay_action->isChecked())

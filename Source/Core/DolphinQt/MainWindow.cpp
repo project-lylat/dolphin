@@ -1701,7 +1701,7 @@ bool MainWindow::NetPlayJoin()
 
 bool MainWindow::NetPlayHost(const UICommon::GameFile& game)
 {
-  return NetPlayHostWithCallback(game, [this](std::string traversalRoomId) {});
+  return NetPlayHostWithCallback(game, [](std::string traversalRoomId) {});
 }
 
 bool MainWindow::NetPlayHostWithCallback(const UICommon::GameFile& game,

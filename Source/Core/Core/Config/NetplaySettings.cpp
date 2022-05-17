@@ -60,5 +60,6 @@ const Info<bool> NETPLAY_SYNC_ALL_WII_SAVES{{System::Main, "NetPlay", "SyncAllWi
 const Info<bool> NETPLAY_GOLF_MODE_OVERLAY{{System::Main, "NetPlay", "GolfModeOverlay"}, true};
 const Info<bool> NETPLAY_HIDE_REMOTE_GBAS{{System::Main, "NetPlay", "HideRemoteGBAs"}, false};
 const Info<bool> NETPLAY_ENABLE_CHAT{{System::Main, "NetPlay", "EnableChat"}, true};
+const Info<bool> NETPLAY_ENABLE_AUTO_START_GAME{{System::Main, "NetPlay", "EnableAutoStartGame"}, false};
 
 }  // namespace Config

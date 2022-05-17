@@ -53,5 +53,6 @@ extern const Info<bool> NETPLAY_SYNC_ALL_WII_SAVES;
 extern const Info<bool> NETPLAY_GOLF_MODE_OVERLAY;
 extern const Info<bool> NETPLAY_HIDE_REMOTE_GBAS;
 extern const Info<bool> NETPLAY_ENABLE_CHAT;
+extern const Info<bool> NETPLAY_ENABLE_AUTO_START_GAME;
 
 }  // namespace Config
