@@ -125,7 +125,7 @@ protected:
   void disconnectFromServer();
   void terminateMmConnection();
   void sendMessage(picojson::object msg);
-  int receiveMessage(picojson::value& msg, int maxAttempts);
+  int receiveMessage(picojson::value& msg, int timeoutMs);
 
   void sendHolePunchMsg(std::string remoteIp, u16 remotePort, u16 localPort);
 

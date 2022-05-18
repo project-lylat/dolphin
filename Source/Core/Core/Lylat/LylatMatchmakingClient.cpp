@@ -345,13 +345,14 @@ void LylatMatchmakingClient::handleMatchmaking()
   int rcvRes = receiveMessage(getResp, 2000);
   if (rcvRes == -1)
   {
-    // INFO_LOG(SLIPPI_ONLINE, "[Matchmaking] Have not yet received assignment");
+    WARN_LOG_FMT(LYLAT, "[Matchmaking] Have not yet received assignment");
+
     return;
   }
   else if (rcvRes != 0)
   {
     // Right now the only other code is -2 meaning the server died probably?
-    WARN_LOG_FMT(LYLAT, "[Matchmaking] Lost connection to the mm server");
+    WARN_LOG_FMT(LYLAT, "[Matchmaking] Lost connection to the mm server response: {}", rcvRes);
     m_state = ProcessState::ERROR_ENCOUNTERED;
     m_errorMsg = "Lost connection to the mm server";
     m_onFailureCallback(*m_game, m_errorMsg);
