@@ -419,6 +419,11 @@ enum TabIndexes : int
   TAB_LYLAT,
 };
 
+void NetPlaySetupDialog::SetConnectionType(ConnectionType type)
+{
+  m_connection_type->setCurrentIndex(type);
+}
+
 void NetPlaySetupDialog::Refresh()
 {
   OnConnectionTypeChanged(m_connection_type->currentIndex());

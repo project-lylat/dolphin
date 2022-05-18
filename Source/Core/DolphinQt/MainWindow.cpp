@@ -1356,6 +1356,8 @@ void MainWindow::ShowNetPlaySetupDialog()
   m_netplay_setup_dialog->show();
   m_netplay_setup_dialog->raise();
   m_netplay_setup_dialog->activateWindow();
+  m_netplay_setup_dialog->SetConnectionType(NetPlaySetupDialog::ConnectionType::CONN_TYPE_LYLAT);
+  m_netplay_setup_dialog->Refresh();
 }
 
 void MainWindow::ShowNetPlayBrowser()

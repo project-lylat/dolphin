@@ -223,6 +223,7 @@ void NetPlayDialog::CreateMainLayout()
   m_hide_remote_gbas_action->setCheckable(true);
   m_enable_chat_action->setChecked(true);
   m_auto_start_game_action->setChecked(false);
+  m_auto_start_game_action->setVisible(false);// Hide this out
 
   m_game_button->setDefault(false);
   m_game_button->setAutoDefault(false);
@@ -369,7 +370,7 @@ void NetPlayDialog::ConnectWidgets()
           [hia_function] { hia_function(true); });
   connect(m_golf_mode_action, &QAction::toggled, this, [hia_function] { hia_function(true); });
   connect(m_fixed_delay_action, &QAction::toggled, this, [hia_function] { hia_function(false); });
-  connect(m_auto_start_game_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
+  //connect(m_auto_start_game_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_enable_chat_action, &QAction::toggled, this, [this] {
     // Save Settings and toggle send chat button
     this->SaveSettings();
@@ -919,9 +920,10 @@ void NetPlayDialog::OnPlayerConnect(const std::string& player)
 {
   DisplayMessage(tr("%1 has joined").arg(QString::fromStdString(player)), "darkcyan");
 
-  if(m_player_count >= 1 && m_auto_start_game_action->isChecked() && IsHosting()) {
-    m_start_game_on_update = true;
-  }
+  // Disabled for now
+//  if(m_player_count >= 1 && m_auto_start_game_action->isChecked() && IsHosting()) {
+//    m_start_game_on_update = true;
+//  }
 }
 
 void NetPlayDialog::OnPlayerDisconnect(const std::string& player)

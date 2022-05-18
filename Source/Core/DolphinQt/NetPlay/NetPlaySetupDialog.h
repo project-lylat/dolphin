@@ -58,6 +58,7 @@ public:
   };
 
   void Refresh();
+  void SetConnectionType(ConnectionType type);
 
 signals:
   bool Join();
