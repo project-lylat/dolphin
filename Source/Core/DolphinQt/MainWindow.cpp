@@ -1558,6 +1558,12 @@ void MainWindow::NetPlayMatchCancel()
   {
     m_lylat_matchmaking_client->CancelSearch();
   }
+  NetPlayQuit();
+
+  Config::SetBaseOrCurrent(Config::NETPLAY_TRAVERSAL_SERVER,
+                           Config::NETPLAY_TRAVERSAL_SERVER.GetDefaultValue());
+  Config::SetBaseOrCurrent(Config::NETPLAY_TRAVERSAL_PORT,
+                           Config::NETPLAY_TRAVERSAL_PORT.GetDefaultValue());
 }
 
 bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)

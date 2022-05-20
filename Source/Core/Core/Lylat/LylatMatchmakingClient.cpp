@@ -52,7 +52,10 @@ void LylatMatchmakingClient::CancelSearch()
   std::lock_guard<std::mutex> lk(search_mutex);
   m_state = ProcessState::ERROR_ENCOUNTERED;
   m_errorMsg = "Search Canceled!";
-  m_onFailureCallback(*m_game, m_errorMsg);
+  if (m_onFailureCallback)
+  {
+    m_onFailureCallback(*m_game, m_errorMsg);
+  }
 }
 
 void LylatMatchmakingClient::Match(
