@@ -214,6 +214,10 @@ const std::vector<std::unique_ptr<VideoBackendBase>>& VideoBackendBase::GetAvail
   static auto s_available_backends = [] {
     std::vector<std::unique_ptr<VideoBackendBase>> backends;
 
+#ifdef _WIN32
+    backends.push_back(std::make_unique<DX11::VideoBackend>());
+    backends.push_back(std::make_unique<DX12::VideoBackend>());
+#endif
     // OGL > D3D11 > D3D12 > Vulkan > SW > Null
     //
     // On macOS Mojave and newer, we prefer Vulkan over OGL due to outdated drivers.
@@ -221,10 +225,6 @@ const std::vector<std::unique_ptr<VideoBackendBase>>& VideoBackendBase::GetAvail
     // missing several features required by the Vulkan backend.
 #ifdef HAS_OPENGL
     backends.push_back(std::make_unique<OGL::VideoBackend>());
-#endif
-#ifdef _WIN32
-    backends.push_back(std::make_unique<DX11::VideoBackend>());
-    backends.push_back(std::make_unique<DX12::VideoBackend>());
 #endif
 #ifdef HAS_VULKAN
 #ifdef __APPLE__
