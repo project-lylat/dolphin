@@ -3,12 +3,12 @@ name: Builds
 on:
   push:
     branches:
-      - lylat/dolphin-matchmaking
+      - lylat/rio
     paths-ignore:
       - "**.md"
       - "**.ini"
   pull_request:
-    branches: [ lylat/dolphin-matchmaking ]
+    branches: [ lylat/rio ]
     paths-ignore:
       - "**.md"
       - "**.ini"
