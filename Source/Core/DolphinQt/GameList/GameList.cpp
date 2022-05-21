@@ -439,7 +439,7 @@ void GameList::ShowContextMenu(const QPoint&)
     menu->addAction(tr("Delete File..."), this, &GameList::DeleteFile);
 #ifdef _WIN32
     menu->addAction(tr("Add Shortcut to Desktop"), this, [this] {
-      if (!AddShortcutToDesktop())
+      if (!AddShortcutToDesktop(false))
       {
         ModalMessageBox::critical(this, tr("Add Shortcut to Desktop"),
                                   tr("There was an issue adding a shortcut to the desktop"));
@@ -478,6 +478,16 @@ void GameList::ShowContextMenu(const QPoint&)
     netplay_search->setEnabled(!Core::IsRunning());
     connect(netplay_search, &QAction::triggered, [this, game] { emit NetPlaySearch(*game); });
     menu->addAction(netplay_search);
+
+#ifdef _WIN32
+    menu->addAction(tr("Add Matchmaking Shortcut to Desktop"), this, [this] {
+      if (!AddShortcutToDesktop(true))
+      {
+        ModalMessageBox::critical(this, tr("Add Shortcut to Desktop"),
+                                  tr("There was an issue adding a shortcut to the desktop"));
+      }
+    });
+#endif
 
     QAction* netplay_host = new QAction(tr("Host with NetPlay"), menu);
 
@@ -723,7 +733,7 @@ void GameList::OpenGCSaveFolder()
 }
 
 #ifdef _WIN32
-bool GameList::AddShortcutToDesktop()
+bool GameList::AddShortcutToDesktop( bool matchmaking )
 {
   auto init = wil::CoInitializeEx_failfast(COINIT_APARTMENTTHREADED);
   auto shell_link = wil::CoCreateInstanceNoThrow<ShellLink, IShellLink>();
@@ -736,7 +746,9 @@ bool GameList::AddShortcutToDesktop()
 
   const auto game = GetSelectedGame();
   const auto& file_path = game->GetFilePath();
-  std::wstring args = UTF8ToTStr("-e \"" + file_path + "\"");
+  const std::string flag = matchmaking ? "-M" : "-e";
+  std::wstring args = UTF8ToTStr(flag + " \"" + file_path + "\"");
+  
   if (FAILED(shell_link->SetArguments(args.c_str())))
     return false;
 

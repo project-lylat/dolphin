@@ -69,7 +69,7 @@ private:
   void SetDefaultISO();
   void DeleteFile();
 #ifdef _WIN32
-  bool AddShortcutToDesktop();
+  bool AddShortcutToDesktop( bool matchmaking );
 #endif
   void InstallWAD();
   void UninstallWAD();
