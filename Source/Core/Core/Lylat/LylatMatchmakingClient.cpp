@@ -296,7 +296,7 @@ void LylatMatchmakingClient::startMatchmaking()
 
   request["search"] = picojson::value(jSearch);
 
-  request["appVersion"] = picojson::value(Common::GetScmDescStr().c_str());
+  request["appVersion"] = picojson::value(Common::GetRioRevStr().c_str());
   request["ipAddressLan"] = picojson::value(lanAddr);
   sendMessage(request);
 
