@@ -91,7 +91,7 @@ std::unique_ptr<optparse::OptionParser> CreateParser(ParserOptions options)
       .action("append")
       .metavar("<file>")
       .type("string")
-      .help("Launch lylat matchmaking with the specified file");
+      .help("Launch lylat matchmaking with the specified game");
   parser->add_option("-n", "--nand_title")
       .action("store")
       .metavar("<16-character ASCII title ID>")

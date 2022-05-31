@@ -2114,7 +2114,8 @@ void MainWindow::Show()
   }
   else if (!m_init_netplay_path.empty())
   {
-
+    //TODO: don't find game from game list here, find directly in GameFileCache?
+    // Want to load game whether it's folder has been added to game list or not
     const auto game = m_game_list->FindGame(m_init_netplay_path);
     if (game)
     {

@@ -238,8 +238,9 @@ int main(int argc, char* argv[])
   {
     DolphinAnalytics::Instance().ReportDolphinStart("qt");
 
-    auto mm_launcher = std::string(options.get("matchmaking"));
-    MainWindow win{std::move(boot), static_cast<const char*>(options.get("movie")), std::move(mm_launcher)};
+    auto matchmaking_game_path = std::string(options.get("matchmaking"));
+    MainWindow win{std::move(boot), static_cast<const char*>(options.get("movie")),
+                   std::move(matchmaking_game_path)};
     Settings::Instance().SetCurrentUserStyle(Settings::Instance().GetCurrentUserStyle());
     if (options.is_set("debugger"))
       Settings::Instance().SetDebugModeEnabled(true);
