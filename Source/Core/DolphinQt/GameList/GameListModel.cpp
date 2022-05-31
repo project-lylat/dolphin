@@ -364,15 +364,13 @@ std::shared_ptr<const UICommon::GameFile> GameListModel::FindGame(const std::str
   return index < 0 ? nullptr : m_games[index];
 }
 
-#include <iostream>
 int GameListModel::FindGameIndex(const std::string& path) const
 {
   for (int i = 0; i < m_games.size(); i++)
   {
-    auto gamePath = m_games[i]->GetFilePath();
-    std::cout << gamePath;
+    const auto gamePath = m_games[i]->GetFilePath();
 
-    if (gamePath == path)
+    if (StringToPath(gamePath) == StringToPath(path))
       return i;
   }
   return -1;
