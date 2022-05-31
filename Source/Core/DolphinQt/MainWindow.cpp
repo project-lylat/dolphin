@@ -2114,8 +2114,18 @@ void MainWindow::Show()
   }
   else if (!m_init_netplay_path.empty())
   {
-    //TODO: fix according to rapito's fix to null reference thing
-    auto game = m_game_list->FindGame(m_init_netplay_path);
-    NetPlaySearch(*game);
+
+    const auto game = m_game_list->FindGame(m_init_netplay_path);
+    if (game)
+    {
+      NetPlaySearch(*game);
+    }
+    else
+    {
+      ModalMessageBox::critical(
+          nullptr, QStringLiteral("Error"),
+          QStringLiteral("Unable to start matchmaking with %1. Ensure the file exists.")
+              .arg(QString::fromStdString(m_init_netplay_path)));
+    }
   }
 }
