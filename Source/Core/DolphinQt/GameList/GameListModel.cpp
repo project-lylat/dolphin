@@ -472,3 +472,8 @@ void GameListModel::PurgeCache()
 {
   m_tracker.PurgeCache();
 }
+
+UICommon::GameFileCache& GameListModel::GetGameCache()
+{
+  return m_tracker.GetGameCache();
+}

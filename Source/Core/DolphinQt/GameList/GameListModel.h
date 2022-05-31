@@ -19,6 +19,7 @@
 namespace UICommon
 {
 class GameFile;
+class GameFileCache;
 }
 
 class GameListModel final : public QAbstractTableModel
@@ -82,6 +83,7 @@ public:
   void DeleteTag(const QString& name);
 
   void PurgeCache();
+  UICommon::GameFileCache& GetGameCache();
 
 private:
   // Index in m_games, or -1 if it isn't found

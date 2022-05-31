@@ -117,6 +117,7 @@
 
 #include "UICommon/DiscordPresence.h"
 #include "UICommon/GameFile.h"
+#include "UICommon/GameFileCache.h"
 #include "UICommon/ResourcePack/Manager.h"
 #include "UICommon/ResourcePack/Manifest.h"
 #include "UICommon/ResourcePack/ResourcePack.h"
@@ -2114,12 +2115,15 @@ void MainWindow::Show()
   }
   else if (!m_init_netplay_path.empty())
   {
-    //TODO: don't find game from game list here, find directly in GameFileCache?
-    // Want to load game whether it's folder has been added to game list or not
-    const auto game = m_game_list->FindGame(m_init_netplay_path);
-    if (game)
+    const auto gamePtr = [this]() {
+      UICommon::GameFileCache& cache = m_game_list->GetGameListModel().GetGameCache();
+      bool unusedCacheChanged{};
+      return cache.AddOrGet(m_init_netplay_path, &unusedCacheChanged);
+    }();
+
+    if (gamePtr)
     {
-      NetPlaySearch(*game);
+      NetPlaySearch(*gamePtr);
     }
     else
     {

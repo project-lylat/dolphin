@@ -47,7 +47,7 @@ public:
 
   void PurgeCache();
 
-  const GameListModel& GetGameListModel() const { return m_model; }
+  GameListModel& GetGameListModel() { return m_model; }
 
 signals:
   void GameSelected();
