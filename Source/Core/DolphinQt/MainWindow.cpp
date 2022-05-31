@@ -117,7 +117,6 @@
 
 #include "UICommon/DiscordPresence.h"
 #include "UICommon/GameFile.h"
-#include "UICommon/GameFileCache.h"
 #include "UICommon/ResourcePack/Manager.h"
 #include "UICommon/ResourcePack/Manifest.h"
 #include "UICommon/ResourcePack/ResourcePack.h"
@@ -2115,12 +2114,7 @@ void MainWindow::Show()
   }
   else if (!m_init_netplay_path.empty())
   {
-    const auto gamePtr = [this]() {
-      UICommon::GameFileCache& cache = m_game_list->GetGameListModel().GetGameCache();
-      bool unusedCacheChanged{};
-      return cache.AddOrGet(m_init_netplay_path, &unusedCacheChanged);
-    }();
-
+    const auto gamePtr = m_game_list->GetGameListModel().AddOrGetFromCache(m_init_netplay_path);
     if (gamePtr)
     {
       NetPlaySearch(*gamePtr);

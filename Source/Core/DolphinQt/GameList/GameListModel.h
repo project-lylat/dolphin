@@ -83,7 +83,7 @@ public:
   void DeleteTag(const QString& name);
 
   void PurgeCache();
-  UICommon::GameFileCache& GetGameCache();
+  std::shared_ptr<const UICommon::GameFile> AddOrGetFromCache(const std::string& path);
 
 private:
   // Index in m_games, or -1 if it isn't found

@@ -473,7 +473,8 @@ void GameListModel::PurgeCache()
   m_tracker.PurgeCache();
 }
 
-UICommon::GameFileCache& GameListModel::GetGameCache()
+std::shared_ptr<const UICommon::GameFile> GameListModel::AddOrGetFromCache(const std::string& path)
 {
-  return m_tracker.GetGameCache();
+  bool cacheChanged{};
+  return m_tracker.GetGameCache().AddOrGet(path, &cacheChanged);
 }
