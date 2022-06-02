@@ -26,7 +26,7 @@ class DefaultGeckoCodes {
     static const u32 aUnlockEverything_5 = 0x803616B0;  // 0x0 loops of 0x1 
     static const u32 aUnlockEverything_6 = 0x80361B20;  // 0x35 loops of 0x1
     static const u32 aUnlockEverything_7 = 0x80361C04;  // 0x3 loops of 0x1
-    static const u32 aUnlockEverything_8 = 0x80361C15;  // 0x0 loops of 0x1
+    static const u32 aUnlockEverything_8 = 0x80361C14;  // 0x1 loops of 0x1
 
     static const u32 aManualSelect_1 = 0x8023da60; // write to 0
     static const u32 aManualSelect_2 = 0x8023da60;  // serial write 0->8
