@@ -186,6 +186,9 @@ void StatTracker::lookForTriggerEvents(){
                 //Else just keep looking for contact or end of pitch
                 break;
             case (EVENT_STATE::CONTACT):
+                //See if any fielder is selected
+                logManualSelectLocks(m_game_info.getCurrentEvent());
+                
                 if (Memory::Read_U8(aAB_ContactResult)){
                     //Indicate that pitch resulted in contact and log contact details
                     m_game_info.getCurrentEvent().pitch->pitch_result = 6;
@@ -193,6 +196,7 @@ void StatTracker::lookForTriggerEvents(){
                     if(m_event_state != EVENT_STATE::LOG_FIELDER) { //If we don't need to scan for which fielder fields the ball
                         m_event_state = EVENT_STATE::MONITOR_RUNNERS;
                     }
+                    break;
                 }
                 else {
                     //Ball is still in air
@@ -216,9 +220,6 @@ void StatTracker::lookForTriggerEvents(){
                     //Returns a fielder that has bobbled if any exist. Otherwise optional is nullptr
                     m_game_info.getCurrentEvent().pitch->contact->first_fielder = logFielderBobble();
                 }
-
-                //See if any fielder is selected
-                logManualSelectLocks(m_game_info.getCurrentEvent());
 
                 break;
             case (EVENT_STATE::LOG_FIELDER):
@@ -1526,6 +1527,7 @@ std::optional<StatTracker::Fielder> StatTracker::logFielderBobble() {
             fielder_that_bobbled.fielder_x_pos = Memory::Read_U32(aFielderPosX);
             fielder_that_bobbled.fielder_y_pos = Memory::Read_U32(aFielderPosY);
             fielder_that_bobbled.fielder_z_pos = Memory::Read_U32(aFielderPosZ);
+            fielder_that_bobbled.fielder_pos = pos;
             fielder_that_bobbled.bobble = typeOfFielderDisruption;
 
             if (Memory::Read_U8(aFielderAction)) {

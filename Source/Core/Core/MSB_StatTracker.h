@@ -524,20 +524,13 @@ public:
         u8 fielder_pos;
         u8 fielder_char_id;
         u8 fielder_swapped_for_batter;
-        u8 fielder_action; //2=slide, 3=walljump
-        u8 fielder_jump; //1=Jump
+        u8 fielder_action = 0; //2=slide, 3=walljump
+        u8 fielder_jump = 0; //1=Jump
         u8 fielder_manual_select_lock; //0=No one selected, 1=Other player selected, 2=This player selected
         u32 fielder_x_pos;
         u32 fielder_y_pos;
         u32 fielder_z_pos;
         u8 bobble = 0; //Bobble info
-        //u8 bobble_fielder_roster_loc;
-        //u8 bobble_fielder_pos;
-        //u8 bobble_fielder_char_id;
-        //u8 bobble_fielder_action;
-        //u32 bobble_fielder_x_pos;
-        //u32 bobble_fielder_y_pos;
-        //u32 bobble_fielder_z_pos;
     };
 
     struct Contact {
