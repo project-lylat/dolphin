@@ -47,7 +47,7 @@ public:
 
   void PurgeCache();
 
-  const GameListModel& GetGameListModel() const { return m_model; }
+  GameListModel& GetGameListModel() { return m_model; }
 
 signals:
   void GameSelected();
@@ -69,7 +69,7 @@ private:
   void SetDefaultISO();
   void DeleteFile();
 #ifdef _WIN32
-  bool AddShortcutToDesktop();
+  bool AddShortcutToDesktop( bool matchmaking );
 #endif
   void InstallWAD();
   void UninstallWAD();

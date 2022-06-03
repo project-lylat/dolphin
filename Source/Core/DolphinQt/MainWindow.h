@@ -70,7 +70,8 @@ class MainWindow final : public QMainWindow
 
 public:
   explicit MainWindow(std::unique_ptr<BootParameters> boot_parameters,
-                      const std::string& movie_path);
+                      const std::string& movie_path,
+                      std::string init_netplay_path );
   ~MainWindow();
 
   void Show();
@@ -260,4 +261,5 @@ private:
   QByteArray m_render_widget_geometry;
   LylatMatchmakingClient* m_lylat_matchmaking_client = nullptr;
   ParallelProgressDialog* m_lylat_progress_dialog;
+  std::string m_init_netplay_path;
 };

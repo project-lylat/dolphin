@@ -205,8 +205,9 @@ static std::vector<std::string> StringListToStdVector(QStringList list)
 }
 
 MainWindow::MainWindow(std::unique_ptr<BootParameters> boot_parameters,
-                       const std::string& movie_path)
-    : QMainWindow(nullptr)
+                       const std::string& movie_path,
+                       std::string init_netplay_path)
+    : QMainWindow(nullptr), m_init_netplay_path(std::move(init_netplay_path))
 {
   qRegisterMetaType<std::shared_ptr<const UICommon::GameFile>>();
   qRegisterMetaType<UICommon::GameFile>("UICommon::GameFile");
@@ -2110,5 +2111,20 @@ void MainWindow::Show()
   {
     StartGame(std::move(m_pending_boot));
     m_pending_boot.reset();
+  }
+  else if (!m_init_netplay_path.empty())
+  {
+    const auto gamePtr = m_game_list->GetGameListModel().AddOrGetFromCache(m_init_netplay_path);
+    if (gamePtr)
+    {
+      NetPlaySearch(*gamePtr);
+    }
+    else
+    {
+      ModalMessageBox::critical(
+          nullptr, QStringLiteral("Error"),
+          QStringLiteral("Unable to start matchmaking with %1. Ensure the file exists.")
+              .arg(QString::fromStdString(m_init_netplay_path)));
+    }
   }
 }
