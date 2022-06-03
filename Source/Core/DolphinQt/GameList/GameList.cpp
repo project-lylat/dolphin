@@ -807,7 +807,9 @@ bool GameList::AddShortcutToDesktop( bool matchmaking )
                                  }),
                   game_name.end());
 
-  std::wstring desktop_path = std::wstring(desktop.get()) + UTF8ToTStr("\\" + game_name + ".lnk");
+  auto str = matchmaking ? "\\Play " + game_name + " Online.lnk" : "\\" + game_name + ".lnk";
+
+  std::wstring desktop_path = std::wstring(desktop.get()) + UTF8ToTStr(str);
   auto persist_file = shell_link.try_query<IPersistFile>();
   if (!persist_file)
     return false;
