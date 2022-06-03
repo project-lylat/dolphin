@@ -1501,6 +1501,13 @@ void MainWindow::NetPlayInit()
           &MainWindow::UpdateScreenSaverInhibition);
 }
 
+void MainWindow::ShowLylatConnectedNotification()
+{
+  ModalMessageBox::information(m_netplay_dialog, tr("Connected!"),
+                               tr("If your opponent does not connect after a few seconds, please "
+                                  "quit the Netplay window and try again."));
+}
+
 bool MainWindow::OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHost,
                                       std::string host_connect_uri, u16 host_port, u16 local_port)
 {
@@ -1517,12 +1524,10 @@ bool MainWindow::OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHos
 
   if (isHost)
   {
-    ModalMessageBox::information(m_netplay_dialog, tr("Connected!"),
-                                 tr("If your opponent does not connect after a few seconds, please "
-                                    "quit the Netplay window and try again."));
-
     m_netplay_dialog->setVisible(true);
     m_netplay_dialog->raise();
+    
+    ShowLylatConnectedNotification();
     return true;
     //    return NetPlayHost(game);
   }
@@ -1540,6 +1545,7 @@ bool MainWindow::OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHos
   // Wait for a bit to allow host to create their server
   std::this_thread::sleep_for(std::chrono::seconds(1));
 
+  m_should_show_lylat_connected_notification = true;
   return NetPlayJoin();
 }
 
@@ -1708,6 +1714,11 @@ bool MainWindow::NetPlayJoin()
 
   m_netplay_setup_dialog->close();
   m_netplay_dialog->show(nickname, is_traversal);
+  if (m_should_show_lylat_connected_notification)
+  {
+    ShowLylatConnectedNotification();
+    m_should_show_lylat_connected_notification = false;
+  }
 
   return true;
 }

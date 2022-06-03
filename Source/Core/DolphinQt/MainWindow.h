@@ -176,6 +176,7 @@ private:
   bool NetPlayHost(const UICommon::GameFile& game);
   bool NetPlayHostWithCallback(const UICommon::GameFile& game, std::function<void(std::string)> onTraversalConnectCallback);
   void NetPlayQuit();
+  void ShowLylatConnectedNotification();
   bool OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHost, std::string host_ip,
                             unsigned short host_port, unsigned short local_port);
   bool OnNetPlayMatchResultFailed(const UICommon::GameFile& game, std::string errorMessage);
@@ -219,6 +220,7 @@ private:
   SearchBar* m_search_bar;
   GameList* m_game_list;
   RenderWidget* m_render_widget = nullptr;
+  bool m_should_show_lylat_connected_notification = false;
   bool m_rendering_to_main;
   bool m_stop_confirm_showing = false;
   bool m_stop_requested = false;
