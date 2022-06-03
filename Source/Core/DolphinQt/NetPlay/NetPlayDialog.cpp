@@ -223,7 +223,7 @@ void NetPlayDialog::CreateMainLayout()
   m_hide_remote_gbas_action->setCheckable(true);
   m_enable_chat_action->setChecked(true);
   m_auto_start_game_action->setChecked(false);
-  m_auto_start_game_action->setVisible(false);// Hide this out
+  m_auto_start_game_action->setVisible(true);
 
   m_game_button->setDefault(false);
   m_game_button->setAutoDefault(false);
@@ -372,7 +372,7 @@ void NetPlayDialog::ConnectWidgets()
           [hia_function] { hia_function(true); });
   connect(m_golf_mode_action, &QAction::toggled, this, [hia_function] { hia_function(true); });
   connect(m_fixed_delay_action, &QAction::toggled, this, [hia_function] { hia_function(false); });
-  //connect(m_auto_start_game_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
+  connect(m_auto_start_game_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_enable_chat_action, &QAction::toggled, this, [this] {
     // Save Settings and toggle send chat button
     this->SaveSettings();
@@ -668,6 +668,9 @@ void NetPlayDialog::UpdateGUI()
            {tr("Not found"), tr("No matching game was found")}},
       };
 
+  auto recommended_buffer = m_max_recommended_buffer;
+  auto max_recommended_buffer = 2.0f; 
+
   for (int i = 0; i < m_player_count; i++)
   {
     const auto* p = players[i];
@@ -681,7 +684,10 @@ void NetPlayDialog::UpdateGUI()
     status_item->setToolTip(status_info.second);
     auto* ping_item = new QTableWidgetItem(QStringLiteral("%1 ms").arg(p->ping));
     ping_item->setToolTip(ping_item->text());
-    auto* recommended_buffer_item = new QTableWidgetItem(QStringLiteral("%1").arg((int) std::ceil(std::max((float)p->ping/16.0f, 2.0f))));
+    recommended_buffer = std::ceil(std::max((float)p->ping / 16.0f, 2.0f));
+    max_recommended_buffer = std::max(recommended_buffer, max_recommended_buffer);
+    auto* recommended_buffer_item =
+        new QTableWidgetItem(QStringLiteral("%1").arg((int)recommended_buffer));
     auto* mapping_item =
         new QTableWidgetItem(QString::fromStdString(NetPlay::GetPlayerMappingString(
             p->pid, client->GetPadMapping(), client->GetGBAConfig(), client->GetWiimoteMapping())));
@@ -705,6 +711,7 @@ void NetPlayDialog::UpdateGUI()
     if (p->pid == selection_pid)
       m_players_list->selectRow(i);
   }
+  m_max_recommended_buffer = max_recommended_buffer; 
 
   if (m_old_player_count != m_player_count)
   {
@@ -781,9 +788,18 @@ void NetPlayDialog::UpdateGUI()
     m_is_copy_button_retry = false;
   }
 
-  if(m_start_game_on_update && Settings::Instance().GetNetPlayClient()->DoAllPlayersHaveGame()){
+  if(IsHosting() && m_start_game_on_update && Settings::Instance().GetNetPlayClient()->DoAllPlayersHaveGame()){
     m_start_game_on_update = false;
-    OnStart();
+    if (Core::IsRunning())
+      return;
+    // Wait for a bit to allow client to update
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    OnPadBufferChanged(m_max_recommended_buffer);
+    QueueOnObject(this, [this] {
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+      this->OnStart();
+    });
+
   }
 }
 
@@ -938,10 +954,11 @@ void NetPlayDialog::OnPlayerConnect(const std::string& player)
 {
   DisplayMessage(tr("%1 has joined").arg(QString::fromStdString(player)), "darkcyan");
 
-  // Disabled for now
-//  if(m_player_count >= 1 && m_auto_start_game_action->isChecked() && IsHosting()) {
-//    m_start_game_on_update = true;
-//  }
+  if(m_player_count >= 1 && m_auto_start_game_action->isChecked() && IsHosting()) {
+    if (Core::IsRunning())
+      return;
+    m_start_game_on_update = true;
+  }
 }
 
 void NetPlayDialog::OnPlayerDisconnect(const std::string& player)

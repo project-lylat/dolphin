@@ -176,6 +176,7 @@ private:
   bool m_start_game_on_update = false;
   bool m_got_stop_request = true;
   int m_buffer_size = 0;
+  float m_max_recommended_buffer = 2.0f;
   int m_player_count = 0;
   int m_old_player_count = 0;
   bool m_host_input_authority = false;
