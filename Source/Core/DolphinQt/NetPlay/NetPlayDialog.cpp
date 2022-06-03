@@ -339,10 +339,12 @@ void NetPlayDialog::ConnectWidgets()
   // Chat
   connect(m_chat_send_button, &QPushButton::clicked, this, &NetPlayDialog::OnChat);
   connect(m_chat_type_edit, &QLineEdit::returnPressed, this, &NetPlayDialog::OnChat);
-  connect(m_chat_type_edit, &QLineEdit::textChanged, this,
-          [] {
-      //m_chat_send_button->setEnabled(!m_chat_type_edit->text().isEmpty());
-    });
+  connect(m_chat_type_edit, &QLineEdit::textChanged, this, [this] {
+    if (!m_chat_type_edit->text().isEmpty())
+    {
+      m_chat_send_button->setDefault(true);
+    }
+  });
 
   // Other
   connect(m_buffer_size_box, qOverload<int>(&QSpinBox::valueChanged), [this](int value) {
