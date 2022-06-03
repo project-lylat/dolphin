@@ -74,7 +74,7 @@ static std::recursive_mutex g_save_thread_mutex;
 static std::thread g_save_thread;
 
 // Don't forget to increase this after doing changes on the savestate system
-constexpr u32 STATE_VERSION = 139;  // Last changed in PR 8350
+constexpr u32 STATE_VERSION = 141;  // Last changed in PR 8067
 
 // Maps savestate versions to Dolphin versions.
 // Versions after 42 don't need to be added to this list,
@@ -156,7 +156,7 @@ static void DoState(PointerWrap& p)
             "This savestate was created using an incompatible version of Dolphin" :
             "This savestate was created using the incompatible version " + version_created_by;
     Core::DisplayMessage(message, OSD::Duration::NORMAL);
-    p.SetMode(PointerWrap::MODE_MEASURE);
+    p.SetMeasureMode();
     return;
   }
 
@@ -168,7 +168,7 @@ static void DoState(PointerWrap& p)
     OSD::AddMessage(fmt::format("Cannot load a savestate created under {} mode in {} mode",
                                 is_wii ? "Wii" : "GC", is_wii_currently ? "Wii" : "GC"),
                     OSD::Duration::NORMAL, OSD::Color::RED);
-    p.SetMode(PointerWrap::MODE_MEASURE);
+    p.SetMeasureMode();
     return;
   }
 
@@ -186,7 +186,7 @@ static void DoState(PointerWrap& p)
                                 Memory::GetExRamSizeReal(), Memory::GetExRamSizeReal() / 0x100000U,
                                 state_mem1_size, state_mem1_size / 0x100000U, state_mem2_size,
                                 state_mem2_size / 0x100000U));
-    p.SetMode(PointerWrap::MODE_MEASURE);
+    p.SetMeasureMode();
     return;
   }
 
@@ -225,8 +225,8 @@ void LoadFromBuffer(std::vector<u8>& buffer)
 
   Core::RunOnCPUThread(
       [&] {
-        u8* ptr = &buffer[0];
-        PointerWrap p(&ptr, PointerWrap::MODE_READ);
+        u8* ptr = buffer.data();
+        PointerWrap p(&ptr, buffer.size(), PointerWrap::Mode::Read);
         DoState(p);
       },
       true);
@@ -237,14 +237,14 @@ void SaveToBuffer(std::vector<u8>& buffer)
   Core::RunOnCPUThread(
       [&] {
         u8* ptr = nullptr;
-        PointerWrap p(&ptr, PointerWrap::MODE_MEASURE);
+        PointerWrap p_measure(&ptr, 0, PointerWrap::Mode::Measure);
 
-        DoState(p);
+        DoState(p_measure);
         const size_t buffer_size = reinterpret_cast<size_t>(ptr);
         buffer.resize(buffer_size);
 
-        ptr = &buffer[0];
-        p.SetMode(PointerWrap::MODE_WRITE);
+        ptr = buffer.data();
+        PointerWrap p(&ptr, buffer_size, PointerWrap::Mode::Write);
         DoState(p);
       },
       true);
@@ -412,20 +412,22 @@ void SaveAs(const std::string& filename, bool wait)
       [&] {
         // Measure the size of the buffer.
         u8* ptr = nullptr;
-        PointerWrap p(&ptr, PointerWrap::MODE_MEASURE);
-        DoState(p);
+        PointerWrap p_measure(&ptr, 0, PointerWrap::Mode::Measure);
+        DoState(p_measure);
         const size_t buffer_size = reinterpret_cast<size_t>(ptr);
 
         // Then actually do the write.
+        bool is_write_mode;
         {
           std::lock_guard lk(g_cs_current_buffer);
           g_current_buffer.resize(buffer_size);
-          ptr = &g_current_buffer[0];
-          p.SetMode(PointerWrap::MODE_WRITE);
+          ptr = g_current_buffer.data();
+          PointerWrap p(&ptr, buffer_size, PointerWrap::Mode::Write);
           DoState(p);
+          is_write_mode = p.IsWriteMode();
         }
 
-        if (p.GetMode() == PointerWrap::MODE_WRITE)
+        if (is_write_mode)
         {
           Core::DisplayMessage("Saving State...", 1000);
 
@@ -588,11 +590,11 @@ void LoadAs(const std::string& filename)
 
           if (!buffer.empty())
           {
-            u8* ptr = &buffer[0];
-            PointerWrap p(&ptr, PointerWrap::MODE_READ);
+            u8* ptr = buffer.data();
+            PointerWrap p(&ptr, buffer.size(), PointerWrap::Mode::Read);
             DoState(p);
             loaded = true;
-            loadedSuccessfully = (p.GetMode() == PointerWrap::MODE_READ);
+            loadedSuccessfully = p.IsReadMode();
           }
         }
 

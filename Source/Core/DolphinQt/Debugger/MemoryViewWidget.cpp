@@ -5,10 +5,12 @@
 
 #include <QApplication>
 #include <QClipboard>
+#include <QHBoxLayout>
 #include <QHeaderView>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QScrollBar>
+#include <QTableWidget>
 #include <QtGlobal>
 
 #include <cmath>
@@ -28,20 +30,128 @@
 // 120; i.e., 120 units * 1/8 = 15 degrees." (http://doc.qt.io/qt-5/qwheelevent.html#angleDelta)
 constexpr double SCROLL_FRACTION_DEGREES = 15.;
 
-MemoryViewWidget::MemoryViewWidget(QWidget* parent) : QTableWidget(parent)
-{
-  horizontalHeader()->hide();
-  verticalHeader()->hide();
-  setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-  setShowGrid(false);
+constexpr auto USER_ROLE_IS_ROW_BREAKPOINT_CELL = Qt::UserRole;
+constexpr auto USER_ROLE_CELL_ADDRESS = Qt::UserRole + 1;
+constexpr auto USER_ROLE_HAS_VALUE = Qt::UserRole + 2;
 
-  setContextMenuPolicy(Qt::CustomContextMenu);
+// Numbers for the scrollbar. These affect how much big the draggable part of the scrollbar is, how
+// smooth it scrolls, and how much memory it traverses while dragging.
+constexpr int SCROLLBAR_MINIMUM = 0;
+constexpr int SCROLLBAR_PAGESTEP = 250;
+constexpr int SCROLLBAR_MAXIMUM = 20000;
+constexpr int SCROLLBAR_CENTER = SCROLLBAR_MAXIMUM / 2;
+
+class MemoryViewTable final : public QTableWidget
+{
+public:
+  explicit MemoryViewTable(MemoryViewWidget* parent) : QTableWidget(parent), m_view(parent)
+  {
+    horizontalHeader()->hide();
+    verticalHeader()->hide();
+    setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    setShowGrid(false);
+    setContextMenuPolicy(Qt::CustomContextMenu);
+    setSelectionMode(SingleSelection);
+
+    connect(this, &MemoryViewTable::customContextMenuRequested, m_view,
+            &MemoryViewWidget::OnContextMenu);
+  }
+
+  void resizeEvent(QResizeEvent* event) override
+  {
+    QTableWidget::resizeEvent(event);
+    m_view->Update();
+  }
+
+  void keyPressEvent(QKeyEvent* event) override
+  {
+    switch (event->key())
+    {
+    case Qt::Key_Up:
+      m_view->m_address -= m_view->m_bytes_per_row;
+      m_view->Update();
+      return;
+    case Qt::Key_Down:
+      m_view->m_address += m_view->m_bytes_per_row;
+      m_view->Update();
+      return;
+    case Qt::Key_PageUp:
+      m_view->m_address -= this->rowCount() * m_view->m_bytes_per_row;
+      m_view->Update();
+      return;
+    case Qt::Key_PageDown:
+      m_view->m_address += this->rowCount() * m_view->m_bytes_per_row;
+      m_view->Update();
+      return;
+    default:
+      QWidget::keyPressEvent(event);
+      break;
+    }
+  }
+
+  void wheelEvent(QWheelEvent* event) override
+  {
+    auto delta =
+        -static_cast<int>(std::round((event->angleDelta().y() / (SCROLL_FRACTION_DEGREES * 8))));
+
+    if (delta == 0)
+      return;
+
+    m_view->m_address += delta * m_view->m_bytes_per_row;
+    m_view->Update();
+  }
+
+  void mousePressEvent(QMouseEvent* event) override
+  {
+    if (event->button() != Qt::LeftButton)
+      return;
+
+    auto* item = this->itemAt(event->pos());
+    if (!item)
+      return;
+
+    if (item->data(USER_ROLE_IS_ROW_BREAKPOINT_CELL).toBool())
+    {
+      const u32 address = item->data(USER_ROLE_CELL_ADDRESS).toUInt();
+      m_view->ToggleBreakpoint(address, true);
+      m_view->Update();
+    }
+    else
+    {
+      QTableWidget::mousePressEvent(event);
+    }
+  }
+
+private:
+  MemoryViewWidget* m_view;
+};
+
+MemoryViewWidget::MemoryViewWidget(QWidget* parent) : QWidget(parent)
+{
+  auto* layout = new QHBoxLayout();
+  layout->setContentsMargins(0, 0, 0, 0);
+
+  m_table = new MemoryViewTable(this);
+  layout->addWidget(m_table);
+
+  // Since the Memory View is infinitely long -- it wraps around -- we can't use a normal scroll
+  // bar, so this initializes a custom one that is always centered but otherwise still behaves more
+  // or less like a regular scrollbar.
+  m_scrollbar = new QScrollBar(this);
+  m_scrollbar->setRange(SCROLLBAR_MINIMUM, SCROLLBAR_MAXIMUM);
+  m_scrollbar->setPageStep(SCROLLBAR_PAGESTEP);
+  m_scrollbar->setValue(SCROLLBAR_CENTER);
+  connect(m_scrollbar, &QScrollBar::actionTriggered, this,
+          &MemoryViewWidget::ScrollbarActionTriggered);
+  connect(m_scrollbar, &QScrollBar::sliderReleased, this,
+          &MemoryViewWidget::ScrollbarSliderReleased);
+  layout->addWidget(m_scrollbar);
+
+  this->setLayout(layout);
 
   connect(&Settings::Instance(), &Settings::DebugFontChanged, this, &MemoryViewWidget::UpdateFont);
   connect(&Settings::Instance(), &Settings::EmulationStateChanged, this, [this] { Update(); });
   connect(Host::GetInstance(), &Host::UpdateDisasmDialog, this, &MemoryViewWidget::Update);
-  connect(this, &MemoryViewWidget::customContextMenuRequested, this,
-          &MemoryViewWidget::OnContextMenu);
   connect(&Settings::Instance(), &Settings::ThemeChanged, this, &MemoryViewWidget::Update);
 
   // Also calls update.
@@ -60,11 +170,11 @@ void MemoryViewWidget::UpdateFont()
 #else
   m_font_width = fm.width(QLatin1Char('0'));
 #endif
-  setFont(Settings::Instance().GetDebugFont());
+  m_table->setFont(Settings::Instance().GetDebugFont());
   Update();
 }
 
-static int GetTypeSize(MemoryViewWidget::Type type)
+constexpr int GetTypeSize(MemoryViewWidget::Type type)
 {
   switch (type)
   {
@@ -83,143 +193,208 @@ static int GetTypeSize(MemoryViewWidget::Type type)
   case MemoryViewWidget::Type::Float32:
     return 4;
   case MemoryViewWidget::Type::Double:
+  case MemoryViewWidget::Type::Hex64:
     return 8;
   default:
     return 1;
   }
 }
 
-static int GetCharacterCount(MemoryViewWidget::Type type)
+constexpr int GetCharacterCount(MemoryViewWidget::Type type)
 {
+  // Max number of characters +1 for spacing between columns.
   switch (type)
   {
-  case MemoryViewWidget::Type::ASCII:
-    return 1;
-  case MemoryViewWidget::Type::Hex8:
+  case MemoryViewWidget::Type::ASCII:  // A
     return 2;
-  case MemoryViewWidget::Type::Unsigned8:
+  case MemoryViewWidget::Type::Hex8:  // Byte = FF
     return 3;
-  case MemoryViewWidget::Type::Hex16:
-  case MemoryViewWidget::Type::Signed8:
+  case MemoryViewWidget::Type::Unsigned8:  // UCHAR_MAX = 255
     return 4;
-  case MemoryViewWidget::Type::Unsigned16:
+  case MemoryViewWidget::Type::Hex16:    // 2 Bytes = FFFF
+  case MemoryViewWidget::Type::Signed8:  // CHAR_MIN = -128
     return 5;
-  case MemoryViewWidget::Type::Signed16:
+  case MemoryViewWidget::Type::Unsigned16:  // USHORT_MAX = 65535
     return 6;
-  case MemoryViewWidget::Type::Hex32:
-    return 8;
-  case MemoryViewWidget::Type::Float32:
+  case MemoryViewWidget::Type::Signed16:  // SHORT_MIN = -32768
+    return 7;
+  case MemoryViewWidget::Type::Hex32:  // 4 Bytes = FFFFFFFF
     return 9;
-  case MemoryViewWidget::Type::Double:
-  case MemoryViewWidget::Type::Unsigned32:
-  case MemoryViewWidget::Type::Signed32:
-    return 10;
+  case MemoryViewWidget::Type::Float32:     // Rounded and Negative FLT_MAX = -3.403e+38
+  case MemoryViewWidget::Type::Unsigned32:  // UINT_MAX = 4294967295
+    return 11;
+  case MemoryViewWidget::Type::Double:    // Rounded and Negative DBL_MAX = -1.798e+308
+  case MemoryViewWidget::Type::Signed32:  // INT_MIN = -2147483648
+    return 12;
+  case MemoryViewWidget::Type::Hex64:  // For dual_view + Double. 8 Bytes = FFFFFFFFFFFFFFFF
+    return 17;
   default:
-    return 8;
+    return 10;
   }
 }
 
 void MemoryViewWidget::Update()
 {
-  clearSelection();
+  m_table->clearSelection();
 
   u32 address = m_address;
   address = Common::AlignDown(address, m_alignment);
 
   const int data_columns = m_bytes_per_row / GetTypeSize(m_type);
 
-  setColumnCount(2 + data_columns);
+  if (m_dual_view)
+    m_table->setColumnCount(2 + 2 * data_columns);
+  else
+    m_table->setColumnCount(2 + data_columns);
 
-  if (rowCount() == 0)
-    setRowCount(1);
+  if (m_table->rowCount() == 0)
+    m_table->setRowCount(1);
 
   // This sets all row heights and determines horizontal ascii spacing.
-  verticalHeader()->setDefaultSectionSize(m_font_vspace - 1);
-  verticalHeader()->setMinimumSectionSize(m_font_vspace - 1);
-  horizontalHeader()->setMinimumSectionSize(m_font_width * 2);
+  m_table->verticalHeader()->setDefaultSectionSize(m_font_vspace - 1);
+  m_table->verticalHeader()->setMinimumSectionSize(m_font_vspace - 1);
+  m_table->horizontalHeader()->setMinimumSectionSize(m_font_width * 2);
 
   const AddressSpace::Accessors* accessors = AddressSpace::GetAccessors(m_address_space);
 
   // Calculate (roughly) how many rows will fit in our table
-  int rows = std::round((height() / static_cast<float>(rowHeight(0))) - 0.25);
+  const int rows =
+      std::round((m_table->height() / static_cast<float>(m_table->rowHeight(0))) - 0.25);
 
-  setRowCount(rows);
+  m_table->setRowCount(rows);
 
   for (int i = 0; i < rows; i++)
   {
-    u32 row_address = address - ((rowCount() / 2) * m_bytes_per_row) + i * m_bytes_per_row;
+    u32 row_address = address - ((m_table->rowCount() / 2) * m_bytes_per_row) + i * m_bytes_per_row;
 
     auto* bp_item = new QTableWidgetItem;
     bp_item->setFlags(Qt::ItemIsEnabled);
-    bp_item->setData(Qt::UserRole, row_address);
+    bp_item->setData(USER_ROLE_IS_ROW_BREAKPOINT_CELL, true);
+    bp_item->setData(USER_ROLE_CELL_ADDRESS, row_address);
+    bp_item->setData(USER_ROLE_HAS_VALUE, false);
 
-    setItem(i, 0, bp_item);
+    m_table->setItem(i, 0, bp_item);
 
     auto* row_item =
         new QTableWidgetItem(QStringLiteral("%1").arg(row_address, 8, 16, QLatin1Char('0')));
 
-    row_item->setData(Qt::UserRole, row_address);
     row_item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+    row_item->setData(USER_ROLE_IS_ROW_BREAKPOINT_CELL, false);
+    row_item->setData(USER_ROLE_CELL_ADDRESS, row_address);
+    row_item->setData(USER_ROLE_HAS_VALUE, false);
 
-    setItem(i, 1, row_item);
+    m_table->setItem(i, 1, row_item);
 
     if (row_address == address)
       row_item->setSelected(true);
 
     if (Core::GetState() != Core::State::Paused || !accessors->IsValidAddress(row_address))
     {
-      for (int c = 2; c < columnCount(); c++)
+      for (int c = 2; c < m_table->columnCount(); c++)
       {
         auto* item = new QTableWidgetItem(QStringLiteral("-"));
-        item->setFlags(Qt::ItemIsEnabled);
-        item->setData(Qt::UserRole, row_address);
+        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        item->setData(USER_ROLE_IS_ROW_BREAKPOINT_CELL, false);
+        item->setData(USER_ROLE_CELL_ADDRESS, row_address);
+        item->setData(USER_ROLE_HAS_VALUE, false);
 
-        setItem(i, c, item);
+        m_table->setItem(i, c, item);
       }
 
       continue;
     }
+  }
 
-    bool row_breakpoint = true;
+  int starting_column = 2;
+
+  if (m_dual_view)
+  {
+    // Match left columns to number of right columns.
+    Type left_type = Type::Hex32;
+    if (GetTypeSize(m_type) == 1)
+      left_type = Type::Hex8;
+    else if (GetTypeSize(m_type) == 2)
+      left_type = Type::Hex16;
+    else if (GetTypeSize(m_type) == 8)
+      left_type = Type::Hex64;
+
+    UpdateColumns(left_type, starting_column);
+
+    const int column_count = m_bytes_per_row / GetTypeSize(left_type);
+
+    // Update column width
+    for (int i = starting_column; i < starting_column + column_count - 1; i++)
+      m_table->setColumnWidth(i, m_font_width * GetCharacterCount(left_type));
+
+    // Extra spacing between dual views.
+    m_table->setColumnWidth(starting_column + column_count - 1,
+                            m_font_width * (GetCharacterCount(left_type) + 2));
+
+    starting_column += column_count;
+  }
+
+  UpdateColumns(m_type, starting_column);
+  UpdateBreakpointTags();
+
+  m_table->setColumnWidth(0, m_table->rowHeight(0));
+
+  for (int i = starting_column; i <= m_table->columnCount(); i++)
+    m_table->setColumnWidth(i, m_font_width * GetCharacterCount(m_type));
+
+  m_table->viewport()->update();
+  m_table->update();
+  update();
+}
+
+void MemoryViewWidget::UpdateColumns(Type type, int first_column)
+{
+  if (Core::GetState() != Core::State::Paused)
+    return;
+
+  const int data_columns = m_bytes_per_row / GetTypeSize(type);
+  const AddressSpace::Accessors* accessors = AddressSpace::GetAccessors(m_address_space);
+
+  auto text_alignment = Qt::AlignLeft;
+  if (type == Type::Signed32 || type == Type::Unsigned32 || type == Type::Signed16 ||
+      type == Type::Unsigned16 || type == Type::Signed8 || type == Type::Unsigned8)
+  {
+    text_alignment = Qt::AlignRight;
+  }
+
+  for (int i = 0; i < m_table->rowCount(); i++)
+  {
+    u32 row_address = m_table->item(i, 1)->data(USER_ROLE_CELL_ADDRESS).toUInt();
+    if (!accessors->IsValidAddress(row_address))
+      continue;
 
     auto update_values = [&](auto value_to_string) {
       for (int c = 0; c < data_columns; c++)
       {
         auto* cell_item = new QTableWidgetItem;
         cell_item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        cell_item->setTextAlignment(text_alignment);
 
-        if (m_type == Type::Signed32 || m_type == Type::Unsigned32 || m_type == Type::Signed16 ||
-            m_type == Type::Unsigned16 || m_type == Type::Signed8 || m_type == Type::Unsigned8)
-          cell_item->setTextAlignment(Qt::AlignRight);
+        const u32 cell_address = row_address + c * GetTypeSize(type);
 
-        const u32 cell_address = row_address + c * GetTypeSize(m_type);
-
-        // GetMemCheck is more accurate than OverlapsMemcheck, unless standard alginments are
-        // enforced.
-        if (m_address_space == AddressSpace::Type::Effective &&
-            PowerPC::memchecks.GetMemCheck(cell_address, GetTypeSize(m_type)) != nullptr)
-        {
-          cell_item->setBackground(Qt::red);
-        }
-        else
-        {
-          row_breakpoint = false;
-        }
-        setItem(i, 2 + c, cell_item);
+        m_table->setItem(i, first_column + c, cell_item);
 
         if (accessors->IsValidAddress(cell_address))
         {
           cell_item->setText(value_to_string(cell_address));
-          cell_item->setData(Qt::UserRole, cell_address);
+          cell_item->setData(USER_ROLE_IS_ROW_BREAKPOINT_CELL, false);
+          cell_item->setData(USER_ROLE_CELL_ADDRESS, cell_address);
+          cell_item->setData(USER_ROLE_HAS_VALUE, true);
         }
         else
         {
-          cell_item->setFlags({});
           cell_item->setText(QStringLiteral("-"));
+          cell_item->setData(USER_ROLE_IS_ROW_BREAKPOINT_CELL, false);
+          cell_item->setData(USER_ROLE_CELL_ADDRESS, cell_address);
+          cell_item->setData(USER_ROLE_HAS_VALUE, false);
         }
       }
     };
-    switch (m_type)
+    switch (type)
     {
     case Type::Hex8:
       update_values([&accessors](u32 address) {
@@ -244,6 +419,12 @@ void MemoryViewWidget::Update()
       update_values([&accessors](u32 address) {
         const u32 value = accessors->ReadU32(address);
         return QStringLiteral("%1").arg(value, 8, 16, QLatin1Char('0'));
+      });
+      break;
+    case Type::Hex64:
+      update_values([&accessors](u32 address) {
+        const u64 value = accessors->ReadU64(address);
+        return QStringLiteral("%1").arg(value, 16, 16, QLatin1Char('0'));
       });
       break;
     case Type::Unsigned8:
@@ -295,29 +476,48 @@ void MemoryViewWidget::Update()
       });
       break;
     }
+  }
+}
+
+void MemoryViewWidget::UpdateBreakpointTags()
+{
+  if (Core::GetState() != Core::State::Paused)
+    return;
+
+  for (int i = 0; i < m_table->rowCount(); i++)
+  {
+    bool row_breakpoint = false;
+
+    for (int c = 2; c < m_table->columnCount(); c++)
+    {
+      // Pull address from cell itself, helpful for dual column view.
+      auto cell = m_table->item(i, c);
+      u32 address = cell->data(USER_ROLE_CELL_ADDRESS).toUInt();
+
+      if (address == 0)
+      {
+        row_breakpoint = false;
+        continue;
+      }
+
+      // In dual view the only sizes that dont match up on both left and right views are for
+      // Double, which uses two or four columns of hex32.
+      if (m_address_space == AddressSpace::Type::Effective &&
+          PowerPC::memchecks.GetMemCheck(address, GetTypeSize(m_type)) != nullptr)
+      {
+        row_breakpoint = true;
+        cell->setBackground(Qt::red);
+      }
+    }
 
     if (row_breakpoint)
     {
-      bp_item->setData(Qt::DecorationRole, Resources::GetScaledThemeIcon("debugger_breakpoint")
-                                               .pixmap(QSize(rowHeight(0) - 3, rowHeight(0) - 3)));
+      m_table->item(i, 0)->setData(
+          Qt::DecorationRole,
+          Resources::GetScaledThemeIcon("debugger_breakpoint")
+              .pixmap(QSize(m_table->rowHeight(0) - 3, m_table->rowHeight(0) - 3)));
     }
   }
-
-  setColumnWidth(0, rowHeight(0));
-
-  // Number of characters possible.
-  int max_length = GetCharacterCount(m_type);
-
-  // Column width is the max number of characters + 1 or 2 for the space between columns. A longer
-  // length means less columns, so a bigger spacing is fine.
-  max_length += max_length < 8 ? 1 : 2;
-  const int width = m_font_width * max_length;
-
-  for (int i = 2; i < columnCount(); i++)
-    setColumnWidth(i, width);
-
-  viewport()->update();
-  update();
 }
 
 void MemoryViewWidget::SetAddressSpace(AddressSpace::Type address_space)
@@ -336,11 +536,11 @@ AddressSpace::Type MemoryViewWidget::GetAddressSpace() const
   return m_address_space;
 }
 
-void MemoryViewWidget::SetDisplay(Type type, int bytes_per_row, int alignment)
+void MemoryViewWidget::SetDisplay(Type type, int bytes_per_row, int alignment, bool dual_view)
 {
   m_type = type;
   m_bytes_per_row = bytes_per_row;
-
+  m_dual_view = dual_view;
   if (alignment == 0)
     m_alignment = GetTypeSize(type);
   else
@@ -369,54 +569,29 @@ void MemoryViewWidget::SetBPLoggingEnabled(bool enabled)
   m_do_log = enabled;
 }
 
-void MemoryViewWidget::resizeEvent(QResizeEvent*)
+void MemoryViewWidget::ToggleBreakpoint(u32 addr, bool row)
 {
-  Update();
-}
+  if (m_address_space != AddressSpace::Type::Effective)
+    return;
 
-void MemoryViewWidget::keyPressEvent(QKeyEvent* event)
-{
-  switch (event->key())
+  const auto length = GetTypeSize(m_type);
+  const int breaks = row ? (m_bytes_per_row / length) : 1;
+  bool overlap = false;
+
+  // Row breakpoint should either remove any breakpoint left on the row, or activate all
+  // breakpoints.
+  if (row && PowerPC::memchecks.OverlapsMemcheck(addr, m_bytes_per_row))
+    overlap = true;
+
+  for (int i = 0; i < breaks; i++)
   {
-  case Qt::Key_Up:
-    m_address -= 16;
-    Update();
-    return;
-  case Qt::Key_Down:
-    m_address += 16;
-    Update();
-    return;
-  case Qt::Key_PageUp:
-    m_address -= rowCount() * 16;
-    Update();
-    return;
-  case Qt::Key_PageDown:
-    m_address += rowCount() * 16;
-    Update();
-    return;
-  default:
-    QWidget::keyPressEvent(event);
-    break;
-  }
-}
+    u32 address = addr + length * i;
+    TMemCheck* check_ptr = PowerPC::memchecks.GetMemCheck(address, length);
 
-u32 MemoryViewWidget::GetContextAddress() const
-{
-  return m_context_address;
-}
-
-void MemoryViewWidget::ToggleRowBreakpoint(bool row)
-{
-  TMemCheck check;
-
-  const u32 addr = row ? m_base_address : GetContextAddress();
-  const auto length = row ? m_bytes_per_row : GetTypeSize(m_type);
-
-  if (m_address_space == AddressSpace::Type::Effective)
-  {
-    if (!PowerPC::memchecks.OverlapsMemcheck(addr, length))
+    if (check_ptr == nullptr && !overlap)
     {
-      check.start_address = addr;
+      TMemCheck check;
+      check.start_address = address;
       check.end_address = check.start_address + length - 1;
       check.is_ranged = length > 0;
       check.is_break_on_read = (m_bp_type == BPType::ReadOnly || m_bp_type == BPType::ReadWrite);
@@ -426,9 +601,10 @@ void MemoryViewWidget::ToggleRowBreakpoint(bool row)
 
       PowerPC::memchecks.Add(check);
     }
-    else
+    else if (check_ptr != nullptr)
     {
-      PowerPC::memchecks.Remove(addr);
+      // Using the pointer fixes misaligned breakpoints (0x11 breakpoint in 0x10 aligned view).
+      PowerPC::memchecks.Remove(check_ptr->start_address);
     }
   }
 
@@ -436,59 +612,13 @@ void MemoryViewWidget::ToggleRowBreakpoint(bool row)
   Update();
 }
 
-void MemoryViewWidget::ToggleBreakpoint()
+void MemoryViewWidget::OnCopyAddress(u32 addr)
 {
-  ToggleRowBreakpoint(false);
-}
-
-void MemoryViewWidget::wheelEvent(QWheelEvent* event)
-{
-  auto delta =
-      -static_cast<int>(std::round((event->angleDelta().y() / (SCROLL_FRACTION_DEGREES * 8))));
-
-  if (delta == 0)
-    return;
-
-  m_address += delta * 16;
-  Update();
-}
-
-void MemoryViewWidget::mousePressEvent(QMouseEvent* event)
-{
-  auto* item_selected = itemAt(event->pos());
-  if (item_selected == nullptr)
-    return;
-
-  const u32 addr = item_selected->data(Qt::UserRole).toUInt();
-
-  m_context_address = addr;
-  m_base_address = item(row(item_selected), 1)->data(Qt::UserRole).toUInt();
-
-  switch (event->button())
-  {
-  case Qt::LeftButton:
-    if (column(item_selected) == 0)
-      ToggleRowBreakpoint(true);
-    else
-      SetAddress(m_base_address);
-
-    Update();
-    break;
-  default:
-    break;
-  }
-}
-
-void MemoryViewWidget::OnCopyAddress()
-{
-  u32 addr = GetContextAddress();
   QApplication::clipboard()->setText(QStringLiteral("%1").arg(addr, 8, 16, QLatin1Char('0')));
 }
 
-void MemoryViewWidget::OnCopyHex()
+void MemoryViewWidget::OnCopyHex(u32 addr)
 {
-  u32 addr = GetContextAddress();
-
   const auto length = GetTypeSize(m_type);
 
   const AddressSpace::Accessors* accessors = AddressSpace::GetAccessors(m_address_space);
@@ -498,30 +628,84 @@ void MemoryViewWidget::OnCopyHex()
       QStringLiteral("%1").arg(value, sizeof(u64) * 2, 16, QLatin1Char('0')).left(length * 2));
 }
 
-void MemoryViewWidget::OnContextMenu()
+void MemoryViewWidget::OnContextMenu(const QPoint& pos)
 {
+  auto* item_selected = m_table->itemAt(pos);
+
+  // We don't have a meaningful context menu to show for when the user right-clicks either free
+  // space in the table or the row breakpoint cell.
+  if (!item_selected || item_selected->data(USER_ROLE_IS_ROW_BREAKPOINT_CELL).toBool())
+    return;
+
+  const bool item_has_value = item_selected->data(USER_ROLE_HAS_VALUE).toBool();
+  const u32 addr = item_selected->data(USER_ROLE_CELL_ADDRESS).toUInt();
+
   auto* menu = new QMenu(this);
 
-  menu->addAction(tr("Copy Address"), this, &MemoryViewWidget::OnCopyAddress);
+  menu->addAction(tr("Copy Address"), this, [this, addr] { OnCopyAddress(addr); });
 
-  auto* copy_hex = menu->addAction(tr("Copy Hex"), this, &MemoryViewWidget::OnCopyHex);
+  auto* copy_hex = menu->addAction(tr("Copy Hex"), this, [this, addr] { OnCopyHex(addr); });
 
   const AddressSpace::Accessors* accessors = AddressSpace::GetAccessors(m_address_space);
-  copy_hex->setEnabled(Core::GetState() != Core::State::Uninitialized &&
-                       accessors->IsValidAddress(GetContextAddress()));
+  copy_hex->setEnabled(item_has_value && Core::GetState() != Core::State::Uninitialized &&
+                       accessors->IsValidAddress(addr));
 
-  menu->addSeparator();
-
-  menu->addAction(tr("Show in code"), this, [this] { emit ShowCode(GetContextAddress()); });
-
-  menu->addSeparator();
-
-  menu->addAction(tr("Add to watch"), this, [this] {
-    const u32 address = GetContextAddress();
-    const QString name = QStringLiteral("mem_%1").arg(address, 8, 16, QLatin1Char('0'));
-    emit RequestWatch(name, address);
+  auto* copy_value = menu->addAction(tr("Copy Value"), this, [this, &pos] {
+    // Re-fetch the item in case the underlying table has refreshed since the menu was opened.
+    auto* item = m_table->itemAt(pos);
+    if (item && item->data(USER_ROLE_HAS_VALUE).toBool())
+      QApplication::clipboard()->setText(item->text());
   });
-  menu->addAction(tr("Toggle Breakpoint"), this, &MemoryViewWidget::ToggleBreakpoint);
+  copy_value->setEnabled(item_has_value);
+
+  menu->addSeparator();
+
+  menu->addAction(tr("Show in code"), this, [this, addr] { emit ShowCode(addr); });
+
+  menu->addSeparator();
+
+  menu->addAction(tr("Add to watch"), this, [this, addr] {
+    const QString name = QStringLiteral("mem_%1").arg(addr, 8, 16, QLatin1Char('0'));
+    emit RequestWatch(name, addr);
+  });
+
+  menu->addAction(tr("Toggle Breakpoint"), this, [this, addr] { ToggleBreakpoint(addr, false); });
 
   menu->exec(QCursor::pos());
+}
+
+void MemoryViewWidget::ScrollbarActionTriggered(int action)
+{
+  const int difference = m_scrollbar->sliderPosition() - m_scrollbar->value();
+  if (difference == 0)
+    return;
+
+  if (m_scrollbar->isSliderDown())
+  {
+    // User is currently dragging the scrollbar.
+    // Adjust the memory view by the exact drag difference.
+    SetAddress(m_address + difference * m_bytes_per_row);
+  }
+  else
+  {
+    if (std::abs(difference) == 1)
+    {
+      // User clicked the arrows at the top or bottom, go up/down one row.
+      SetAddress(m_address + difference * m_bytes_per_row);
+    }
+    else
+    {
+      // User clicked the free part of the scrollbar, go up/down one page.
+      SetAddress(m_address + (difference < 0 ? -1 : 1) * m_bytes_per_row * m_table->rowCount());
+    }
+
+    // Manually reset the draggable part of the bar back to the center.
+    m_scrollbar->setSliderPosition(SCROLLBAR_CENTER);
+  }
+}
+
+void MemoryViewWidget::ScrollbarSliderReleased()
+{
+  // Reset the draggable part of the bar back to the center.
+  m_scrollbar->setValue(SCROLLBAR_CENTER);
 }
