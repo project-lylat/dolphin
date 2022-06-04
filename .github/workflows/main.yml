@@ -48,6 +48,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: | 
           powershell -NoLogo -Sta -NoProfile -NonInteractive -ExecutionPolicy Unrestricted -Command ./install-windows-sdk.ps1 22621
+          dir "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64"
       - name: "Build ${{ matrix.build_type }} Dolphin"
         shell: cmd
         working-directory: ${{ github.workspace }}
