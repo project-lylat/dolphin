@@ -139,7 +139,7 @@ jobs:
           libcurl4-openssl-dev \
           libegl1-mesa-dev \
           libpng-dev \
-          qtbase5-private-dev \
+          qtbase6-private-dev \
           libxxf86vm-dev \
           x11proto-xinerama-dev
       - name: "Build ${{ matrix.build_type }} Dolphin"
@@ -215,7 +215,7 @@ jobs:
           libao \
           sound-touch \
           hidapi \
-          qt@5
+          qt@6
       - name: "Build ${{ matrix.build_type }} Dolphin"
         if: success()
         shell: bash
