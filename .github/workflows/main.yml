@@ -85,7 +85,7 @@ jobs:
             artifact_name: linux
             build_config: netplay
     name: "Linux ${{ matrix.build_type }}"
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-22.04
     steps:
       - name: "Checkout"
         uses: actions/checkout@v2
@@ -107,7 +107,6 @@ jobs:
           sudo apt update
           sudo apt install -y software-properties-common 
           sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo add-apt-repository ppa:rncbc/qt6.3-static-bionic
           sudo apt install -y gcc-11 g++-11
           sudo apt update
           sudo apt install \
@@ -143,7 +142,7 @@ jobs:
           libcurl4-openssl-dev \
           libegl1-mesa-dev \
           libpng-dev \
-          qtbase6-static \
+          qt6-base-dev \
           libxxf86vm-dev \
           x11proto-xinerama-dev
       - name: "Build ${{ matrix.build_type }} Dolphin"
