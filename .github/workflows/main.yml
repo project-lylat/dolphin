@@ -43,6 +43,11 @@ jobs:
           echo "CURR_DATE=$(date +%Y-%m-%d)" >> $GITHUB_ENV
       - uses: seanmiddleditch/gha-setup-ninja@master
       - uses: egor-tensin/vs-shell@v2
+      - name: "Install Windows SDK"
+        shell: cmd
+        working-directory: ${{ github.workspace }}
+        run: | 
+          powershell -NoLogo -Sta -NoProfile -NonInteractive -ExecutionPolicy Unrestricted -Command ./install-windows-sdk.ps1 22621
       - name: "Build ${{ matrix.build_type }} Dolphin"
         shell: cmd
         working-directory: ${{ github.workspace }}
