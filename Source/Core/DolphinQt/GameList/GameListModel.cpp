@@ -9,6 +9,7 @@
 #include <QRegularExpression>
 
 #include "Core/Config/MainSettings.h"
+#include "Core/Common/StringUtil.h"
 
 #include "DiscIO/Enums.h"
 
@@ -18,6 +19,7 @@
 
 #include "UICommon/GameFile.h"
 #include "UICommon/UICommon.h"
+
 
 const QSize GAMECUBE_BANNER_SIZE(96, 32);
 
