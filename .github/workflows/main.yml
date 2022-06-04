@@ -139,7 +139,7 @@ jobs:
           libcurl4-openssl-dev \
           libegl1-mesa-dev \
           libpng-dev \
-          qtbase6-private-dev \
+          qt6-base-dev \
           libxxf86vm-dev \
           x11proto-xinerama-dev
       - name: "Build ${{ matrix.build_type }} Dolphin"
