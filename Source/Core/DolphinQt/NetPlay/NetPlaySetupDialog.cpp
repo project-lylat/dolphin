@@ -71,7 +71,11 @@ void LylatWidget::dropEvent(QDropEvent* event)
     return;
 
   auto jsonPath = mimeData->text().toStdString();
+#ifdef _WIN32
+  jsonPath = ReplaceAll(std::move(jsonPath), "file:///", "");
+#else
   jsonPath = ReplaceAll(std::move(jsonPath), "file://", "");
+#endif
   auto user = LylatUser::GetUserFromDisk(jsonPath);
   if (!user)
     return;
