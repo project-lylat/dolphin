@@ -366,6 +366,8 @@ void MainWindow::ShutdownControllers()
 {
   m_hotkey_scheduler->Stop();
 
+  Settings::Instance().UnregisterDevicesChangedCallback();
+
   Pad::Shutdown();
   Pad::ShutdownGBA();
   Keyboard::Shutdown();
