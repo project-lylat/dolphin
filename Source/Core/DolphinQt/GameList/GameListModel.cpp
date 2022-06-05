@@ -9,7 +9,7 @@
 #include <QRegularExpression>
 
 #include "Core/Config/MainSettings.h"
-#include "Core/Common/StringUtil.h"
+#include "Common/StringUtil.h"
 
 #include "DiscIO/Enums.h"
 
