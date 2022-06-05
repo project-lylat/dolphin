@@ -376,7 +376,6 @@ int GameListModel::FindGameIndex(const std::string& path) const
     if (StringToPath(gamePath) == StringToPath(path)) return i;
 #else
     if (gamePath == path) return i;
-  }
 #endif
 
     return -1;
