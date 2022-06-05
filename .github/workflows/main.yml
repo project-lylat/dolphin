@@ -55,12 +55,8 @@ jobs:
         run: |
           mkdir build
           cd build
-          dir ..\Externals\Qt\Qt6.3.0\x64\lib\cmake\Qt6\
           cmake ${{ matrix.build_config }} ..
           ninja
-# SET PATH=%PATH%;C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64;C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x86;C:\Program Files\7-Zip;C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin;C:\Python27\;C:\Python27\Scripts;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja;C:\Program Files\Microsoft VS Code\bin;C:\Program Files\Git\cmd
-# cd ./Source
-# msbuild.exe /v:m /p:Platform=x64 /p:Configuration=Release dolphin-emu.sln
       - name: "Package ${{ matrix.build_type }}"
         working-directory: ${{ github.workspace }}
         run: |
