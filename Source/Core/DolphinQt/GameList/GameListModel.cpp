@@ -372,10 +372,15 @@ int GameListModel::FindGameIndex(const std::string& path) const
   {
     const auto gamePath = m_games[i]->GetFilePath();
 
-    if (StringToPath(gamePath) == StringToPath(path))
-      return i;
+#ifdef HAS_STD_FILESYSTEM
+    if (StringToPath(gamePath) == StringToPath(path)) return i;
+#else
+    if (gamePath == path) return i;
   }
-  return -1;
+#endif
+
+    return -1;
+  }
 }
 
 std::shared_ptr<const UICommon::GameFile>
