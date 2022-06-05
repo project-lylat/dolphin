@@ -22,7 +22,7 @@ jobs:
         include:
           - build_type: Netplay
             artifact_name: windows64-netplay
-            build_config: -G "Ninja" -DCMAKE_SYSTEM_VERSION=10.0.22621 -DCMAKE_BUILD_TYPE="Release" -DQt6_DIR:STRING="D:\a\dolphin\dolphin\Externals\Qt\Qt6.3.0\x64\lib\cmake\Qt6\"
+            build_config: -G "Ninja" -DCMAKE_SYSTEM_VERSION="10.0.22621" -DCMAKE_BUILD_TYPE="Release" -DQt6_DIR:STRING="D:\a\dolphin\dolphin\Externals\Qt\Qt6.3.0\x64\lib\cmake\Qt6\"
     env:
       DXSDK_DIR: "C:\\Program Files (x86)\\Microsoft DirectX SDK (June 2010)\\"
     name: "Windows ${{ matrix.build_type }}"
