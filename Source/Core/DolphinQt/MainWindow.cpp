@@ -782,7 +782,24 @@ void MainWindow::SearchAndOpen()
   QStringList files = PromptFileNames();
   if (!files.isEmpty())
   {
-    std::shared_ptr<const UICommon::GameFile> game = m_game_list->FindGame(files[0].toStdString());
+    auto gameStr = files[0].toStdString();
+    std::shared_ptr<const UICommon::GameFile> game = m_game_list->FindGame(gameStr);
+
+    if (!game)
+    {
+      game = m_game_list->GetGameListModel().AddOrGetFromCache(gameStr);
+    }
+
+
+    if (!game)
+    {
+      ModalMessageBox::critical(
+          nullptr, QStringLiteral("Error"),
+          QStringLiteral("Unable to start matchmaking with %1. Ensure the file exists.")
+              .arg(QString::fromStdString(gameStr)));
+      return;
+    }
+
     NetPlaySearch(*game);
   }
 }
