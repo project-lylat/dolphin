@@ -116,6 +116,7 @@ jobs:
           pkg-config \
           git \
           wget \
+          libfuse2 \
           libao-dev \
           libasound2-dev \
           libavcodec-dev \
