@@ -217,6 +217,7 @@ static const std::map<u8, std::string> cSecondaryContactResult = {
     {0x1,  "Out-force"},
     {0x2,  "Out-tag"},
     {0x3,  "Foul"},
+    {0x4,  "Batter safe, runner out"},
     {0x7,  "Single"},
     {0x8,  "Double"},
     {0x9,  "Triple"},

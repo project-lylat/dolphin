@@ -31,7 +31,8 @@ void StatTracker::lookForTriggerEvents(){
                  && (Memory::Read_U8(aAB_PlayIsReadyToStart) == 1)          //Pitcher ready to pitch, vars initialized
                  && (Memory::Read_U8(aAB_BatterPort) != 0)                  //BatterPort initialized
                  && (Memory::Read_U8(aAB_Inning) != 0)                      //Inning initialized
-                 && (Memory::Read_U8(aAB_IsReplay) == 0))
+                 && (Memory::Read_U8(aAB_IsReplay) == 0)
+                 && (!Memory::Read_U8(aEndOfGameFlag)))
                  ||  Memory::Read_U8(aAB_PitchThrown)){
 
                     if (m_game_info.event_num == 0) {
@@ -359,7 +360,7 @@ void StatTracker::lookForTriggerEvents(){
             }
             break;
         case (GAME_STATE::INGAME):
-            if ((Memory::Read_U8(aEndOfGameFlag) == 1)){
+            if ((Memory::Read_U8(aEndOfGameFlag) == 1) && (m_event_state == EVENT_STATE::GAME_OVER)){
                 logGameInfo();
                 std::cout << "Logging Character Stats" << std::endl;
 
@@ -765,11 +766,14 @@ void StatTracker::logFinalResults(Event& in_event){
         else if ((in_event.runner_batter->out_type == 2) || (in_event.runner_batter->out_type == 3)){
             contact->secondary_contact_result = in_event.runner_batter->out_type;
         }
+        else if ((in_event.runner_batter->out_type = 0) && (in_event.result_of_atbat == 4)){
+            contact->secondary_contact_result = in_event.result_of_atbat;
+        }
 
         if (contact->star_swing == 1){ contact->type_of_swing = 3; }
         else if (contact->charge_swing == 1){ contact->type_of_swing = 2; }
         else if (contact->bunt == 1){ contact->type_of_swing = 4; }
-        else if ((contact->swing == 1) 
+        else if ((contact->swing == 1)
             || (contact->type_of_contact != 0xFF) ) { contact->type_of_swing = 1; }
         else { contact->type_of_swing = 0; }
     }
@@ -827,7 +831,7 @@ std::string StatTracker::getStatJSON(bool inDecode){
     std::string stadium = (inDecode) ? "\"" + cStadiumIdToStadiumName.at(m_game_info.stadium) + "\"" : std::to_string(m_game_info.stadium);
     std::string start_date_time = (inDecode) ? m_game_info.start_local_date_time : m_game_info.start_unix_date_time;
     std::string end_date_time = (inDecode) ? m_game_info.end_local_date_time : m_game_info.end_unix_date_time;
-    json_stream << "  \"GameID\": \"" << std::hex << m_game_info.game_id << "\"," << std::endl;
+    json_stream << "  \"GameID\": \"" << m_game_info.game_id << "\"," << std::endl;
     json_stream << "  \"Date - Start\": \"" << start_date_time << "\"," << std::endl;
     json_stream << "  \"Date - End\": \"" << end_date_time << "\"," << std::endl;
     json_stream << "  \"Ranked\": " << std::to_string(m_game_info.ranked) << "," << std::endl;
