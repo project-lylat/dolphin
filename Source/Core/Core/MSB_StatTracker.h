@@ -974,10 +974,10 @@ public:
             
             File::WriteStringToFile(jsonPath, json);
 
-            jsonPath = getStatJsonPath("crash.");
-            json = getStatJSON(false);
+            //jsonPath = getStatJsonPath("crash.");
+            //json = getStatJSON(false);
             
-            File::WriteStringToFile(jsonPath, json);
+            //File::WriteStringToFile(jsonPath, json);
 
             //Clean up partial files
             jsonPath = getStatJsonPath("partial.");
