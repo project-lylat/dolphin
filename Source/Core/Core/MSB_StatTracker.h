@@ -959,7 +959,7 @@ public:
 
     //If mid-game, dump game
     void dumpGame(){
-        if ((Memory::Read_U32(aGameId) != 0) && m_game_info.game_active){
+        if ((Memory::Read_U32(aGameId) != 0) && (m_game_state == GAME_STATE::INGAME)){
             m_game_info.game_active = false;
             m_game_info.quitter_team = 2;
             logGameInfo();
