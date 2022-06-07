@@ -539,7 +539,7 @@ void SetNetplayerUserInfo()
   if (Memory::Read_U32(aGameId) != 0)
     return;
 
-  // tell the stat tracker what the new avg ping is
+  // tell the stat tracker who the players are
   if (!s_stat_tracker)
   {
     s_stat_tracker = std::make_unique<StatTracker>();
