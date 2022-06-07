@@ -166,6 +166,7 @@ void NetPlaySetupDialog::CreateMainLayout()
   m_region_combo->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
 
   m_status_label = new QLabel;
+  m_online_count = new QLabel;
   m_b_button_box = new QDialogButtonBox;
   m_button_refresh = new QPushButton(tr("Refresh"));
   m_edit_name = new QLineEdit;
@@ -191,6 +192,7 @@ void NetPlaySetupDialog::CreateMainLayout()
   filter_layout->addItem(new QSpacerItem(3, 1, QSizePolicy::Expanding), 3, 4);
   filter_layout->addWidget(m_check_hide_ingame, 4, 1, 1, -1);
 
+  layout->addWidget(m_online_count);
   layout->addWidget(m_table_widget);
   layout->addWidget(filter_box);
   layout->addWidget(m_status_label);
@@ -666,7 +668,7 @@ void NetPlaySetupDialog::UpdateListBrowser()
 
   m_table_widget->setRowCount(session_count);
 
-
+  int online_count = 0;
 
   for (int i = 0; i < session_count; i++)
   {
@@ -683,6 +685,8 @@ void NetPlaySetupDialog::UpdateListBrowser()
     auto* version = new QTableWidgetItem(QString::fromStdString(entry.version));
 
     const bool enabled = Common::GetRioRevStr() == entry.version;
+    if (enabled)
+      online_count += entry.player_count;
 
     for (const auto& item : {region, name, is_ranked, superstars, password, player_count, version})
       item->setFlags(enabled ? Qt::ItemIsEnabled | Qt::ItemIsSelectable : Qt::NoItemFlags);
@@ -695,6 +699,10 @@ void NetPlaySetupDialog::UpdateListBrowser()
     m_table_widget->setItem(i, 5, player_count);
     m_table_widget->setItem(i, 6, version);
   }
+
+
+  m_online_count->setText(
+    (online_count == 1 ? tr("There is %1 player in a lobby") : tr("There are %1 players in a lobby")).arg(online_count));
 
   m_status_label->setText(
       (session_count == 1 ? tr("%1 session found") : tr("%1 sessions found")).arg(session_count));
