@@ -462,8 +462,6 @@ void NetPlayDialog::OnChat()
 
 void NetPlayDialog::OnCoinFlip()
 {
-  if (!IsHosting())
-    return;
   int randNum;
   randNum = rand() % 2;
   Settings::Instance().GetNetPlayClient()->SendCoinFlip(randNum);
