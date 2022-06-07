@@ -60,6 +60,6 @@ const Info<bool> NETPLAY_GOLF_MODE_OVERLAY{{System::Main, "NetPlay", "GolfModeOv
 const Info<bool> NETPLAY_HIDE_REMOTE_GBAS{{System::Main, "NetPlay", "HideRemoteGBAs"}, false};
 const Info<bool> NETPLAY_ENABLE_CHAT{{System::Main, "NetPlay", "EnableChat"}, true};
 const Info<bool> NETPLAY_ENABLE_AUTO_START_GAME{{System::Main, "NetPlay", "EnableAutoStartGame"},
-                                                false};
+                                                true};
 
 }  // namespace Config

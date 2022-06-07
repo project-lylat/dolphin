@@ -530,6 +530,7 @@ void NetPlayDialog::show(std::string nickname, bool use_traversal)
   m_chat_type_edit->clear();
 
   bool is_hosting = Settings::Instance().GetNetPlayServer() != nullptr;
+  bool auto_start = Config::GetBase(Config::NETPLAY_ENABLE_AUTO_START_GAME);
 
   if (is_hosting)
   {
@@ -560,6 +561,7 @@ void NetPlayDialog::show(std::string nickname, bool use_traversal)
   m_hostcode_action_button->setHidden(!is_hosting);
   m_game_button->setEnabled(is_hosting);
   m_kick_button->setEnabled(false);
+  m_auto_start_game_action->setChecked(auto_start);
 
   SetOptionsEnabled(true);
 

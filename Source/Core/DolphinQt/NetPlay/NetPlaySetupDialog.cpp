@@ -268,13 +268,19 @@ void NetPlaySetupDialog::CreateMainLayout()
   lylat_sign_in_layout->addWidget(m_sign_in_label, 0, 0, 4, -1);
   lylat_sign_in_layout->addWidget(m_lylat_attach_json_button, 5, 0, 1, -1);
   // Lylat Connect Layout
+  m_lylat_auto_start_check = new QCheckBox(tr("Auto Start Game on Connect"));
+  m_lylat_auto_start_check->setToolTip(
+      tr("If this is enabled, game will launch as soon as guest joins."));
+  m_lylat_auto_start_check->setChecked(Config::GetBase(Config::NETPLAY_ENABLE_AUTO_START_GAME));
   m_lylat_connect_button = new NonDefaultQPushButton(tr("Connect"));
 
   lylat_connect_layout->addWidget(
       new QLabel(tr("Choose the game you want to start playing and then click on Connect button")),
-      0, 0, 2, -1);
+      0, 0);
+      
   lylat_connect_layout->addWidget(m_lylat_games, 2, 0, 1, -1);
   lylat_connect_layout->addWidget(m_lylat_connect_button, 4, 3, 2, 1, Qt::AlignRight);
+  lylat_connect_layout->addWidget(m_lylat_auto_start_check, 4, 0, 2, 1, Qt::AlignLeft);
 
   lylat_layout->addWidget(m_lylat_sign_in_widget, 0, 0, -1, -1);
   lylat_layout->addWidget(m_lylat_connect_widget, 0, 0, -1, -1);
@@ -370,6 +376,9 @@ void NetPlaySetupDialog::ConnectWidgets()
   connect(m_lylat_reload_button, &QPushButton::clicked, this,
           [this]() { this->OnConnectionTypeChanged(this->m_connection_type->currentIndex()); });
   connect(m_lylat_connect_button, &QPushButton::clicked, this, &QDialog::accept);
+  connect(m_lylat_auto_start_check, &QCheckBox::toggled, this, [this](bool value) {
+    Config::SetBaseOrCurrent(Config::NETPLAY_ENABLE_AUTO_START_GAME, value);
+  });
 
   connect(m_connect_button, &QPushButton::clicked, this, &QDialog::accept);
   connect(m_host_button, &QPushButton::clicked, this, &QDialog::accept);
@@ -529,6 +538,7 @@ void NetPlaySetupDialog::OnConnectionTypeChanged(int index)
 
 void NetPlaySetupDialog::show()
 {
+  m_lylat_auto_start_check->setChecked(Config::Get(Config::NETPLAY_ENABLE_AUTO_START_GAME));
   PopulateGameList(
       m_host_games,
       Settings::GetQSettings().value(QStringLiteral("netplay/hostgame"), QString{}).toString());
