@@ -387,15 +387,12 @@ void NetPlaySetupDialog::ConnectWidgets()
     m_host_server_password->setEnabled(value);
   });
   //// connect this to lobby data stuff
-  //connect(m_host_ranked, &QCheckBox::toggled, this, [this](bool is_ranked) {
-  //  auto client = Settings::Instance().GetNetPlayClient();
-  //  //auto server = Settings::Instance().GetNetPlayServer();
-  //  //server->SetRanked(is_ranked);
-  //  client->m_ranked_client = is_ranked;
-  //});
-  //connect(m_host_superstars, &QCheckBox::toggled, this, [this](bool value) {
-  //  //m_host_superstars->setEnabled(value);
-  //});
+  connect(m_host_ranked, &QCheckBox::toggled, this, [this](bool is_ranked) {
+    NetPlay::m_RankedMode = is_ranked;
+  });
+  connect(m_host_superstars, &QCheckBox::toggled, this, [this](bool value) {
+    NetPlay::m_Superstars = value;
+  });
 
   // Browser Stuff
   connect(m_region_combo, qOverload<int>(&QComboBox::currentIndexChanged), this,
