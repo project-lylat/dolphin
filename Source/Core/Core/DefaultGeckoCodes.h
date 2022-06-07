@@ -302,6 +302,14 @@ class DefaultGeckoCodes {
         0x40820008, 0x38000100, 0x540005EF}
     };
 
+    // Remove Dingus Bunting [LittleCoaks]
+    const DefaultGeckoCode sRemoveDingus = {
+        0x8069811C, 0x38000001,
+        {0x3DC08089, 0x61CE2899,
+        0x880E0000, 0x70000010,
+        0x2C000000, 0x41820008, 0x38000001}};
+
+
     void WriteAsm(DefaultGeckoCode CodeBlock);
     u32 aWriteAddr;  // address where the first code gets written to
 
@@ -314,5 +322,5 @@ class DefaultGeckoCodes {
     {sAntiQuickPitch, sDefaultCompetitiveRules, sManualSelect_1, sManualSelect_2,
     sManualSelect_3, sManualSelect_4, sManualSelect_5, sManualSelect_6,
     sManualSelect_7, sManualSelect_8, sManualSelect_9, sManualSelect_10,
-    sManualSelect_11, sManualSelect_12};
+    sManualSelect_11, sManualSelect_12, sRemoveDingus};
 };
