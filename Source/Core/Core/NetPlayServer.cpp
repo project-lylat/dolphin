@@ -815,18 +815,16 @@ unsigned int NetPlayServer::OnData(sf::Packet& packet, Client& player)
     bool spectator;
     packet >> spectator;
     auto padmap = this->GetPadMapping();
-    auto temp = padmap[0];
-    for (auto pad : padmap)
-    {
-      pad = temp;
-    }
+    bool assigned = false;
     for (int i = 0; i < padmap.size(); i++)
     {
+      if (padmap[i] == player.pid)
+        assigned = true;
       if (spectator && padmap[i] == player.pid)
       {
         padmap[i] = 0;
       }
-      else if (!spectator && padmap[i] == 0)
+      else if (!spectator && padmap[i] == 0 && !assigned)
       {
         padmap[i] = player.pid;
         break;
