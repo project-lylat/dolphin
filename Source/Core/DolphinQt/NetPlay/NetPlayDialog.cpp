@@ -1067,6 +1067,8 @@ void NetPlayDialog::OnDesync(u32 frame, const std::string& player)
   OSD::AddTypedMessage(OSD::MessageType::NetPlayDesync,
                        "Possible desync detected. Game restart advised.",
                        OSD::Duration::VERY_LONG, OSD::Color::RED);
+  // TODO:
+  // tell stat tracker here that a desync happened. write it to the event & gamestate
 }
 
 void NetPlayDialog::OnConnectionLost()
