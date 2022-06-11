@@ -92,7 +92,7 @@ void LocalPlayersWidget::CreateLayout()
   m_player_box->setLayout(m_player_layout);
 
   auto* layout = new QVBoxLayout;
-  layout->setMargin(0);
+  //layout->setMargin(0);
   layout->setAlignment(Qt::AlignTop);
   layout->addWidget(m_player_box);
   layout->addWidget(m_add_button);
