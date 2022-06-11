@@ -59,4 +59,25 @@ const Info<bool> NETPLAY_GOLF_MODE_OVERLAY{{System::Main, "NetPlay", "GolfModeOv
 const Info<bool> NETPLAY_HIDE_REMOTE_GBAS{{System::Main, "NetPlay", "HideRemoteGBAs"}, false};
 //const Info<bool> NETPLAY_RANKED{{System::Main, "NetPlay", "Ranked Mode"}, false};
 
+// get game tags from entry.name string -- each tag seperated by "%%"
+// first tag is the name of the lobby, second is ranked, third is superstars
+std::vector<std::string> Config::LobbyNameVector(const std::string& name)
+{
+  std::vector<std::string> game_tags;
+  {
+    std::string tag_string = name;
+    std::string delimiter = "%%";
+    size_t pos = 0;
+    std::string token;
+    while ((pos = tag_string.find(delimiter)) != std::string::npos)
+    {
+      token = tag_string.substr(0, pos);
+      game_tags.push_back(token);
+      tag_string.erase(0, pos + delimiter.length());
+    }
+    game_tags.push_back(tag_string);
+  }
+  return game_tags;
+}
+
 }  // namespace Config

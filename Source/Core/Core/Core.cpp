@@ -214,15 +214,19 @@ void AutoGolfMode()
     u8 FielderPort = Memory::Read_U8(aFielderPort);
     bool isField = Memory::Read_U8(aIsField) == 1;
 
+    if (BatterPort == 0)
+      return;  // means game hasn't started yet
+
+    // makes the player who paused the golfer
+    if (Memory::Read_U8(aWhoPaused) == 2)
+      isField = true;
+
     // add barrel batter functionality
     if (Memory::Read_U8(aMinigameID) == 3)
     {
       BatterPort = Memory::Read_U8(aBarrelBatterPort) + 1;
       isField = false;
     }
-
-    if (BatterPort == 0)
-      return;  // means game hasn't started yet
 
     NetPlay::NetPlayClient::AutoGolfMode(isField, BatterPort, FielderPort);
   }
@@ -536,7 +540,7 @@ void SetNetplayerUserInfo()
   if (Memory::Read_U32(aGameId) != 0)
     return;
 
-  // tell the stat tracker what the new avg ping is
+  // tell the stat tracker who the players are
   if (!s_stat_tracker)
   {
     s_stat_tracker = std::make_unique<StatTracker>();

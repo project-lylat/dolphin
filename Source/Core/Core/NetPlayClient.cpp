@@ -467,6 +467,10 @@ void NetPlayClient::OnData(sf::Packet& packet)
   case MessageID::MD5Abort:
     OnMD5Abort();
     break;
+
+  case MessageID::SuperstarBox:
+    OnSuperstarBoxMsg(packet);
+    break;
   
   case MessageID::RankedBox:
     OnRankedBoxMsg(packet);
@@ -924,7 +928,6 @@ void NetPlayClient::OnStartGame(sf::Packet& packet)
 
     m_net_settings.m_IsHosting = m_local_player->IsHost();
     m_net_settings.m_HostInputAuthority = m_host_input_authority;
-    //m_net_settings.m_RankedMode = m_ranked_client;
   }
 
   m_dialog->OnMsgStartGame();
@@ -1494,6 +1497,13 @@ void NetPlayClient::OnMD5Abort()
 {
   m_should_compute_MD5 = false;
   m_dialog->AbortMD5();
+}
+
+void NetPlayClient::OnSuperstarBoxMsg(sf::Packet& packet)
+{
+  bool stars_on;
+  packet >> stars_on;
+  m_dialog->OnSuperstarEnabled(stars_on);
 }
 
 void NetPlayClient::OnRankedBoxMsg(sf::Packet& packet)
@@ -2211,7 +2221,8 @@ bool NetPlayClient::GetNetPads(const int pad_nb, const bool batching, GCPadStatu
       // we toggle the emulation speed too quickly, so to prevent this
       // we wait until the buffer has been over for at least 1 second.
 
-      const bool buffer_over_target = m_pad_buffer[pad_nb].Size() > m_target_buffer_size + 1;
+      unsigned int currentBuffer = m_pad_buffer[pad_nb].Size();
+      const bool buffer_over_target = currentBuffer > m_target_buffer_size + 1;
       if (!buffer_over_target)
         m_buffer_under_target_last = std::chrono::steady_clock::now();
 
@@ -2225,7 +2236,10 @@ bool NetPlayClient::GetNetPads(const int pad_nb, const bool batching, GCPadStatu
         Config::SetCurrent(Config::MAIN_EMULATION_SPEED, buffer_over_target ? 0.0f : 1.0f);
       }
       // Hotkey drains netplay buffer for non golfer
-      if (bDrainHotkeyPressed)
+      // when not in a pitch, we should speed up game to keep lab low without needing to press spacebar
+      // if currentBuffer is higher than m_target_buffer_size/(2 or 3), speed up the game
+      if (bDrainHotkeyPressed ||
+          (currentBuffer > m_target_buffer_size / 3) && Memory::Read_U8(0x8088A81B) == 0) // 0x8088A81B - isPitchInProgress
         Config::SetCurrent(Config::MAIN_EMULATION_SPEED, m_pad_buffer[pad_nb].Size() > 1 ? 0.0f : 1.0f); // set lowest buffer to 5 to prevent problems
     }
     else

@@ -466,7 +466,15 @@ ConnectionError NetPlayServer::OnConnect(ENetPeer* socket, sf::Packet& rpac)
   // send ranked box state
   spac.clear();
   spac << MessageID::RankedBox;
+  m_current_ranked_value = NetPlay::m_RankedMode;
   spac << m_current_ranked_value;
+  Send(player.socket, spac);
+
+  // send superstar box state
+  spac.clear();
+  spac << MessageID::SuperstarBox;
+  bool stars_on = NetPlay::m_Superstars;
+  spac << stars_on;
   Send(player.socket, spac);
 
   // send night stadium state
@@ -805,18 +813,16 @@ unsigned int NetPlayServer::OnData(sf::Packet& packet, Client& player)
     bool spectator;
     packet >> spectator;
     auto padmap = this->GetPadMapping();
-    auto temp = padmap[0];
-    for (auto pad : padmap)
-    {
-      pad = temp;
-    }
+    bool assigned = false;
     for (int i = 0; i < padmap.size(); i++)
     {
+      if (padmap[i] == player.pid)
+        assigned = true;
       if (spectator && padmap[i] == player.pid)
       {
         padmap[i] = 0;
       }
-      else if (!spectator && padmap[i] == 0)
+      else if (!spectator && padmap[i] == 0 && !assigned)
       {
         padmap[i] = player.pid;
         break;
