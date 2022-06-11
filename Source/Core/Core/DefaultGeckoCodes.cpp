@@ -41,6 +41,7 @@ void DefaultGeckoCodes::InjectNetplayEventCode()
   for (int i = 0; i <= 0x3; i++)
     Memory::Write_U8(0x1, aUnlockEverything_7 + i);
   Memory::Write_U8(0x1, aUnlockEverything_8);
+  Memory::Write_U8(0x1, aUnlockEverything_8 + 1);
 
   // Manual select
   Memory::Write_U8(0x0, aManualSelect_1);

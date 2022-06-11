@@ -140,13 +140,13 @@ void NetPlayDialog::CreateMainLayout()
   m_quit_button = new QPushButton(tr("Quit"));
   m_splitter = new QSplitter(Qt::Horizontal);
   m_menu_bar = new QMenuBar(this);
-  m_ranked_box = new QCheckBox(tr("Ranked"));
-  m_ranked_box->setToolTip(tr(
-      "Enabling Ranked Mode will mark down your games as being ranked in the stats files\n and "
-      "disable any extra gecko codes as well as Training Mode. This should be toggled for\n"
-      "serious/competitive/ranked games ase accurate and organized. Toggling this box will\n"
-      " always record stats, ignoring user configurations."));
-  m_coin_flipper = new QPushButton(tr("Coin Flip"));
+  //m_ranked_box = new QCheckBox(tr("Ranked"));
+  //m_ranked_box->setToolTip(tr(
+  //    "Enabling Ranked Mode will mark down your games as being ranked in the stats files\n and "
+  //    "disable any extra gecko codes as well as Training Mode. This should be toggled for\n"
+  //    "serious/competitive/ranked games ase accurate and organized. Toggling this box will\n"
+  //    " always record stats, ignoring user configurations."));
+  //m_coin_flipper = new QPushButton(tr("Coin Flip"));
   m_night_stadium = new QCheckBox(tr("Night Mario Stadium"));
   m_spectator_toggle = new QCheckBox(tr("Spectator"));
 
@@ -231,11 +231,11 @@ void NetPlayDialog::CreateMainLayout()
   options_widget->addWidget(m_buffer_label, 0, 1, Qt::AlignVCenter);
   options_widget->addWidget(m_buffer_size_box, 0, 2, Qt::AlignVCenter);
   options_widget->addWidget(m_quit_button, 0, 7, Qt::AlignVCenter | Qt::AlignRight);
-  options_widget->setColumnStretch(6, 1000);
-  options_widget->addWidget(m_ranked_box, 0, 3, Qt::AlignVCenter);
-  options_widget->addWidget(m_night_stadium, 0, 4, Qt::AlignVCenter);
-  options_widget->addWidget(m_coin_flipper, 0, 5, Qt::AlignVCenter);
-  options_widget->addWidget(m_spectator_toggle, 0, 6, Qt::AlignVCenter | Qt::AlignRight);
+  options_widget->setColumnStretch(4, 1000);
+  //options_widget->addWidget(m_ranked_box, 0, 3, Qt::AlignVCenter);
+  //options_widget->addWidget(m_coin_flipper, 0, 3, Qt::AlignVCenter);
+  options_widget->addWidget(m_night_stadium, 0, 3, Qt::AlignVCenter);
+  options_widget->addWidget(m_spectator_toggle, 0, 5, Qt::AlignVCenter | Qt::AlignRight);
 
   m_main_layout->addLayout(options_widget, 2, 0, 1, -1, Qt::AlignRight);
   m_main_layout->setRowStretch(1, 1000);
@@ -249,6 +249,7 @@ void NetPlayDialog::CreateChatLayout()
   m_chat_edit = new QTextBrowser;
   m_chat_type_edit = new QLineEdit;
   m_chat_send_button = new QPushButton(tr("Send"));
+  m_coin_flipper = new QPushButton(tr("Coin Flip"));
 
   // This button will get re-enabled when something gets entered into the chat box
   m_chat_send_button->setEnabled(false);
@@ -262,6 +263,7 @@ void NetPlayDialog::CreateChatLayout()
   layout->addWidget(m_chat_edit, 0, 0, 1, -1);
   layout->addWidget(m_chat_type_edit, 1, 0);
   layout->addWidget(m_chat_send_button, 1, 1);
+  layout->addWidget(m_coin_flipper, 1, 2);
 
   m_chat_box->setLayout(layout);
 }
@@ -343,12 +345,12 @@ void NetPlayDialog::ConnectWidgets()
       client->AdjustPadBufferSize(value);
   });
 
-  connect(m_ranked_box, &QCheckBox::stateChanged, [this](bool is_ranked) {
-    auto client = Settings::Instance().GetNetPlayClient();
-    auto server = Settings::Instance().GetNetPlayServer();
-    if (server)
-      server->AdjustRankedBox(is_ranked);
-  });
+  //connect(m_ranked_box, &QCheckBox::stateChanged, [this](bool is_ranked) {
+  //  // auto client = Settings::Instance().GetNetPlayClient();
+  //  auto server = Settings::Instance().GetNetPlayServer();
+  //  if (server)
+  //    server->AdjustRankedBox(is_ranked);
+  //});
 
   connect(m_night_stadium, &QCheckBox::stateChanged, [this](bool is_night) {
     auto client = Settings::Instance().GetNetPlayClient();
@@ -413,7 +415,7 @@ void NetPlayDialog::ConnectWidgets()
 
   // SaveSettings() - Save Hosting-Dialog Settings
 
-  connect(m_ranked_box, &QCheckBox::stateChanged, this, &NetPlayDialog::SaveSettings);
+  // connect(m_ranked_box, &QCheckBox::stateChanged, this, &NetPlayDialog::SaveSettings);
   connect(m_buffer_size_box, qOverload<int>(&QSpinBox::valueChanged), this,
           &NetPlayDialog::SaveSettings);
   connect(m_write_save_data_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
@@ -460,8 +462,6 @@ void NetPlayDialog::OnChat()
 
 void NetPlayDialog::OnCoinFlip()
 {
-  if (!IsHosting())
-    return;
   int randNum;
   randNum = rand() % 2;
   Settings::Instance().GetNetPlayClient()->SendCoinFlip(randNum);
@@ -470,9 +470,9 @@ void NetPlayDialog::OnCoinFlip()
 void NetPlayDialog::OnCoinFlipResult(int coinNum)
 {
   if (coinNum == 1)
-    DisplayMessage(tr("Heads"), "darkorange");
+    DisplayMessage(tr("Heads"), "lightslategray");
   else
-    DisplayMessage(tr("Tails"), "goldenrod");
+    DisplayMessage(tr("Tails"), "lightslategray");
 }
 
 void NetPlayDialog::OnNightResult(bool is_night)
@@ -493,6 +493,14 @@ void NetPlayDialog::DisplayActiveGeckoCodes()
 void NetPlayDialog::OnActiveGeckoCodes(std::string codeStr)
 {
   DisplayMessage(QString::fromStdString(codeStr), "cornflowerblue");
+}
+
+void NetPlayDialog::OnSuperstarEnabled(bool is_stars)
+{
+  if (is_stars)
+    DisplayMessage(tr("Superstar Characters Enabled"), "goldenrod");
+  else
+    DisplayMessage(tr("Superstar Characters Disabled"), "orangered");
 }
 
 void NetPlayDialog::OnRankedEnabled(bool is_ranked)
@@ -606,12 +614,13 @@ void NetPlayDialog::show(std::string nickname, bool use_traversal)
   m_hostcode_action_button->setHidden(!is_hosting);
   m_game_button->setEnabled(is_hosting);
   m_kick_button->setEnabled(false);
-  m_ranked_box->setHidden(!is_hosting);
-  m_ranked_box->setEnabled(is_hosting);
+  //m_ranked_box->setHidden(!is_hosting);
+  //m_ranked_box->setEnabled(is_hosting);
   m_night_stadium->setHidden(!is_hosting);
   m_night_stadium->setEnabled(is_hosting);
-  m_coin_flipper->setHidden(!is_hosting);
-  m_coin_flipper->setEnabled(is_hosting);
+  //m_coin_flipper->setHidden(!is_hosting);
+  //m_coin_flipper->setEnabled(is_hosting);
+  m_coin_flipper->setEnabled(true);
 
   SetOptionsEnabled(true);
 
@@ -703,25 +712,42 @@ void NetPlayDialog::UpdateGUI()
       {tr("Player"), tr("Game Status"), tr("Ping"), tr("Mapping"), tr("Revision")});
   m_players_list->setRowCount(m_player_count);
 
-  static const std::map<NetPlay::SyncIdentifierComparison, QString> player_status{
-      {NetPlay::SyncIdentifierComparison::SameGame, tr("OK")},
-      {NetPlay::SyncIdentifierComparison::DifferentVersion, tr("Wrong Version")},
-      {NetPlay::SyncIdentifierComparison::DifferentGame, tr("Not Found")},
-  };
+  static const std::map<NetPlay::SyncIdentifierComparison, std::pair<QString, QString>>
+      player_status{
+          {NetPlay::SyncIdentifierComparison::SameGame, {tr("OK"), tr("OK")}},
+          {NetPlay::SyncIdentifierComparison::DifferentHash,
+           {tr("Wrong hash"),
+            tr("Game file has a different hash; right-click it, select Properties, switch to the "
+               "Verify tab, and select Verify Integrity to check the hash")}},
+          {NetPlay::SyncIdentifierComparison::DifferentDiscNumber,
+           {tr("Wrong disc number"), tr("Game has a different disc number")}},
+          {NetPlay::SyncIdentifierComparison::DifferentRevision,
+           {tr("Wrong revision"), tr("Game has a different revision")}},
+          {NetPlay::SyncIdentifierComparison::DifferentRegion,
+           {tr("Wrong region"), tr("Game region does not match")}},
+          {NetPlay::SyncIdentifierComparison::DifferentGame,
+           {tr("Not found"), tr("No matching game was found")}},
+      };
 
   for (int i = 0; i < m_player_count; i++)
   {
     const auto* p = players[i];
 
     auto* name_item = new QTableWidgetItem(QString::fromStdString(p->name));
-    auto* status_item = new QTableWidgetItem(player_status.count(p->game_status) ?
-                                                 player_status.at(p->game_status) :
-                                                 QStringLiteral("?"));
+    name_item->setToolTip(name_item->text());
+    const auto& status_info = player_status.count(p->game_status) ?
+                                  player_status.at(p->game_status) :
+                                  std::make_pair(QStringLiteral("?"), QStringLiteral("?"));
+    auto* status_item = new QTableWidgetItem(status_info.first);
+    status_item->setToolTip(status_info.second);
     auto* ping_item = new QTableWidgetItem(QStringLiteral("%1 ms").arg(p->ping));
+    ping_item->setToolTip(ping_item->text());
     auto* mapping_item =
         new QTableWidgetItem(QString::fromStdString(NetPlay::GetPlayerMappingString(
             p->pid, client->GetPadMapping(), client->GetGBAConfig(), client->GetWiimoteMapping())));
+    mapping_item->setToolTip(mapping_item->text());
     auto* revision_item = new QTableWidgetItem(QString::fromStdString(p->revision));
+    revision_item->setToolTip(revision_item->text());
 
     for (auto* item : {name_item, status_item, ping_item, mapping_item, revision_item})
     {
@@ -909,7 +935,7 @@ void NetPlayDialog::SetOptionsEnabled(bool enabled)
     m_sync_all_wii_saves_action->setEnabled(enabled && m_sync_save_data_action->isChecked());
     m_golf_mode_action->setEnabled(enabled);
     m_fixed_delay_action->setEnabled(enabled);
-    m_ranked_box->setCheckable(enabled);
+    // m_ranked_box->setCheckable(enabled);
     m_night_stadium->setCheckable(enabled);
   }
 
@@ -951,7 +977,7 @@ void NetPlayDialog::OnMsgStartGame()
       if (auto game = FindGameFile(m_current_game_identifier))
       {
         client->StartGame(game->GetFilePath());
-        m_ranked_box->setEnabled(false);
+        // m_ranked_box->setEnabled(false);
         m_night_stadium->setEnabled(false);
       }
       else
@@ -971,7 +997,7 @@ void NetPlayDialog::OnMsgStopGame()
   auto client = Settings::Instance().GetNetPlayClient();
 
   const bool is_hosting = IsHosting();
-  m_ranked_box->setEnabled(is_hosting);
+  // m_ranked_box->setEnabled(is_hosting);
   m_night_stadium->setEnabled(is_hosting);
   //m_ranked_box->setChecked(client->m_ranked_client);
   //m_night_stadium->setChecked(client->m_night_stadium);
@@ -1056,6 +1082,8 @@ void NetPlayDialog::OnDesync(u32 frame, const std::string& player)
   OSD::AddTypedMessage(OSD::MessageType::NetPlayDesync,
                        "Possible desync detected. Game restart advised.",
                        OSD::Duration::VERY_LONG, OSD::Color::RED);
+  // TODO:
+  // tell stat tracker here that a desync happened. write it to the event & gamestate
 }
 
 void NetPlayDialog::OnConnectionLost()

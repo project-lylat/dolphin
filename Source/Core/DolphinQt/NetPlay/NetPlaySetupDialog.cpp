@@ -27,6 +27,7 @@
 #include "Core/NetPlayProto.h"
 
 #include "DolphinQt/QtUtils/ModalMessageBox.h"
+#include "DolphinQt/QtUtils/NonDefaultQPushButton.h"
 #include "DolphinQt/QtUtils/UTF8CodePointCountValidator.h"
 #include "DolphinQt/Settings.h"
 
@@ -34,6 +35,7 @@
 #include "UICommon/NetPlayIndex.h"
 #include "DolphinQt/NetPlay/NetPlayBrowser.h"
 #include "Common/Version.h"
+//#include "Core/NetPlayServer.h"
 
 
 NetPlaySetupDialog::NetPlaySetupDialog(const GameListModel& game_list_model, QWidget* parent)
@@ -46,7 +48,7 @@ NetPlaySetupDialog::NetPlaySetupDialog(const GameListModel& game_list_model, QWi
 
   bool use_index = Config::Get(Config::NETPLAY_USE_INDEX);
   std::string index_region = Config::Get(Config::NETPLAY_INDEX_REGION);
-  std::string index_name = Config::Get(Config::NETPLAY_INDEX_NAME);
+  std::string index_name = Config::LobbyNameVector(Config::Get(Config::NETPLAY_INDEX_NAME))[0];
   std::string index_password = Config::Get(Config::NETPLAY_INDEX_PASSWORD);
   std::string nickname = Config::Get(Config::NETPLAY_NICKNAME);
   std::string traversal_choice = Config::Get(Config::NETPLAY_TRAVERSAL_CHOICE);
@@ -77,6 +79,9 @@ NetPlaySetupDialog::NetPlaySetupDialog(const GameListModel& game_list_model, QWi
 
   m_host_server_name->setEnabled(use_index);
   m_host_server_name->setText(QString::fromStdString(index_name));
+
+  m_host_ranked->setEnabled(true);
+  m_host_superstars->setEnabled(true);
 
   m_host_server_password->setEnabled(use_index);
   m_host_server_password->setText(QString::fromStdString(index_password));
@@ -126,8 +131,8 @@ void NetPlaySetupDialog::CreateMainLayout()
   m_button_box = new QDialogButtonBox(QDialogButtonBox::Cancel);
   m_nickname_edit = new QLineEdit;
   m_connection_type = new QComboBox;
-  m_connection_type->setCurrentIndex(1);
-  m_reset_traversal_button = new QPushButton(tr("Reset Traversal Settings"));
+  m_connection_type->setCurrentIndex(1); // default to traversal server
+  m_reset_traversal_button = new NonDefaultQPushButton(tr("Reset Traversal Settings"));
   m_tab_widget = new QTabWidget;
 
   m_nickname_edit->setValidator(
@@ -162,6 +167,7 @@ void NetPlaySetupDialog::CreateMainLayout()
   m_region_combo->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
 
   m_status_label = new QLabel;
+  m_online_count = new QLabel;
   m_b_button_box = new QDialogButtonBox;
   m_button_refresh = new QPushButton(tr("Refresh"));
   m_edit_name = new QLineEdit;
@@ -187,6 +193,7 @@ void NetPlaySetupDialog::CreateMainLayout()
   filter_layout->addItem(new QSpacerItem(3, 1, QSizePolicy::Expanding), 3, 4);
   filter_layout->addWidget(m_check_hide_ingame, 4, 1, 1, -1);
 
+  layout->addWidget(m_online_count);
   layout->addWidget(m_table_widget);
   layout->addWidget(filter_box);
   layout->addWidget(m_status_label);
@@ -200,7 +207,7 @@ void NetPlaySetupDialog::CreateMainLayout()
   m_ip_edit = new QLineEdit;
   m_connect_port_label = new QLabel(tr("Port:"));
   m_connect_port_box = new QSpinBox;
-  m_connect_button = new QPushButton(tr("Connect"));
+  m_connect_button = new NonDefaultQPushButton(tr("Connect"));
 
   m_connect_port_box->setMaximum(65535);
 
@@ -238,12 +245,23 @@ void NetPlaySetupDialog::CreateMainLayout()
   m_host_server_name = new QLineEdit;
   m_host_server_password = new QLineEdit;
   m_host_server_region = new QComboBox;
+  m_host_ranked = new QCheckBox(tr("Ranked Mode"));
+  m_host_ranked->setToolTip(
+      tr("Enabling Ranked Mode will mark down your games as being ranked in the stats files\n and "
+         "disable any extra gecko codes as well as Training Mode. This should be toggled for\n"
+         "serious/competitive/ranked games ase accurate and organized. Toggling this box will\n"
+         " always record stats, ignoring user configurations."));
+  m_host_superstars = new QCheckBox(tr("Superstar Characters"));
+  m_host_superstars->setToolTip(
+      tr("Check this box if you would like to play using superstarred characters, "
+         "or leave it unchecked if you want to keep them off.\nRanked mode has two different "
+         "ranked leaderboards: one for superstars on and one for superstars off"));
 
 #ifdef USE_UPNP
   m_host_upnp = new QCheckBox(tr("Forward port (UPnP)"));
 #endif
   m_host_games = new QListWidget;
-  m_host_button = new QPushButton(tr("Host"));
+  m_host_button = new NonDefaultQPushButton(tr("Host"));
 
   m_host_port_box->setMaximum(65535);
   m_host_force_port_box->setMaximum(65535);
@@ -275,12 +293,14 @@ void NetPlaySetupDialog::CreateMainLayout()
   host_layout->addWidget(m_host_server_region, 1, 1);
   host_layout->addWidget(m_host_server_name, 1, 2);
   host_layout->addWidget(m_host_server_password, 1, 3);
-  host_layout->addWidget(m_host_games, 2, 0, 1, -1);
-  host_layout->addWidget(m_host_force_port_check, 3, 0);
-  host_layout->addWidget(m_host_force_port_box, 3, 1, Qt::AlignLeft);
-  host_layout->addWidget(m_host_chunked_upload_limit_check, 4, 0);
-  host_layout->addWidget(m_host_chunked_upload_limit_box, 4, 1, Qt::AlignLeft);
-  host_layout->addWidget(m_host_button, 4, 3, 2, 1, Qt::AlignRight);
+  host_layout->addWidget(m_host_ranked, 2, 0);
+  host_layout->addWidget(m_host_superstars, 2, 1);
+  host_layout->addWidget(m_host_games, 3, 0, 1, -1);
+  host_layout->addWidget(m_host_force_port_check, 4, 0);
+  host_layout->addWidget(m_host_force_port_box, 4, 1, Qt::AlignLeft);
+  host_layout->addWidget(m_host_chunked_upload_limit_check, 5, 0);
+  host_layout->addWidget(m_host_chunked_upload_limit_box, 5, 1, Qt::AlignLeft);
+  host_layout->addWidget(m_host_button, 5, 3, 2, 1, Qt::AlignRight);
 
   host_widget->setLayout(host_layout);
 
@@ -367,6 +387,13 @@ void NetPlaySetupDialog::ConnectWidgets()
     m_host_server_name->setEnabled(value);
     m_host_server_password->setEnabled(value);
   });
+  //// connect this to lobby data stuff
+  connect(m_host_ranked, &QCheckBox::toggled, this, [this](bool is_ranked) {
+    NetPlay::m_RankedMode = is_ranked;
+  });
+  connect(m_host_superstars, &QCheckBox::toggled, this, [this](bool value) {
+    NetPlay::m_Superstars = value;
+  });
 
   // Browser Stuff
   connect(m_region_combo, qOverload<int>(&QComboBox::currentIndexChanged), this,
@@ -417,7 +444,7 @@ void NetPlaySetupDialog::SaveSettings()
   Config::SetBaseOrCurrent(Config::NETPLAY_USE_INDEX, m_host_server_browser->isChecked());
   Config::SetBaseOrCurrent(Config::NETPLAY_INDEX_REGION,
                            m_host_server_region->currentData().toString().toStdString());
-  Config::SetBaseOrCurrent(Config::NETPLAY_INDEX_NAME, m_host_server_name->text().toStdString());
+  Config::SetBaseOrCurrent(Config::NETPLAY_INDEX_NAME, LobbyNameString());
   Config::SetBaseOrCurrent(Config::NETPLAY_INDEX_PASSWORD,
                            m_host_server_password->text().toStdString());
 
@@ -474,6 +501,8 @@ void NetPlaySetupDialog::show()
     m_host_server_name->setText(QString::fromStdString(nickname));
   }
   m_host_server_browser->setChecked(true);
+  m_host_ranked->setChecked(false);
+  m_host_superstars->setChecked(false);
   m_connection_type->setCurrentIndex(1);
   m_tab_widget->setCurrentIndex(2); // start on browser
   RefreshBrowser();
@@ -512,7 +541,7 @@ void NetPlaySetupDialog::accept()
       return;
     }
 
-    emit Host(*items[0]->data(Qt::UserRole).value<std::shared_ptr<const UICommon::GameFile>>());
+    emit Host(*items[0]->data(Qt::UserRole).value <std::shared_ptr<const UICommon::GameFile>>());
   }
 }
 
@@ -622,46 +651,56 @@ void NetPlaySetupDialog::UpdateListBrowser()
 
   m_table_widget->clear();
   m_table_widget->setColumnCount(7);
-  m_table_widget->setHorizontalHeaderLabels({tr("Region"), tr("Name"), tr("Password?"),
-                                             tr("In-Game?"), tr("Game"), tr("Players"),
+  m_table_widget->setHorizontalHeaderLabels({tr("Region"), tr("Name"), tr("Game Mode"),
+                                             tr("Superstars"), tr("Password?"), tr("Players"),
                                              tr("Version")});
 
   auto* hor_header = m_table_widget->horizontalHeader();
 
   hor_header->setSectionResizeMode(0, QHeaderView::ResizeToContents);
   hor_header->setSectionResizeMode(1, QHeaderView::Stretch);
-  hor_header->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-  hor_header->setSectionResizeMode(3, QHeaderView::ResizeToContents);
-  hor_header->setSectionResizeMode(4, QHeaderView::Stretch);
+  //hor_header->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+  //hor_header->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+  hor_header->setSectionResizeMode(4, QHeaderView::ResizeToContents);
   hor_header->setHighlightSections(false);
 
   m_table_widget->setRowCount(session_count);
+
+  int online_count = 0;
 
   for (int i = 0; i < session_count; i++)
   {
     const auto& entry = m_sessions[i];
 
+    std::vector<std::string> game_tags = Config::LobbyNameVector(entry.name);
+
     auto* region = new QTableWidgetItem(QString::fromStdString(entry.region));
-    auto* name = new QTableWidgetItem(QString::fromStdString(entry.name));
+    auto* name = new QTableWidgetItem(QString::fromStdString(game_tags[0]));
     auto* password = new QTableWidgetItem(entry.has_password ? tr("Yes") : tr("No"));
-    auto* in_game = new QTableWidgetItem(entry.in_game ? tr("Yes") : tr("No"));
-    auto* game_id = new QTableWidgetItem(QString::fromStdString(entry.game_id));
+    auto* is_ranked = new QTableWidgetItem(game_tags[1] == "Ranked" ? tr("Ranked") : tr("Unranked"));
+    auto* superstars = new QTableWidgetItem(game_tags[2] == "Superstars On" ? tr("On") : tr("Off"));
     auto* player_count = new QTableWidgetItem(QStringLiteral("%1").arg(entry.player_count));
     auto* version = new QTableWidgetItem(QString::fromStdString(entry.version));
 
     const bool enabled = Common::GetRioRevStr() == entry.version;
+    if (enabled)
+      online_count += entry.player_count;
 
-    for (const auto& item : {region, name, password, in_game, game_id, player_count, version})
+    for (const auto& item : {region, name, is_ranked, superstars, password, player_count, version})
       item->setFlags(enabled ? Qt::ItemIsEnabled | Qt::ItemIsSelectable : Qt::NoItemFlags);
 
     m_table_widget->setItem(i, 0, region);
     m_table_widget->setItem(i, 1, name);
-    m_table_widget->setItem(i, 2, password);
-    m_table_widget->setItem(i, 3, in_game);
-    m_table_widget->setItem(i, 4, game_id);
+    m_table_widget->setItem(i, 2, is_ranked); // was in_game
+    m_table_widget->setItem(i, 3, superstars); // was game_id
+    m_table_widget->setItem(i, 4, password);
     m_table_widget->setItem(i, 5, player_count);
     m_table_widget->setItem(i, 6, version);
   }
+
+
+  m_online_count->setText(
+    (online_count == 1 ? tr("There is %1 player in a lobby") : tr("There are %1 players in a lobby")).arg(online_count));
 
   m_status_label->setText(
       (session_count == 1 ? tr("%1 session found") : tr("%1 sessions found")).arg(session_count));
@@ -732,4 +771,16 @@ void NetPlaySetupDialog::acceptBrowser()
     Config::SetBaseOrCurrent(Config::NETPLAY_ADDRESS, server_id);
 
   emit JoinBrowser();
+}
+
+std::string NetPlaySetupDialog::LobbyNameString()
+{
+  std::string lobby_string = m_host_server_name->text().toStdString();
+  std::string delimiter = "%%";
+  lobby_string += delimiter;
+  lobby_string += m_host_ranked->isChecked() ? "Ranked" : "Unranked";
+  lobby_string += delimiter;
+  lobby_string += m_host_superstars->isChecked() ? "Superstars On" : "Superstars Off";
+  // potentially add more here for each tag
+  return lobby_string;
 }

@@ -994,8 +994,7 @@ void WiiSockMan::Convert(sockaddr_in const& from, WiiSockAddrIn& to, s32 addrlen
 
 void WiiSockMan::DoState(PointerWrap& p)
 {
-  bool saving =
-      p.mode == PointerWrap::Mode::MODE_WRITE || p.mode == PointerWrap::Mode::MODE_MEASURE;
+  bool saving = p.IsWriteMode() || p.IsMeasureMode();
   auto size = pending_polls.size();
   p.Do(size);
   if (!saving)

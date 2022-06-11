@@ -3,20 +3,33 @@
 #
 cmake_minimum_required(VERSION 3.10)
 
+# Weird chicken-and-egg problem: We can't check the compiler before the project() call, but we have to set the policies before it.
+# So we do this in two steps: Set the policies if they exist, then error out afterwards if we end up being MSVC and they don't exist.
+if (POLICY CMP0117)
+  cmake_policy(SET CMP0091 NEW) # MSVC runtime library flags are selected by an abstraction.
+  cmake_policy(SET CMP0092 NEW) # MSVC warning flags are not in CMAKE_{C,CXX}_FLAGS by default.
+  cmake_policy(SET CMP0117 NEW) # MSVC RTTI flag will not be added by default.
+endif()
+
 # Minimum OS X version.
 # This is inserted into the Info.plist as well.
-
-# MacOS prior to 10.14 did not support aligned alloc which is used to implement
-# std::unique_ptr in the arm64 C++ standard library. x86_64 builds can override
-# this to 10.13.0 using -DCMAKE_OSX_DEPLOYMENT_TARGET="10.13.0" without issue.
-# This is done in the universal binary building script to build a binary that 
-# runs on 10.13 on x86_64 computers, while still containing an arm64 slice.
-
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.14.0" CACHE STRING "")
 
 set(CMAKE_USER_MAKE_RULES_OVERRIDE "CMake/FlagsOverride.cmake")
 
 project(dolphin-emu)
+
+if (MSVC)
+  if (POLICY CMP0117)
+    # cmake is a weird language. You can't do if(not POLICY)
+  else()
+    message(FATAL_ERROR "Please update to CMake 3.20 or higher.")
+  endif()
+
+  set(CMAKE_C_STANDARD 99)
+  set(CMAKE_CXX_STANDARD 23)
+  set(CMAKE_CXX_STANDARD_REQUIRED ON)
+endif()
 
 # Name of the Dolphin distributor. If you redistribute Dolphin builds (forks,
 # unofficial builds) please consider identifying your distribution with a
@@ -37,6 +50,7 @@ if(NOT ANDROID)
 endif()
 
 option(USE_SHARED_ENET "Use shared libenet if found rather than Dolphin's soon-to-compatibly-diverge version" OFF)
+option(USE_SHARED_LIBPNG "Use shared libpng if found" ON)
 option(USE_UPNP "Enables UPnP port mapping support" ON)
 option(ENABLE_NOGUI "Enable NoGUI frontend" ON)
 option(ENABLE_QT "Enable Qt (Default)" ON)
@@ -50,6 +64,8 @@ option(ENABLE_TESTS "Enables building the unit tests" ON)
 option(ENABLE_VULKAN "Enables vulkan video backend" ON)
 option(USE_DISCORD_PRESENCE "Enables Discord Rich Presence, show the current game on Discord" ON)
 option(USE_MGBA "Enables GBA controllers emulation using libmgba" ON)
+option(ENABLE_AUTOUPDATE "Enables support for automatic updates" ON)
+option(STEAM "Creates a build for Steam" OFF)
 
 # Maintainers: if you consider blanket disabling this for your users, please
 # consider the following points:
@@ -77,7 +93,7 @@ endif()
 
 if(APPLE)
   option(MACOS_USE_DEFAULT_SEARCH_PATH "Don't prioritize system library paths" OFF)
-  option(SKIP_POSTPROCESS_BUNDLE "Skip postprocessing bundle for redistributability" OFF) 
+  option(SKIP_POSTPROCESS_BUNDLE "Skip postprocessing bundle for redistributability" OFF)
   # Enable adhoc code signing by default (otherwise makefile builds on ARM will not work)
   option(MACOS_CODE_SIGNING "Enable codesigning" ON)
   set(MACOS_CODE_SIGNING_IDENTITY "-" CACHE STRING "The identity used for codesigning.")
@@ -107,6 +123,8 @@ include(CheckAndAddFlag)
 include(CheckCCompilerFlag)
 include(CheckVendoringApproved)
 include(DolphinCompileDefinitions)
+include(DolphinDisableWarningsMSVC)
+include(RemoveCompileFlag)
 
 # Enable folders for IDE
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
@@ -243,16 +261,60 @@ elseif(CMAKE_GENERATOR MATCHES "Visual Studio")
   add_compile_options("/MP")
 endif()
 
-if(CMAKE_C_COMPILER_ID MATCHES "MSVC")
+if(MSVC)
   check_and_add_flag(EXCEPTIONS /EHsc)
   dolphin_compile_definitions(_DEBUG DEBUG_ONLY)
+
+  # Disable RTTI
+  add_compile_options(/GR-)
+
+  # Set warning level 4 (the highest)
+  add_compile_options(/W4)
+
+  # Treat all warnings as errors
+  add_compile_options(/WX)
+
+  # Disable some warnings
+  add_compile_options(
+    /wd4201 # nonstandard extension used : nameless struct/union
+    /wd4127 # conditional expression is constant
+    /wd4100 # 'identifier' : unreferenced formal parameter
+    /wd4200 # InputCommon fix temp.
+    /wd4244 # 'conversion' conversion from 'type1' to 'type2', possible loss of data
+    /wd4121 # 'symbol' : alignment of a member was sensitive to packing
+    /wd4324 # Padding was added at the end of a structure because you specified a __declspec(align) value.
+    /wd4714 # function 'function' marked as __forceinline not inlined
+    /wd4351 # new behavior: elements of array 'array' will be default initialized
+    # TODO: Enable this warning once possible
+    /wd4245 # conversion from 'type1' to 'type2', signed/unsigned mismatch
+    # Currently jits use some annoying code patterns which makes this common
+  )
+
+  # Additional warnings
+  add_compile_options(
+    /w44263 # Non-virtual member function hides base class virtual function
+    /w44265 # Class has virtual functions, but destructor is not virtual
+    /w44946 # Reinterpret cast between related types
+  )
+
+  # All files are encoded as UTF-8
+  add_compile_options(/utf-8)
+
+  # Ignore warnings in external headers
+  add_compile_options(/external:anglebrackets)
+  add_compile_options(/external:W0)
+  add_compile_options(/external:templates-)
+
+  # Request deterministic builds
+  add_compile_options(/experimental:deterministic)
+  add_link_options(/experimental:deterministic)
 
   # Enable function-level linking
   add_compile_options(/Gy)
   # Generate intrinsic functions
   add_compile_options(/Oi)
-  # Disable buffer security check
-  add_compile_options(/GS-)
+  # Enable buffer security check on Debug, disable otherwise
+  add_compile_options($<IF:$<CONFIG:Debug>,/GS,/GS->)
   # Enforce C++ standard conforming conversion rules to catch possible bugs
   add_compile_options(/permissive-)
   # Remove unreferenced inline functions/data to reduce link time and catch bugs
@@ -264,12 +326,15 @@ if(CMAKE_C_COMPILER_ID MATCHES "MSVC")
   # Fix non-conformant lambda behavior (constexpr variables shouldn't need capturing)
   add_compile_options(/experimental:newLambdaProcessor)
   # Fix various other non-conformant behaviors
-  add_compile_options(/Zc:externConstexpr,lambda,preprocessor)
+  add_compile_options(/Zc:__cplusplus,externConstexpr,lambda,preprocessor)
 
   # Temporarily disable warnings to enable /Zc:preprocessor compatibility with WinSDK headers.
   add_compile_options(
     /wd5105 # macro expansion producing 'defined' has undefined behavior
   )
+
+  # Use 'precise' floating point model
+  add_compile_options(/fp:precise)
 
   string(APPEND CMAKE_EXE_LINKER_FLAGS " /NXCOMPAT")
   # Generate debug data
@@ -342,6 +407,9 @@ if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
   find_library(IOB_LIBRARY IOBluetooth)
   find_library(IOK_LIBRARY IOKit)
   find_library(OPENGL_LIBRARY OpenGL)
+
+  # We don't want to use shared libpng.
+  set(USE_SHARED_LIBPNG OFF)
 endif()
 
 if(ENABLE_LTO)
@@ -357,8 +425,10 @@ if(ENABLE_LTO)
   endif()
 endif()
 
-if(UNIX AND LINUX_LOCAL_DEV)
-  add_definitions(-DLINUX_LOCAL_DEV)
+if(UNIX)
+  if(LINUX_LOCAL_DEV OR (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND STEAM))
+    add_definitions(-DLINUX_LOCAL_DEV)
+  endif()
 endif()
 
 # BSDs put packages in /usr/local instead of /usr, so we need to
@@ -484,12 +554,16 @@ if(ENABLE_EGL)
 endif()
 
 if(ENCODE_FRAMEDUMPS)
-  if(WIN32 AND _M_X86_64)
-    set(FFMPEG_DIR Externals/ffmpeg)
+  if(WIN32)
+    if(_M_X86_64)
+      set(FFMPEG_DIR Externals/FFmpeg-bin/x64)
+    elseif(_M_ARM_64)
+      set(FFMPEG_DIR Externals/FFmpeg-bin/ARM64)
+    endif()
   endif()
   find_package(FFmpeg COMPONENTS avcodec avformat avutil swresample swscale)
   if(FFmpeg_FOUND)
-    if(APPLE) 
+    if(APPLE)
       find_library(COREMEDIA_LIBRARY CoreMedia)
       find_library(VIDEOTOOLBOX_LIBRARY VideoToolbox)
       find_library(COREVIDEO_LIBRARY CoreVideo)
@@ -497,6 +571,12 @@ if(ENCODE_FRAMEDUMPS)
     endif()
     message(STATUS "libav/ffmpeg found, enabling AVI frame dumps")
     add_definitions(-DHAVE_FFMPEG)
+    if(WIN32)
+      # Our prebuilt binaries depend on Bcrypt
+      set_property(TARGET FFmpeg::avutil APPEND PROPERTY
+        INTERFACE_LINK_LIBRARIES "Bcrypt.lib"
+      )
+    endif()
   else()
     message(STATUS "libav/ffmpeg not found, disabling AVI frame dumps")
   endif()
@@ -536,6 +616,11 @@ if(ENABLE_ANALYTICS)
   add_definitions(-DUSE_ANALYTICS=1)
 endif()
 
+if(ENABLE_AUTOUPDATE)
+  message(STATUS "Enabling automatic update support")
+  add_definitions(-DAUTOUPDATE=1)
+endif()
+
 ########################################
 # Setup include directories (and make sure they are preferred over the Externals)
 #
@@ -564,7 +649,7 @@ if (_M_X86)
 endif()
 add_subdirectory(Externals/cpp-optparse)
 
-find_package(fmt 8.0)
+find_package(fmt 8)
 if(fmt_FOUND)
   message(STATUS "Using shared fmt ${fmt_VERSION}")
 else()
@@ -675,7 +760,7 @@ else()
   add_subdirectory(Externals/zlib)
 endif()
 
-pkg_check_modules(MINIZIP minizip>=2.0.0)
+pkg_check_modules(MINIZIP minizip-ng>=3.0.0)
 if(MINIZIP_FOUND)
   message(STATUS "Using shared minizip")
   include_directories(${MINIZIP_INCLUDE_DIRS})
@@ -698,7 +783,7 @@ else()
   set(LZO lzo2)
 endif()
 
-if(NOT APPLE)
+if(USE_SHARED_LIBPNG)
   check_lib(PNG libpng png png.h QUIET)
 endif()
 if (PNG_FOUND)
@@ -850,6 +935,10 @@ if(SYSTEMD_FOUND)
   add_definitions(-DHAVE_LIBSYSTEMD)
 else()
   message(STATUS "libsystemd not found, disabling traversal server watchdog support")
+endif()
+
+if(STEAM)
+  add_definitions(-DSTEAM)
 endif()
 
 if (WIN32)

@@ -432,7 +432,7 @@ void TextureCacheBase::SerializeTexture(AbstractTexture* tex, const TextureConfi
                                         PointerWrap& p)
 {
   // If we're in measure mode, skip the actual readback to save some time.
-  const bool skip_readback = p.GetMode() == PointerWrap::MODE_MEASURE;
+  const bool skip_readback = p.IsMeasureMode();
   p.DoPOD(config);
 
   if (skip_readback || CheckReadbackTexture(config.width, config.height, config.format))
@@ -458,6 +458,12 @@ void TextureCacheBase::SerializeTexture(AbstractTexture* tex, const TextureConfi
     // but when writing we'll use this pointer directly to avoid
     // needing to allocate/free an extra buffer.
     u8* texture_data = p.DoExternal(total_size);
+
+    if (!skip_readback && p.IsMeasureMode())
+    {
+      ERROR_LOG_FMT(VIDEO, "Couldn't acquire {} bytes for serializing texture.", total_size);
+      return;
+    }
 
     if (!skip_readback)
     {
@@ -496,7 +502,7 @@ std::optional<TextureCacheBase::TexPoolEntry> TextureCacheBase::DeserializeTextu
   u32 total_size = 0;
   u8* texture_data = p.DoExternal(total_size);
 
-  if (p.GetMode() != PointerWrap::MODE_READ || total_size == 0)
+  if (!p.IsReadMode() || total_size == 0)
     return std::nullopt;
 
   auto tex = AllocateTexture(config);
@@ -536,7 +542,7 @@ void TextureCacheBase::DoState(PointerWrap& p)
 
   p.Do(last_entry_id);
 
-  if (p.GetMode() == PointerWrap::MODE_WRITE || p.GetMode() == PointerWrap::MODE_MEASURE)
+  if (p.IsWriteMode() || p.IsMeasureMode())
     DoSaveState(p);
   else
     DoLoadState(p);
@@ -667,7 +673,7 @@ void TextureCacheBase::DoLoadState(PointerWrap& p)
   // Only clear out state when actually restoring/loading.
   // Since we throw away entries when not in loading mode now, we don't need to check
   // before inserting entries into the cache, as GetEntry will always return null.
-  const bool commit_state = p.GetMode() == PointerWrap::MODE_READ;
+  const bool commit_state = p.IsReadMode();
   if (commit_state)
     Invalidate();
 

@@ -122,12 +122,15 @@ void CheatsManager::OnNewSessionCreated(const Cheats::CheatSearchSessionBase& se
                if (m_ar_code)
                  m_ar_code->AddCode(ar_code);
              });
+  w->connect(w, &CheatSearchWidget::ShowMemory, [this](u32 address) { emit ShowMemory(address); });
   m_tab_widget->setCurrentIndex(tab_index);
 }
 
 void CheatsManager::OnTabCloseRequested(int index)
 {
-  m_tab_widget->removeTab(index);
+  auto* w = m_tab_widget->widget(index);
+  if (w)
+    w->deleteLater();
 }
 
 void CheatsManager::ConnectWidgets()
