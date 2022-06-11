@@ -100,6 +100,8 @@ void Shutdown();
 
 void DeclareAsCPUThread();
 void UndeclareAsCPUThread();
+void DeclareAsGPUThread();
+void UndeclareAsGPUThread();
 
 std::string StopMessage(bool main_thread, std::string_view message);
 
