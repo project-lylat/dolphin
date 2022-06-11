@@ -119,7 +119,6 @@ public:
                 const std::string& name, const NetTraversalConfig& traversal_config);
   ~NetPlayClient();
 
-  void GetPlayerList(std::string& list, std::vector<int>& pid_list);
   std::vector<const Player*> GetPlayers();
   const NetSettings& GetNetSettings() const;
   std::map<int, LocalPlayers::LocalPlayers::Player> NetplayerUserInfo; // int is port
