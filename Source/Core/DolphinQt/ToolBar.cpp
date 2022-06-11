@@ -132,8 +132,6 @@ void ToolBar::MakeActions()
   // addSeparator();
 
 
-  addSeparator();
-
   m_local_play_action = addAction(tr("Local Play"), this, &ToolBar::ViewLocalPlayers);
   m_start_netplay_action = addAction(tr("Online Play"), this, &ToolBar::StartNetPlayPressed);
 
