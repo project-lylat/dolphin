@@ -136,8 +136,7 @@ static bool s_libusb_hotplug_enabled = false;
 static libusb_hotplug_callback_handle s_hotplug_handle;
 #endif
 
-static LibusbUtils::Context s_libusb_context;
-//static std::unique_ptr<LibusbUtils::Context> s_libusb_context;
+static std::unique_ptr<LibusbUtils::Context> s_libusb_context;
 
 static u8 s_endpoint_in = 0;
 static u8 s_endpoint_out = 0;
@@ -463,8 +462,7 @@ static void Setup()
   s_controller_type.fill(ControllerType::None);
   s_controller_rumble.fill(0);
 
-  s_libusb_context.GetDeviceList([](libusb_device* device) {
-  //s_libusb_context->GetDeviceList([](libusb_device* device) {
+  s_libusb_context->GetDeviceList([](libusb_device* device) {
     if (CheckDeviceAccess(device))
     {
       // Only connect to a single adapter in case the user has multiple connected
