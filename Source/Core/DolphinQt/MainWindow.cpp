@@ -860,8 +860,16 @@ void MainWindow::SearchAndPlay()
     const QString default_path = QString::fromStdString(Config::Get(Config::MAIN_DEFAULT_ISO));
     if (!default_path.isEmpty() && QFile::exists(default_path))
     {
-      std::shared_ptr<const UICommon::GameFile> game =
-          m_game_list->FindGame(default_path.toStdString());
+      std::shared_ptr<const UICommon::GameFile> game = m_game_list->FindGame(default_path.toStdString());
+      
+      if (!game)
+      {
+        ModalMessageBox::critical(
+            nullptr, QStringLiteral("Error"),
+            QStringLiteral("Unable to start matchmaking with %1. Ensure the file exists.")
+                .arg(default_path));
+        return;
+      }
       this->NetPlaySearch(*game);
     }
     else
