@@ -24,6 +24,7 @@
 #include "picojson.h"
 
 #include <random>
+#include <functional>
 
 namespace UICommon
 {
