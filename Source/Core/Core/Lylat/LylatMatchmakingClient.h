@@ -8,7 +8,6 @@
 #include <unordered_map>
 #include <vector>
 #include <mutex>
-#include <functional>
 
 #ifndef _WIN32
 #include <arpa/inet.h>
