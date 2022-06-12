@@ -766,7 +766,7 @@ void StatTracker::logFinalResults(Event& in_event){
         else if ((in_event.runner_batter->out_type == 2) || (in_event.runner_batter->out_type == 3)){
             contact->secondary_contact_result = in_event.runner_batter->out_type;
         }
-        else if ((in_event.runner_batter->out_type = 0) && (in_event.result_of_atbat == 4)){
+        else if ((in_event.runner_batter->out_type == 0) && (in_event.result_of_atbat == 4)){
             contact->secondary_contact_result = in_event.result_of_atbat;
         }
 
