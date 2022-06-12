@@ -68,6 +68,7 @@ public:
   virtual void OnGameStartAborted() = 0;
   virtual void OnGolferChanged(bool is_golfer, const std::string& golfer_name) = 0;
   virtual void OnRankedEnabled(bool is_ranked) = 0;
+  virtual void OnSuperstarEnabled(bool is_ranked) = 0;
   virtual void RankedStartingMsg(bool is_ranked) = 0;
   virtual void OnCoinFlipResult(int coinFlip) = 0;
   virtual void OnNightResult(bool is_night) = 0;
@@ -119,7 +120,6 @@ public:
                 const std::string& name, const NetTraversalConfig& traversal_config);
   ~NetPlayClient();
 
-  void GetPlayerList(std::string& list, std::vector<int>& pid_list);
   std::vector<const Player*> GetPlayers();
   const NetSettings& GetNetSettings() const;
   std::map<int, LocalPlayers::LocalPlayers::Player> NetplayerUserInfo; // int is port
@@ -329,6 +329,7 @@ private:
   void OnMD5Result(sf::Packet& packet);
   void OnMD5Error(sf::Packet& packet);
   void OnMD5Abort();
+  void OnSuperstarBoxMsg(sf::Packet& packet);
   void OnRankedBoxMsg(sf::Packet& packet);
   void OnPlayerDataMsg(sf::Packet& packet);
   void OnSendCodesMsg(sf::Packet& packet);

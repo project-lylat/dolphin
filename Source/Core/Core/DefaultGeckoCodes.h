@@ -26,7 +26,7 @@ class DefaultGeckoCodes {
     static const u32 aUnlockEverything_5 = 0x803616B0;  // 0x0 loops of 0x1 
     static const u32 aUnlockEverything_6 = 0x80361B20;  // 0x35 loops of 0x1
     static const u32 aUnlockEverything_7 = 0x80361C04;  // 0x3 loops of 0x1
-    static const u32 aUnlockEverything_8 = 0x80361C15;  // 0x0 loops of 0x1
+    static const u32 aUnlockEverything_8 = 0x80361C14;  // 0x1 loops of 0x1
 
     static const u32 aManualSelect_1 = 0x8023da60; // write to 0
     static const u32 aManualSelect_2 = 0x8023da60;  // serial write 0->8
@@ -302,6 +302,14 @@ class DefaultGeckoCodes {
         0x40820008, 0x38000100, 0x540005EF}
     };
 
+    // Remove Dingus Bunting [LittleCoaks]
+    const DefaultGeckoCode sRemoveDingus = {
+        0x8069811C, 0x38000001,
+        {0x3DC08089, 0x61CE2899,
+        0x880E0000, 0x70000010,
+        0x2C000000, 0x41820008, 0x38000001}};
+
+
     void WriteAsm(DefaultGeckoCode CodeBlock);
     u32 aWriteAddr;  // address where the first code gets written to
 
@@ -314,5 +322,5 @@ class DefaultGeckoCodes {
     {sAntiQuickPitch, sDefaultCompetitiveRules, sManualSelect_1, sManualSelect_2,
     sManualSelect_3, sManualSelect_4, sManualSelect_5, sManualSelect_6,
     sManualSelect_7, sManualSelect_8, sManualSelect_9, sManualSelect_10,
-    sManualSelect_11, sManualSelect_12};
+    sManualSelect_11, sManualSelect_12, sRemoveDingus};
 };

@@ -100,6 +100,8 @@ void Shutdown();
 
 void DeclareAsCPUThread();
 void UndeclareAsCPUThread();
+void DeclareAsGPUThread();
+void UndeclareAsGPUThread();
 
 std::string StopMessage(bool main_thread, std::string_view message);
 
@@ -223,5 +225,6 @@ static const u32 aPitchedBallVelocity_Z = 0x808909E0;
 static const u32 aBarrelBatterPort = 0x80890971; // port of character at bat in barrel batter
 static const u32 aMinigameID = 0x808980DE; // 3 == Barrel Batter
 static const u32 aNetplayEventCode = 0x802EBF96;
+static const u32 aWhoPaused = 0x8039D7D3; // 2 == fielder, 1 == batter
 
 }  // namespace Core

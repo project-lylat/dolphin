@@ -467,6 +467,10 @@ void NetPlayClient::OnData(sf::Packet& packet)
   case MessageID::MD5Abort:
     OnMD5Abort();
     break;
+
+  case MessageID::SuperstarBox:
+    OnSuperstarBoxMsg(packet);
+    break;
   
   case MessageID::RankedBox:
     OnRankedBoxMsg(packet);
@@ -924,7 +928,6 @@ void NetPlayClient::OnStartGame(sf::Packet& packet)
 
     m_net_settings.m_IsHosting = m_local_player->IsHost();
     m_net_settings.m_HostInputAuthority = m_host_input_authority;
-    //m_net_settings.m_RankedMode = m_ranked_client;
   }
 
   m_dialog->OnMsgStartGame();
@@ -1496,6 +1499,13 @@ void NetPlayClient::OnMD5Abort()
   m_dialog->AbortMD5();
 }
 
+void NetPlayClient::OnSuperstarBoxMsg(sf::Packet& packet)
+{
+  bool stars_on;
+  packet >> stars_on;
+  m_dialog->OnSuperstarEnabled(stars_on);
+}
+
 void NetPlayClient::OnRankedBoxMsg(sf::Packet& packet)
 {
   packet >> m_ranked_client;
@@ -1736,49 +1746,6 @@ void NetPlayClient::ThreadFunc()
 
   Disconnect();
   return;
-}
-
-// called from ---GUI--- thread
-void NetPlayClient::GetPlayerList(std::string& list, std::vector<int>& pid_list)
-{
-  std::lock_guard lkp(m_crit.players);
-
-  std::ostringstream ss;
-
-  for (const auto& entry : m_players)
-  {
-    const Player& player = entry.second;
-    ss << player.name << "[" << static_cast<int>(player.pid) << "] : " << player.revision << " | "
-       << GetPlayerMappingString(player.pid, m_pad_map, m_gba_config, m_wiimote_map) << " |\n";
-
-    ss << "Ping: " << player.ping << "ms\n";
-    ss << "Status: ";
-
-    switch (player.game_status)
-    {
-    case SyncIdentifierComparison::SameGame:
-      ss << "ready";
-      break;
-
-    case SyncIdentifierComparison::DifferentVersion:
-      ss << "wrong game version";
-      break;
-
-    case SyncIdentifierComparison::DifferentGame:
-      ss << "game missing";
-      break;
-
-    default:
-      ss << "unknown";
-      break;
-    }
-
-    ss << "\n\n";
-
-    pid_list.push_back(player.pid);
-  }
-
-  list = ss.str();
 }
 
 // called from ---GUI--- thread
@@ -2254,7 +2221,10 @@ bool NetPlayClient::GetNetPads(const int pad_nb, const bool batching, GCPadStatu
       // we toggle the emulation speed too quickly, so to prevent this
       // we wait until the buffer has been over for at least 1 second.
 
-      const bool buffer_over_target = m_pad_buffer[pad_nb].Size() > m_target_buffer_size + 1;
+      unsigned int currentBuffer = m_pad_buffer[pad_nb].Size();
+      const bool buffer_over_target = currentBuffer > m_target_buffer_size + 1;
+      bool isPitchInProgress = Memory::Read_U8(0x8088A81B) == 1;
+      bool pitchComplete = Memory::Read_U8(0x80890B18) == 1;
       if (!buffer_over_target)
         m_buffer_under_target_last = std::chrono::steady_clock::now();
 
@@ -2262,14 +2232,20 @@ bool NetPlayClient::GetNetPads(const int pad_nb, const bool batching, GCPadStatu
           std::chrono::steady_clock::now() - m_buffer_under_target_last;
       bool bDrainHotkeyPressed = HotkeyManagerEmu::IsPressed(HK_DRAIN_GOLF_BUFFER, true);
 
-      if (time_diff.count() >= 1.0 || (!buffer_over_target && !bDrainHotkeyPressed))
+      if ((time_diff.count() >= 1.0 || (!buffer_over_target && !bDrainHotkeyPressed))
+        && !isPitchInProgress) // don't speed up game during a pitch
       {
         // run fast if the buffer is overfilled, otherwise run normal speed
         Config::SetCurrent(Config::MAIN_EMULATION_SPEED, buffer_over_target ? 0.0f : 1.0f);
       }
+      // after a pitch, we speed up game to keep buffer low
+      if (pitchComplete)
+        Config::SetCurrent(Config::MAIN_EMULATION_SPEED,
+          m_pad_buffer[pad_nb].Size() > 1 ? 0.0f : 1.0f);
       // Hotkey drains netplay buffer for non golfer
       if (bDrainHotkeyPressed)
-        Config::SetCurrent(Config::MAIN_EMULATION_SPEED, m_pad_buffer[pad_nb].Size() > 1 ? 0.0f : 1.0f); // set lowest buffer to 5 to prevent problems
+        Config::SetCurrent(Config::MAIN_EMULATION_SPEED,
+                           m_pad_buffer[pad_nb].Size() > 1 ? 0.0f : 1.0f);
     }
     else
     {

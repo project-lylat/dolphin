@@ -53,4 +53,6 @@ extern const Info<bool> NETPLAY_GOLF_MODE_OVERLAY;
 extern const Info<bool> NETPLAY_HIDE_REMOTE_GBAS;
 extern const Info<bool> NETPLAY_RANKED;
 
+std::vector<std::string> LobbyNameVector(const std::string& name);
+
 }  // namespace Config

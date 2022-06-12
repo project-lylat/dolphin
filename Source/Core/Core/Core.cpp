@@ -138,6 +138,7 @@ static std::queue<HostJob> s_host_jobs_queue;
 static Common::Event s_cpu_thread_job_finished;
 
 static thread_local bool tls_is_cpu_thread = false;
+static thread_local bool tls_is_gpu_thread = false;
 
 static void EmuThread(std::unique_ptr<BootParameters> boot, WindowSystemInfo wsi);
 
@@ -213,15 +214,19 @@ void AutoGolfMode()
     u8 FielderPort = Memory::Read_U8(aFielderPort);
     bool isField = Memory::Read_U8(aIsField) == 1;
 
+    if (BatterPort == 0)
+      return;  // means game hasn't started yet
+
+    // makes the player who paused the golfer
+    if (Memory::Read_U8(aWhoPaused) == 2)
+      isField = true;
+
     // add barrel batter functionality
     if (Memory::Read_U8(aMinigameID) == 3)
     {
       BatterPort = Memory::Read_U8(aBarrelBatterPort) + 1;
       isField = false;
     }
-
-    if (BatterPort == 0)
-      return;  // means game hasn't started yet
 
     NetPlay::NetPlayClient::AutoGolfMode(isField, BatterPort, FielderPort);
   }
@@ -535,7 +540,7 @@ void SetNetplayerUserInfo()
   if (Memory::Read_U32(aGameId) != 0)
     return;
 
-  // tell the stat tracker what the new avg ping is
+  // tell the stat tracker who the players are
   if (!s_stat_tracker)
   {
     s_stat_tracker = std::make_unique<StatTracker>();
@@ -589,14 +594,7 @@ bool IsCPUThread()
 
 bool IsGPUThread()
 {
-  if (Core::System::GetInstance().IsDualCoreMode())
-  {
-    return (s_emu_thread.joinable() && (s_emu_thread.get_id() == std::this_thread::get_id()));
-  }
-  else
-  {
-    return IsCPUThread();
-  }
+  return tls_is_gpu_thread;
 }
 
 bool WantsDeterminism()
@@ -703,6 +701,16 @@ void DeclareAsCPUThread()
 void UndeclareAsCPUThread()
 {
   tls_is_cpu_thread = false;
+}
+
+void DeclareAsGPUThread()
+{
+  tls_is_gpu_thread = true;
+}
+
+void UndeclareAsGPUThread()
+{
+  tls_is_gpu_thread = false;
 }
 
 // For the CPU Thread only.
@@ -855,6 +863,8 @@ static void EmuThread(std::unique_ptr<BootParameters> boot, WindowSystemInfo wsi
   }};
 
   Common::SetCurrentThreadName("Emuthread - Starting");
+
+  DeclareAsGPUThread();
 
   // For a time this acts as the CPU thread...
   DeclareAsCPUThread();

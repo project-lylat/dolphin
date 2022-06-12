@@ -216,7 +216,8 @@ static const std::map<u8, std::string> cSecondaryContactResult = {
     {0x0,  "Out-caught"},
     {0x1,  "Out-force"},
     {0x2,  "Out-tag"},
-    {0x3,  "foul"},
+    {0x3,  "Foul"},
+    {0x4,  "Batter safe, runner out"},
     {0x7,  "Single"},
     {0x8,  "Double"},
     {0x9,  "Triple"},
@@ -524,20 +525,13 @@ public:
         u8 fielder_pos;
         u8 fielder_char_id;
         u8 fielder_swapped_for_batter;
-        u8 fielder_action; //2=slide, 3=walljump
-        u8 fielder_jump; //1=Jump
+        u8 fielder_action = 0; //2=slide, 3=walljump
+        u8 fielder_jump = 0; //1=Jump
         u8 fielder_manual_select_lock; //0=No one selected, 1=Other player selected, 2=This player selected
         u32 fielder_x_pos;
         u32 fielder_y_pos;
         u32 fielder_z_pos;
         u8 bobble = 0; //Bobble info
-        //u8 bobble_fielder_roster_loc;
-        //u8 bobble_fielder_pos;
-        //u8 bobble_fielder_char_id;
-        //u8 bobble_fielder_action;
-        //u32 bobble_fielder_x_pos;
-        //u32 bobble_fielder_y_pos;
-        //u32 bobble_fielder_z_pos;
     };
 
     struct Contact {
@@ -965,7 +959,7 @@ public:
 
     //If mid-game, dump game
     void dumpGame(){
-        if ((Memory::Read_U32(aGameId) != 0) && m_game_info.game_active){
+        if ((Memory::Read_U32(aGameId) != 0) && (m_game_state == GAME_STATE::INGAME)){
             m_game_info.game_active = false;
             m_game_info.quitter_team = 2;
             logGameInfo();
@@ -980,10 +974,10 @@ public:
             
             File::WriteStringToFile(jsonPath, json);
 
-            jsonPath = getStatJsonPath("crash.");
-            json = getStatJSON(false);
+            //jsonPath = getStatJsonPath("crash.");
+            //json = getStatJSON(false);
             
-            File::WriteStringToFile(jsonPath, json);
+            //File::WriteStringToFile(jsonPath, json);
 
             //Clean up partial files
             jsonPath = getStatJsonPath("partial.");

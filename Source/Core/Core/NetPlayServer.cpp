@@ -466,7 +466,15 @@ ConnectionError NetPlayServer::OnConnect(ENetPeer* socket, sf::Packet& rpac)
   // send ranked box state
   spac.clear();
   spac << MessageID::RankedBox;
+  m_current_ranked_value = NetPlay::m_RankedMode;
   spac << m_current_ranked_value;
+  Send(player.socket, spac);
+
+  // send superstar box state
+  spac.clear();
+  spac << MessageID::SuperstarBox;
+  bool stars_on = NetPlay::m_Superstars;
+  spac << stars_on;
   Send(player.socket, spac);
 
   // send night stadium state
@@ -805,18 +813,16 @@ unsigned int NetPlayServer::OnData(sf::Packet& packet, Client& player)
     bool spectator;
     packet >> spectator;
     auto padmap = this->GetPadMapping();
-    auto temp = padmap[0];
-    for (auto pad : padmap)
-    {
-      pad = temp;
-    }
+    bool assigned = false;
     for (int i = 0; i < padmap.size(); i++)
     {
+      if (padmap[i] == player.pid)
+        assigned = true;
       if (spectator && padmap[i] == player.pid)
       {
         padmap[i] = 0;
       }
-      else if (!spectator && padmap[i] == 0)
+      else if (!spectator && padmap[i] == 0 && !assigned)
       {
         padmap[i] = player.pid;
         break;
@@ -1489,7 +1495,7 @@ bool NetPlayServer::SetupNetSettings()
   settings.m_Fastmem = Config::Get(Config::MAIN_FASTMEM);
   settings.m_SkipIPL = Config::Get(Config::MAIN_SKIP_IPL) || !DoAllPlayersHaveIPLDump();
   settings.m_LoadIPLDump = Config::Get(Config::SESSION_LOAD_IPL_DUMP) && DoAllPlayersHaveIPLDump();
-  settings.m_VertexRounding = Config::Get(Config::GFX_HACK_VERTEX_ROUDING);
+  settings.m_VertexRounding = Config::Get(Config::GFX_HACK_VERTEX_ROUNDING);
   settings.m_InternalResolution = Config::Get(Config::GFX_EFB_SCALE);
   settings.m_EFBScaledCopy = Config::Get(Config::GFX_HACK_COPY_EFB_SCALED);
   settings.m_FastDepthCalc = Config::Get(Config::GFX_FAST_DEPTH_CALC);

@@ -49,6 +49,7 @@ private:
   void ConnectWidgets();
   void PopulateGameList();
   void ResetTraversalHost();
+  std::string LobbyNameString();
 
   // Browser Stuff
   void RefreshBrowser();
@@ -91,7 +92,10 @@ private:
   QLineEdit* m_host_server_name;
   QLineEdit* m_host_server_password;
   QComboBox* m_host_server_region;
+  QCheckBox* m_host_ranked;
+  QCheckBox* m_host_superstars;
 
+  // Browser Tab
   QTableWidget* m_table_widget;
   QComboBox* m_region_combo;
   QLabel* m_status_label;
@@ -102,6 +106,7 @@ private:
   QRadioButton* m_radio_all;
   QRadioButton* m_radio_private;
   QRadioButton* m_radio_public;
+  QLabel* m_online_count;
 
   std::vector<NetPlaySession> m_sessions;
 

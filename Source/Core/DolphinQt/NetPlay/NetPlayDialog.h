@@ -74,6 +74,7 @@ public:
   void OnGolferChanged(bool is_golfer, const std::string& golfer_name) override;
 
   void RankedStartingMsg(bool is_ranked) override;
+  void OnSuperstarEnabled(bool is_stars) override;
   void OnRankedEnabled(bool is_ranked) override;
   void OnCoinFlipResult(int coinNum);
   void OnNightResult(bool is_night);
@@ -166,7 +167,7 @@ private:
   QAction* m_hide_remote_gbas_action;
   QPushButton* m_quit_button;
   QSplitter* m_splitter;
-  QCheckBox* m_ranked_box;
+  // QCheckBox* m_ranked_box;
   QActionGroup* m_network_mode_group;
   QPushButton* m_coin_flipper;
   QCheckBox* m_night_stadium;
