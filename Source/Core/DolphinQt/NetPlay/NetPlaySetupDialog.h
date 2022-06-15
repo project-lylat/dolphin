@@ -150,6 +150,7 @@ private:
   LylatWidget* m_lylat_widget;
   QWidget* m_lylat_sign_in_widget;
   QWidget* m_lylat_connect_widget;
+  QCheckBox* m_lylat_auto_start_check;
   QPushButton* m_lylat_toggle_login_button;
   QPushButton* m_lylat_reload_button;
   QPushButton* m_lylat_connect_button;

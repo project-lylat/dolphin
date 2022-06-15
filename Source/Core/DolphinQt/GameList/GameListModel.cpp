@@ -9,6 +9,7 @@
 #include <QRegularExpression>
 
 #include "Core/Config/MainSettings.h"
+#include "Common/StringUtil.h"
 
 #include "DiscIO/Enums.h"
 
@@ -18,6 +19,7 @@
 
 #include "UICommon/GameFile.h"
 #include "UICommon/UICommon.h"
+
 
 const QSize GAMECUBE_BANNER_SIZE(96, 32);
 
@@ -374,9 +376,15 @@ int GameListModel::FindGameIndex(const std::string& path) const
   {
     const auto gamePath = m_games[i]->GetFilePath();
 
+#ifdef HAS_STD_FILESYSTEM
     if (StringToPath(gamePath) == StringToPath(path))
       return i;
+#else
+    if (gamePath == path)
+      return i;
+#endif
   }
+
   return -1;
 }
 
