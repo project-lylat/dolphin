@@ -44,6 +44,7 @@ public:
 
   void show(std::string nickname, bool use_traversal);
   void reject() override;
+  void ForceReject();
 
   // NetPlayUI methods
   void BootGame(const std::string& filename,
@@ -155,11 +156,14 @@ private:
   QLabel* m_buffer_label;
   QSpinBox* m_buffer_size_box;
   QAction* m_write_save_data_action;
+  QAction* m_use_preloaded_saves_action;
   QAction* m_load_wii_action;
   QAction* m_sync_save_data_action;
   QAction* m_sync_codes_action;
   QAction* m_record_input_action;
   QAction* m_strict_settings_sync_action;
+  QAction* m_enable_chat_action;
+  QAction* m_auto_start_game_action;
   QAction* m_sync_all_wii_saves_action;
   QAction* m_golf_mode_action;
   QAction* m_golf_mode_overlay_action;
@@ -184,8 +188,10 @@ private:
   const GameListModel& m_game_list_model;
   bool m_use_traversal = false;
   bool m_is_copy_button_retry = false;
+  bool m_start_game_on_update = false;
   bool m_got_stop_request = true;
   int m_buffer_size = 0;
+  float m_max_recommended_buffer = 2.0f;
   int m_player_count = 0;
   int m_old_player_count = 0;
   bool m_host_input_authority = false;

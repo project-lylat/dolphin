@@ -150,10 +150,18 @@ void NetPlayDialog::CreateMainLayout()
   m_night_stadium = new QCheckBox(tr("Night Mario Stadium"));
   m_spectator_toggle = new QCheckBox(tr("Spectator"));
 
+
+  m_quit_button->setDefault(false);
+  m_quit_button->setAutoDefault(false);
+
   m_data_menu = m_menu_bar->addMenu(tr("Data"));
   m_data_menu->setToolTipsVisible(true);
   m_write_save_data_action = m_data_menu->addAction(tr("Write Save Data"));
   m_write_save_data_action->setCheckable(true);
+  m_use_preloaded_saves_action = m_data_menu->addAction(tr("Load Preloaded Saves"));
+  m_use_preloaded_saves_action->setToolTip(
+      tr("If enabled, dolphin will load preloaded save files instead of empty saves. \nIf you desync on start, try turning this off and turning Load Wii Save + Sync All Wii Saves On instead."));
+  m_use_preloaded_saves_action->setCheckable(true);
   m_load_wii_action = m_data_menu->addAction(tr("Load Wii Save"));
   m_load_wii_action->setCheckable(true);
   m_sync_save_data_action = m_data_menu->addAction(tr("Sync Saves"));
@@ -205,12 +213,23 @@ void NetPlayDialog::CreateMainLayout()
   });
 
   m_other_menu = m_menu_bar->addMenu(tr("Other"));
+  m_auto_start_game_action = m_other_menu->addAction(tr("Auto Start Game"));
+  m_auto_start_game_action->setToolTip(
+      tr("If this is enabled, game will launch as soon as guest joins."));
+  m_auto_start_game_action->setCheckable(true);
+  m_enable_chat_action = m_other_menu->addAction(tr("Enable Chat"));
+  m_enable_chat_action->setToolTip(
+      tr("Uncheck this to disable chat messages. You won't be able to send or receive messages."));
+  m_enable_chat_action->setCheckable(true);
   m_record_input_action = m_other_menu->addAction(tr("Record Inputs"));
   m_record_input_action->setCheckable(true);
   m_golf_mode_overlay_action = m_other_menu->addAction(tr("Show Golf Mode Overlay"));
   m_golf_mode_overlay_action->setCheckable(true);
   m_hide_remote_gbas_action = m_other_menu->addAction(tr("Hide Remote GBAs"));
   m_hide_remote_gbas_action->setCheckable(true);
+  m_enable_chat_action->setChecked(true);
+  m_auto_start_game_action->setChecked(false);
+  m_auto_start_game_action->setVisible(true);
 
   m_game_button->setDefault(false);
   m_game_button->setAutoDefault(false);
@@ -252,9 +271,9 @@ void NetPlayDialog::CreateChatLayout()
   m_coin_flipper = new QPushButton(tr("Coin Flip"));
 
   // This button will get re-enabled when something gets entered into the chat box
-  m_chat_send_button->setEnabled(false);
-  m_chat_send_button->setDefault(false);
-  m_chat_send_button->setAutoDefault(false);
+  m_chat_send_button->setEnabled(true);
+  m_chat_send_button->setDefault(true);
+  m_chat_send_button->setAutoDefault(true);
 
   m_chat_edit->setReadOnly(true);
 
@@ -329,8 +348,12 @@ void NetPlayDialog::ConnectWidgets()
   // Chat
   connect(m_chat_send_button, &QPushButton::clicked, this, &NetPlayDialog::OnChat);
   connect(m_chat_type_edit, &QLineEdit::returnPressed, this, &NetPlayDialog::OnChat);
-  connect(m_chat_type_edit, &QLineEdit::textChanged, this,
-          [this] { m_chat_send_button->setEnabled(!m_chat_type_edit->text().isEmpty()); });
+  connect(m_chat_type_edit, &QLineEdit::textChanged, this, [this] {
+    if (!m_chat_type_edit->text().isEmpty())
+    {
+      m_chat_send_button->setDefault(true);
+    }
+  });
 
   // Other
   connect(m_buffer_size_box, qOverload<int>(&QSpinBox::valueChanged), [this](int value) {
@@ -377,6 +400,14 @@ void NetPlayDialog::ConnectWidgets()
 
   connect(m_golf_mode_action, &QAction::toggled, this, [hia_function] { hia_function(true); });
   connect(m_fixed_delay_action, &QAction::toggled, this, [hia_function] { hia_function(false); });
+  connect(m_auto_start_game_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
+  connect(m_enable_chat_action, &QAction::toggled, this, [this] {
+    // Save Settings and toggle send chat button
+    this->SaveSettings();
+    auto isChecked = m_enable_chat_action->isChecked();
+    m_chat_send_button->setEnabled(isChecked);
+    m_chat_type_edit->setEnabled(isChecked);
+  });
 
   connect(m_start_button, &QPushButton::clicked, this, &NetPlayDialog::OnStart);
   connect(m_quit_button, &QPushButton::clicked, this, &NetPlayDialog::reject);
@@ -419,6 +450,7 @@ void NetPlayDialog::ConnectWidgets()
   connect(m_buffer_size_box, qOverload<int>(&QSpinBox::valueChanged), this,
           &NetPlayDialog::SaveSettings);
   connect(m_write_save_data_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
+  connect(m_use_preloaded_saves_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_load_wii_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_sync_save_data_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_record_input_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
@@ -448,6 +480,10 @@ void NetPlayDialog::OnSpectatorToggle()
 
 void NetPlayDialog::OnChat()
 {
+  if(!m_enable_chat_action->isChecked()) {
+    DEBUG_LOG_FMT(NETPLAY, "Chat Disabled: Blocking Outgoing Message Attempt!");
+    return;
+  }
   QueueOnObject(this, [this] {
     auto msg = m_chat_type_edit->text().toStdString();
 
@@ -561,6 +597,10 @@ void NetPlayDialog::OnStart()
     SetOptionsEnabled(false);
     DisplayActiveGeckoCodes();
   }
+}
+
+void NetPlayDialog::ForceReject() {
+  QDialog::reject();
 }
 
 void NetPlayDialog::reject()
@@ -709,7 +749,7 @@ void NetPlayDialog::UpdateGUI()
 
   m_players_list->clear();
   m_players_list->setHorizontalHeaderLabels(
-      {tr("Player"), tr("Game Status"), tr("Ping"), tr("Mapping"), tr("Revision")});
+      {tr("Player"), tr("Game Status"), tr("Ping"), tr("Recommended Buffer"), tr("Mapping"), tr("Revision")});
   m_players_list->setRowCount(m_player_count);
 
   static const std::map<NetPlay::SyncIdentifierComparison, std::pair<QString, QString>>
@@ -729,6 +769,9 @@ void NetPlayDialog::UpdateGUI()
            {tr("Not found"), tr("No matching game was found")}},
       };
 
+  auto recommended_buffer = m_max_recommended_buffer;
+  auto max_recommended_buffer = 2.0f;
+
   for (int i = 0; i < m_player_count; i++)
   {
     const auto* p = players[i];
@@ -742,6 +785,10 @@ void NetPlayDialog::UpdateGUI()
     status_item->setToolTip(status_info.second);
     auto* ping_item = new QTableWidgetItem(QStringLiteral("%1 ms").arg(p->ping));
     ping_item->setToolTip(ping_item->text());
+    recommended_buffer = std::ceil(std::max((float)p->ping / 16.0f, 2.0f));
+    max_recommended_buffer = std::max(recommended_buffer, max_recommended_buffer);
+    auto* recommended_buffer_item =
+        new QTableWidgetItem(QStringLiteral("%1").arg((int)recommended_buffer));
     auto* mapping_item =
         new QTableWidgetItem(QString::fromStdString(NetPlay::GetPlayerMappingString(
             p->pid, client->GetPadMapping(), client->GetGBAConfig(), client->GetWiimoteMapping())));
@@ -755,15 +802,19 @@ void NetPlayDialog::UpdateGUI()
       item->setData(Qt::UserRole, static_cast<int>(p->pid));
     }
 
+
+    // TODO: rio review, consider removing recommended buffer if it's not used
     m_players_list->setItem(i, 0, name_item);
     m_players_list->setItem(i, 1, status_item);
     m_players_list->setItem(i, 2, ping_item);
-    m_players_list->setItem(i, 3, mapping_item);
-    m_players_list->setItem(i, 4, revision_item);
+    m_players_list->setItem(i, 3, recommended_buffer_item);
+    m_players_list->setItem(i, 4, mapping_item);
+    m_players_list->setItem(i, 5, revision_item);
 
     if (p->pid == selection_pid)
       m_players_list->selectRow(i);
   }
+  m_max_recommended_buffer = max_recommended_buffer;
 
   if (m_old_player_count != m_player_count)
   {
@@ -839,6 +890,20 @@ void NetPlayDialog::UpdateGUI()
     m_hostcode_action_button->setText(tr("Copy"));
     m_is_copy_button_retry = false;
   }
+
+  if(IsHosting() && m_start_game_on_update && Settings::Instance().GetNetPlayClient()->DoAllPlayersHaveGame()){
+    m_start_game_on_update = false;
+    if (Core::IsRunning())
+      return;
+    // Wait for a bit to allow client to update
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    OnPadBufferChanged(m_max_recommended_buffer);
+    QueueOnObject(this, [this] {
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+      this->OnStart();
+    });
+
+  }
 }
 
 // NetPlayUI methods
@@ -867,6 +932,7 @@ bool NetPlayDialog::IsHosting() const
 void NetPlayDialog::Update()
 {
   QueueOnObject(this, &NetPlayDialog::UpdateGUI);
+
 }
 
 void NetPlayDialog::DisplayMessage(const QString& msg, const std::string& color, int duration)
@@ -900,6 +966,9 @@ void NetPlayDialog::OnMsgChangeGame(const NetPlay::SyncIdentifier& sync_identifi
     m_current_game_name = netplay_name;
     UpdateDiscordPresence();
   });
+  DisplayMessage(tr("Game changed to \"%1\"").arg(qname), "magenta");
+  // Just a hack to make sure send button is always default
+  m_chat_send_button->setDefault(true);
 }
 
 void NetPlayDialog::OnMsgChangeGBARom(int pad, const NetPlay::GBAConfig& config)
@@ -927,6 +996,7 @@ void NetPlayDialog::SetOptionsEnabled(bool enabled)
   {
     m_start_button->setEnabled(enabled);
     m_game_button->setEnabled(enabled);
+    m_use_preloaded_saves_action->setEnabled(enabled);
     m_load_wii_action->setEnabled(enabled);
     m_write_save_data_action->setEnabled(enabled);
     m_sync_save_data_action->setEnabled(enabled);
@@ -1024,6 +1094,12 @@ void NetPlayDialog::OnMsgPowerButton()
 void NetPlayDialog::OnPlayerConnect(const std::string& player)
 {
   DisplayMessage(tr("%1 has joined").arg(QString::fromStdString(player)), "darkcyan");
+
+  if(m_player_count >= 1 && m_auto_start_game_action->isChecked() && IsHosting()) {
+    if (Core::IsRunning())
+      return;
+    m_start_game_on_update = true;
+  }
 }
 
 void NetPlayDialog::OnPlayerDisconnect(const std::string& player)
@@ -1238,6 +1314,7 @@ void NetPlayDialog::LoadSettings()
 {
   const int buffer_size = Config::Get(Config::NETPLAY_BUFFER_SIZE);
   const bool write_save_data = Config::Get(Config::NETPLAY_WRITE_SAVE_DATA);
+  const bool load_preloaded_saves = Config::Get(Config::NETPLAY_PRELOADED_SAVES);
   const bool load_wii_save = Config::Get(Config::NETPLAY_LOAD_WII_SAVE);
   const bool sync_saves = Config::Get(Config::NETPLAY_SYNC_SAVES);
   const bool record_inputs = Config::Get(Config::NETPLAY_RECORD_INPUTS);
@@ -1245,11 +1322,14 @@ void NetPlayDialog::LoadSettings()
   const bool sync_all_wii_saves = Config::Get(Config::NETPLAY_SYNC_ALL_WII_SAVES);
   const bool golf_mode_overlay = Config::Get(Config::NETPLAY_GOLF_MODE_OVERLAY);
   const bool hide_remote_gbas = Config::Get(Config::NETPLAY_HIDE_REMOTE_GBAS);
+  const bool enable_chat = Config::Get(Config::NETPLAY_ENABLE_CHAT);
+  const bool enable_auto_start_game = Config::Get(Config::NETPLAY_ENABLE_AUTO_START_GAME);
   //const bool ranked_mode = Config::Get(Config::NETPLAY_RANKED);
 
   //m_ranked_box->setChecked(ranked_mode);
   m_buffer_size_box->setValue(buffer_size);
   m_write_save_data_action->setChecked(write_save_data);
+  m_use_preloaded_saves_action->setChecked(load_preloaded_saves);
   m_load_wii_action->setChecked(load_wii_save);
   m_sync_save_data_action->setChecked(sync_saves);
   m_record_input_action->setChecked(record_inputs);
@@ -1257,6 +1337,11 @@ void NetPlayDialog::LoadSettings()
   m_sync_all_wii_saves_action->setChecked(sync_all_wii_saves);
   m_golf_mode_overlay_action->setChecked(golf_mode_overlay);
   m_hide_remote_gbas_action->setChecked(hide_remote_gbas);
+  m_enable_chat_action->setChecked(enable_chat);
+  m_auto_start_game_action->setChecked(enable_auto_start_game);
+
+  m_chat_send_button->setEnabled(enable_chat);
+  m_chat_type_edit->setEnabled(enable_chat);
 
   const std::string network_mode = Config::Get(Config::NETPLAY_NETWORK_MODE);
 
@@ -1285,6 +1370,7 @@ void NetPlayDialog::SaveSettings()
     Config::SetBase(Config::NETPLAY_BUFFER_SIZE, m_buffer_size_box->value());
 
   Config::SetBase(Config::NETPLAY_WRITE_SAVE_DATA, m_write_save_data_action->isChecked());
+  Config::SetBase(Config::NETPLAY_PRELOADED_SAVES, m_use_preloaded_saves_action->isChecked());
   Config::SetBase(Config::NETPLAY_LOAD_WII_SAVE, m_load_wii_action->isChecked());
   Config::SetBase(Config::NETPLAY_SYNC_SAVES, m_sync_save_data_action->isChecked());
   Config::SetBase(Config::NETPLAY_RECORD_INPUTS, m_record_input_action->isChecked());
@@ -1292,6 +1378,8 @@ void NetPlayDialog::SaveSettings()
   Config::SetBase(Config::NETPLAY_SYNC_ALL_WII_SAVES, m_sync_all_wii_saves_action->isChecked());
   Config::SetBase(Config::NETPLAY_GOLF_MODE_OVERLAY, m_golf_mode_overlay_action->isChecked());
   Config::SetBase(Config::NETPLAY_HIDE_REMOTE_GBAS, m_hide_remote_gbas_action->isChecked());
+  Config::SetBase(Config::NETPLAY_ENABLE_CHAT, m_enable_chat_action->isChecked());
+  Config::SetBase(Config::NETPLAY_ENABLE_AUTO_START_GAME, m_auto_start_game_action->isChecked());
   //Config::SetBase(Config::NETPLAY_RANKED, m_ranked_box->isChecked());
 
   std::string network_mode;

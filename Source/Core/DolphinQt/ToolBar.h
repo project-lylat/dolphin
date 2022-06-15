@@ -21,6 +21,7 @@ public:
 
   void closeEvent(QCloseEvent*) override;
 signals:
+  void SearchPressed();
   void OpenPressed();
   void RefreshPressed();
   void PlayPressed();
@@ -51,6 +52,8 @@ private:
   void MakeActions();
   void UpdateIcons();
   void UpdatePausePlayButtonState(bool playing_state);
+
+  QAction* m_lylat_play_action;
 
   QAction* m_open_action;
   QAction* m_refresh_action;

@@ -546,6 +546,16 @@ void NetPlayClient::OnChatMessage(sf::Packet& packet)
   // don't need lock to read in this thread
   const Player& player = m_players[pid];
 
+  if(!Config::Get(Config::NETPLAY_ENABLE_CHAT)) {
+    DEBUG_LOG_FMT(NETPLAY, "Blocking Incoming Message from Player {}", player.name);
+
+    sf::Packet dpacket;
+    dpacket << MessageID::ChatMessage;
+    dpacket << "Has Chat Disabled!";
+    SendAsync(std::move(dpacket));
+    return;
+  }
+
   INFO_LOG_FMT(NETPLAY, "Player {} ({}) wrote: {}", player.name, player.pid, msg);
 
   // add to gui
@@ -910,6 +920,7 @@ void NetPlayClient::OnStartGame(sf::Packet& packet)
     packet >> m_net_settings.m_DeferEFBCopies;
     packet >> m_net_settings.m_EFBAccessTileSize;
     packet >> m_net_settings.m_EFBAccessDeferInvalidation;
+    packet >> m_net_settings.m_LoadPreloadedSaveFiles;
     packet >> m_net_settings.m_StrictSettingsSync;
 
     m_initial_rtc = Common::PacketReadU64(packet);
@@ -1689,9 +1700,12 @@ void NetPlayClient::SendAsync(sf::Packet&& packet, const u8 channel_id)
 // called from ---NETPLAY--- thread
 void NetPlayClient::ThreadFunc()
 {
+  m_dialog->AppendChat(Common::GetStringT("If your opponent does not connect after a few seconds, please quit the Netplay window and try again."));
+
   Common::QoSSession qos_session;
   if (Config::Get(Config::NETPLAY_ENABLE_QOS))
   {
+
     qos_session = Common::QoSSession(m_server);
 
     if (qos_session.Successful())
@@ -1768,6 +1782,11 @@ const NetSettings& NetPlayClient::GetNetSettings() const
 // called from ---GUI--- thread
 void NetPlayClient::SendChatMessage(const std::string& msg)
 {
+  if(!Config::Get(Config::NETPLAY_ENABLE_CHAT)) {
+    DEBUG_LOG_FMT(NETPLAY, "Chat Disabled: Blocking Outgoing Message!");
+    return;
+  }
+
   sf::Packet packet;
   packet << MessageID::ChatMessage;
   packet << msg;

@@ -54,6 +54,7 @@
 #include "Core/HotkeyManager.h"
 #include "Core/IOS/USB/Bluetooth/BTEmu.h"
 #include "Core/IOS/USB/Bluetooth/WiimoteDevice.h"
+#include "Core/Lylat/LylatMatchmakingClient.h"
 #include "Core/Movie.h"
 #include "Core/NetPlayClient.h"
 #include "Core/NetPlayProto.h"
@@ -99,7 +100,6 @@
 #include "DolphinQt/QtUtils/DolphinFileDialog.h"
 #include "DolphinQt/QtUtils/FileOpenEventFilter.h"
 #include "DolphinQt/QtUtils/ModalMessageBox.h"
-#include "DolphinQt/QtUtils/ParallelProgressDialog.h"
 #include "DolphinQt/QtUtils/QueueOnObject.h"
 #include "DolphinQt/QtUtils/RunOnObject.h"
 #include "DolphinQt/QtUtils/WindowActivationEventFilter.h"
@@ -210,9 +210,15 @@ static std::vector<std::string> StringListToStdVector(QStringList list)
 }
 
 MainWindow::MainWindow(std::unique_ptr<BootParameters> boot_parameters,
-                       const std::string& movie_path)
-    : QMainWindow(nullptr)
+                       const std::string& movie_path,
+                       std::string init_netplay_path)
+    : QMainWindow(nullptr), m_init_netplay_path(std::move(init_netplay_path))
 {
+  qRegisterMetaType<std::shared_ptr<const UICommon::GameFile>>();
+  qRegisterMetaType<UICommon::GameFile>("UICommon::GameFile");
+
+  generator = std::default_random_engine(Common::Timer::GetTimeMs());
+
   setWindowTitle(QString::fromStdString(Common::GetScmRevStr()));
   setWindowIcon(Resources::GetAppIcon());
   setUnifiedTitleAndToolBarOnMac(true);
@@ -237,7 +243,6 @@ MainWindow::MainWindow(std::unique_ptr<BootParameters> boot_parameters,
   InitCoreCallbacks();
 
   NetPlayInit();
-
 #if defined(__unix__) || defined(__unix) || defined(__APPLE__)
   auto* daemon = new SignalDaemon(this);
 
@@ -303,6 +308,7 @@ MainWindow::~MainWindow()
   Settings::Instance().ResetNetPlayClient();
   Settings::Instance().ResetNetPlayServer();
 
+  delete m_lylat_matchmaking_client;
   delete m_render_widget;
   delete m_netplay_dialog;
 
@@ -655,6 +661,7 @@ void MainWindow::ConnectToolBar()
   connect(m_tool_bar, &ToolBar::OpenPressed, this, &MainWindow::Open);
   connect(m_tool_bar, &ToolBar::RefreshPressed, this, &MainWindow::RefreshGameList);
 
+  connect(m_tool_bar, &ToolBar::SearchPressed, this, &MainWindow::SearchAndPlay);
   connect(m_tool_bar, &ToolBar::PlayPressed, this, [this]() { Play(); });
   connect(m_tool_bar, &ToolBar::PausePressed, this, &MainWindow::Pause);
   connect(m_tool_bar, &ToolBar::StopPressed, this, &MainWindow::RequestStop);
@@ -679,7 +686,8 @@ void MainWindow::ConnectToolBar()
 
 void MainWindow::ConnectGameList()
 {
-  connect(m_game_list, &GameList::GameSelected, this, [this]() { Play(); });
+  connect(m_game_list, &GameList::GameSelected, this, &MainWindow::SearchAndPlay);
+  connect(m_game_list, &GameList::NetPlaySearch, this, &MainWindow::NetPlaySearch);
   connect(m_game_list, &GameList::NetPlayHost, this, &MainWindow::NetPlayHost);
   connect(m_game_list, &GameList::OnStartWithRiivolution, this,
           &MainWindow::ShowRiivolutionBootWidget);
@@ -783,11 +791,81 @@ void MainWindow::EjectDisc()
   Core::RunAsCPUThread([] { DVDInterface::EjectDisc(DVDInterface::EjectCause::User); });
 }
 
+void MainWindow::SearchAndOpen()
+{
+  QStringList files = PromptFileNames();
+  if (!files.isEmpty())
+  {
+    std::shared_ptr<const UICommon::GameFile> game = m_game_list->FindGame(files[0].toStdString());
+    NetPlaySearch(*game);
+  }
+}
+
+bool MainWindow::OpenLylatJSON(std::optional<std::string> path)
+{
+  std::string jsonPath;
+
+  if (path.has_value())
+  {
+    jsonPath = path.value();
+  }
+  else
+  {
+    QStringList files = PromptFileNames();
+    if (files.isEmpty())
+      return false;  // No error, user just cancelled.
+    if (files.length() <= 0)
+      return false;
+    if (files.at(0).isEmpty())
+      return false;
+
+    jsonPath = files.at(0).toStdString();
+  }
+
+  auto user = LylatUser::GetUserFromDisk(jsonPath);
+  if (!user)
+  {
+    ModalMessageBox::critical(this, tr("Error"),
+                              tr("Failed to parse Lylat user information from file!"),
+                              QMessageBox::Ok);
+    return false;
+  }
+
+  File::Copy(jsonPath, LylatUser::GetFilePath());
+  if (m_netplay_setup_dialog)
+    m_netplay_setup_dialog->Refresh();
+
+  return true;
+}
+
 void MainWindow::Open()
 {
   QStringList files = PromptFileNames();
   if (!files.isEmpty())
     StartGame(StringListToStdVector(files));
+}
+
+void MainWindow::SearchAndPlay()
+{
+  std::shared_ptr<const UICommon::GameFile> selection = m_game_list->GetSelectedGame();
+  if (selection)
+  {
+    this->NetPlaySearch(*selection);
+  }
+  else
+  {
+    const QString default_path = QString::fromStdString(Config::Get(Config::MAIN_DEFAULT_ISO));
+    if (!default_path.isEmpty() && QFile::exists(default_path))
+    {
+      std::shared_ptr<const UICommon::GameFile> game =
+          m_game_list->FindGame(default_path.toStdString());
+      this->NetPlaySearch(*game);
+    }
+    else
+    {
+      SearchAndOpen();
+    }
+  }
 }
 
 void MainWindow::Play(const std::optional<std::string>& savestate_path)
@@ -1312,6 +1390,8 @@ void MainWindow::ShowNetPlaySetupDialog()
   m_netplay_setup_dialog->show();
   m_netplay_setup_dialog->raise();
   m_netplay_setup_dialog->activateWindow();
+  m_netplay_setup_dialog->SetConnectionType(NetPlaySetupDialog::ConnectionType::CONN_TYPE_LYLAT);
+  m_netplay_setup_dialog->Refresh();
 }
 
 void MainWindow::ShowNetPlayBrowser()
@@ -1446,8 +1526,15 @@ void MainWindow::NetPlayInit()
   connect(m_netplay_dialog, &NetPlayDialog::Stop, this, &MainWindow::ForceStop);
   connect(m_netplay_dialog, &NetPlayDialog::rejected, this, &MainWindow::NetPlayQuit);
   connect(m_netplay_setup_dialog, &NetPlaySetupDialog::Join, this, &MainWindow::NetPlayJoin);
+  connect(m_netplay_setup_dialog, &NetPlaySetupDialog::Search, this, &MainWindow::NetPlaySearch);
   connect(m_netplay_setup_dialog, &NetPlaySetupDialog::Host, this, &MainWindow::NetPlayHost);
   connect(m_netplay_setup_dialog, &NetPlaySetupDialog::JoinBrowser, this, &MainWindow::NetPlayJoin);
+  connect(m_netplay_setup_dialog, &NetPlaySetupDialog::OpenLylatJSON, this,
+          &MainWindow::OpenLylatJSON);
+
+  connect(this, &MainWindow::OnMatchmakingConnection, this, &MainWindow::OnNetPlayMatchResult);
+  connect(this, &MainWindow::OnMatchmakingError, this, &MainWindow::OnNetPlayMatchResultFailed);
+
 #ifdef USE_DISCORD_PRESENCE
   connect(m_netplay_discord, &DiscordHandler::Join, this, &MainWindow::NetPlayJoin);
 
@@ -1458,6 +1545,147 @@ void MainWindow::NetPlayInit()
           &MainWindow::UpdateScreenSaverInhibition);
   connect(&Settings::Instance(), &Settings::EmulationStateChanged, this,
           &MainWindow::UpdateScreenSaverInhibition);
+}
+
+void MainWindow::ShowLylatConnectedNotification()
+{
+  ModalMessageBox::information(m_netplay_dialog, tr("Connected!"),
+                               tr("If your opponent does not connect after a few seconds, please "
+                                  "quit the Netplay window and try again."));
+}
+
+bool MainWindow::OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHost,
+                                      std::string host_connect_uri, u16 host_port, u16 local_port)
+{
+  m_lylat_progress_dialog->SetValue(100);
+  m_lylat_progress_dialog->Finished(100);
+  m_lylat_progress_dialog->Reset();
+
+  // if not host, make sure to quit current netplay
+  if (!isHost)
+  {
+    m_netplay_dialog->ForceReject();
+    NetPlayQuit();
+  }
+
+  if (isHost)
+  {
+    m_netplay_dialog->setVisible(true);
+    m_netplay_dialog->raise();
+
+    ShowLylatConnectedNotification();
+    return true;
+    //    return NetPlayHost(game);
+  }
+  Config::SetBaseOrCurrent(Config::NETPLAY_TRAVERSAL_CHOICE, "traversal");
+
+  Config::SetBaseOrCurrent(Config::NETPLAY_TRAVERSAL_SERVER,
+                           Config::NETPLAY_TRAVERSAL_SERVER.GetDefaultValue());
+  Config::SetBaseOrCurrent(Config::NETPLAY_TRAVERSAL_PORT,
+                           Config::NETPLAY_TRAVERSAL_PORT.GetDefaultValue());
+  Config::SetBaseOrCurrent(Config::NETPLAY_CONNECT_PORT,
+                           Config::NETPLAY_CONNECT_PORT.GetDefaultValue());
+
+  Config::SetBaseOrCurrent(Config::NETPLAY_HOST_CODE, host_connect_uri);
+
+  // Wait for a bit to allow host to create their server
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+
+  m_should_show_lylat_connected_notification = true;
+  return NetPlayJoin();
+}
+
+bool MainWindow::OnNetPlayMatchResultFailed(const UICommon::GameFile& game,
+                                            std::string errorMessage)
+{
+  if (m_lylat_progress_dialog && m_lylat_progress_dialog != nullptr &&
+      m_lylat_progress_dialog != NULL)
+    m_lylat_progress_dialog->Reset();
+  //  m_lylat_progress_dialog->GetRaw()->close();
+  ModalMessageBox::critical(this, tr("Error"), tr(errorMessage.c_str()));
+  NetPlayQuit();
+  if (m_netplay_dialog->isVisible())
+    m_netplay_dialog->ForceReject();
+  return true;
+}
+
+void MainWindow::NetPlayMatchCancel()
+{
+  if (m_lylat_matchmaking_client)
+  {
+    m_lylat_matchmaking_client->CancelSearch();
+  }
+  NetPlayQuit();
+
+  Config::SetBaseOrCurrent(Config::NETPLAY_TRAVERSAL_SERVER,
+                           Config::NETPLAY_TRAVERSAL_SERVER.GetDefaultValue());
+  Config::SetBaseOrCurrent(Config::NETPLAY_TRAVERSAL_PORT,
+                           Config::NETPLAY_TRAVERSAL_PORT.GetDefaultValue());
+}
+
+bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
+{
+  if (!LylatUser::GetUser())
+  {
+    ShowNetPlaySetupDialog();
+    ModalMessageBox::critical(nullptr, tr("Error"),
+                              tr("You must log in to Lylat in order to find a Match!"));
+    return false;
+  }
+
+  if (Core::IsRunning())
+  {
+    ModalMessageBox::critical(nullptr, tr("Error"),
+                              tr("Can't start a NetPlay Session while a game is still running!"));
+    return false;
+  }
+
+  if (m_netplay_dialog->isVisible())
+  {
+    ModalMessageBox::critical(nullptr, tr("Error"),
+                              tr("A NetPlay Session is already in progress!"));
+    return false;
+  }
+
+  if (m_lylat_matchmaking_client != nullptr && m_lylat_matchmaking_client->IsSearching())
+  {
+    ModalMessageBox::critical(nullptr, tr("Error"), tr("You are already searching for a match!"));
+    if (m_lylat_progress_dialog != nullptr)
+    {
+      m_lylat_progress_dialog->GetRaw()->show();
+      m_lylat_progress_dialog->GetRaw()->raise();
+    }
+    return false;
+  }
+
+  m_lylat_matchmaking_client = new LylatMatchmakingClient();
+  m_room_id_callback = [this, game](std::string traversalRoomId) {
+    m_lylat_matchmaking_client->Match(
+        game, traversalRoomId,
+        [this](const UICommon::GameFile& game, bool isHost, std::string ip, unsigned short port,
+               unsigned short local_port) {
+          emit this->OnMatchmakingConnection(game, isHost, ip, port, local_port);
+        },
+        [this](const UICommon::GameFile& game, std::string errorMessage) {
+          emit this->OnMatchmakingError(game, errorMessage);
+        });
+  };
+
+  Config::SetBaseOrCurrent(Config::NETPLAY_TRAVERSAL_CHOICE, "traversal");
+  Config::SetBaseOrCurrent(Config::NETPLAY_LISTEN_PORT, 2626 + (generator() % 10000));
+  NetPlayHostWithCallback(game, m_room_id_callback);
+
+  m_netplay_dialog->hide();
+
+  m_lylat_progress_dialog =
+      new ParallelProgressDialog(tr("Searching for Players..."), tr("Cancel"), 0, 0);
+  m_lylat_progress_dialog->GetRaw()->show();
+  m_lylat_progress_dialog->GetRaw()->raise();
+
+  connect(m_lylat_progress_dialog->GetRaw(), &QProgressDialog::canceled, this,
+          &MainWindow::NetPlayMatchCancel);
+
+  return true;
 }
 
 bool MainWindow::NetPlayJoin()
@@ -1510,6 +1738,9 @@ bool MainWindow::NetPlayJoin()
     //server->AdjustRankedBox(Config::Get(Config::NETPLAY_RANKED));
   }
 
+  INFO_LOG_FMT(LYLAT, "[Matchmaking] Connecting {}:{} at {}:{} is traversal:{}", host_ip, host_port,
+               traversal_host, traversal_port, is_traversal);
+
   // Create Client
   const bool is_hosting_netplay = server != nullptr;
   Settings::Instance().ResetNetPlayClient(new NetPlay::NetPlayClient(
@@ -1525,11 +1756,22 @@ bool MainWindow::NetPlayJoin()
 
   m_netplay_setup_dialog->close();
   m_netplay_dialog->show(nickname, is_traversal);
+  if (m_should_show_lylat_connected_notification)
+  {
+    ShowLylatConnectedNotification();
+    m_should_show_lylat_connected_notification = false;
+  }
 
   return true;
 }
 
 bool MainWindow::NetPlayHost(const UICommon::GameFile& game)
+{
+  return NetPlayHostWithCallback(game, [](std::string traversalRoomId) {});
+}
+
+bool MainWindow::NetPlayHostWithCallback(const UICommon::GameFile& game,
+                                         std::function<void(std::string)> roomCallback)
 {
   if (Core::IsRunning())
   {
@@ -1558,9 +1800,12 @@ bool MainWindow::NetPlayHost(const UICommon::GameFile& game)
     host_port = Config::Get(Config::NETPLAY_LISTEN_PORT);
 
   // Create Server
-  Settings::Instance().ResetNetPlayServer(new NetPlay::NetPlayServer(
+  auto server = new NetPlay::NetPlayServer(
       host_port, use_upnp, m_netplay_dialog,
-      NetPlay::NetTraversalConfig{is_traversal, traversal_host, traversal_port}));
+      NetPlay::NetTraversalConfig{is_traversal, traversal_host, traversal_port},
+      std::move(roomCallback));
+
+  Settings::Instance().ResetNetPlayServer(server);
 
   if (!Settings::Instance().GetNetPlayServer()->is_connected)
   {
@@ -1923,5 +2168,20 @@ void MainWindow::Show()
   {
     StartGame(std::move(m_pending_boot));
     m_pending_boot.reset();
+  }
+  else if (!m_init_netplay_path.empty())
+  {
+    const auto gamePtr = m_game_list->GetGameListModel().AddOrGetFromCache(m_init_netplay_path);
+    if (gamePtr)
+    {
+      NetPlaySearch(*gamePtr);
+    }
+    else
+    {
+      ModalMessageBox::critical(
+          nullptr, QStringLiteral("Error"),
+          QStringLiteral("Unable to start matchmaking with %1. Ensure the file exists.")
+              .arg(QString::fromStdString(m_init_netplay_path)));
+    }
   }
 }

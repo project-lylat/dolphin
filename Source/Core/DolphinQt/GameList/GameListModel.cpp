@@ -372,7 +372,9 @@ int GameListModel::FindGameIndex(const std::string& path) const
 {
   for (int i = 0; i < m_games.size(); i++)
   {
-    if (m_games[i]->GetFilePath() == path)
+    const auto gamePath = m_games[i]->GetFilePath();
+
+    if (StringToPath(gamePath) == StringToPath(path))
       return i;
   }
   return -1;
@@ -473,4 +475,10 @@ void GameListModel::DeleteTag(const QString& name)
 void GameListModel::PurgeCache()
 {
   m_tracker.PurgeCache();
+}
+
+std::shared_ptr<const UICommon::GameFile> GameListModel::AddOrGetFromCache(const std::string& path)
+{
+  bool cacheChanged{};
+  return m_tracker.GetGameCache().AddOrGet(path, &cacheChanged);
 }

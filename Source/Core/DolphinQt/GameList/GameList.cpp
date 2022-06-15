@@ -482,7 +482,7 @@ void GameList::ShowContextMenu(const QPoint&)
     menu->addAction(tr("Delete File..."), this, &GameList::DeleteFile);
 #ifdef _WIN32
     menu->addAction(tr("Add Shortcut to Desktop"), this, [this] {
-      if (!AddShortcutToDesktop())
+      if (!AddShortcutToDesktop(false))
       {
         ModalMessageBox::critical(this, tr("Add Shortcut to Desktop"),
                                   tr("There was an issue adding a shortcut to the desktop"));
@@ -517,15 +517,30 @@ void GameList::ShowContextMenu(const QPoint&)
 
     menu->addSeparator();
 
+    QAction* netplay_search = new QAction(tr("Find Match with Lylat"), menu);
+    netplay_search->setEnabled(!Core::IsRunning());
+    connect(netplay_search, &QAction::triggered, [this, game] { emit NetPlaySearch(*game); });
+    menu->addAction(netplay_search);
+
+#ifdef _WIN32
+    menu->addAction(tr("Add Matchmaking Shortcut to Desktop"), this, [this] {
+      if (!AddShortcutToDesktop(true))
+      {
+        ModalMessageBox::critical(this, tr("Add Shortcut to Desktop"),
+                                  tr("There was an issue adding a shortcut to the desktop"));
+      }
+    });
+#endif
+
     QAction* netplay_host = new QAction(tr("Host with NetPlay"), menu);
 
     connect(netplay_host, &QAction::triggered, [this, game] { emit NetPlayHost(*game); });
 
     connect(&Settings::Instance(), &Settings::EmulationStateChanged, menu, [=](Core::State state) {
       netplay_host->setEnabled(state == Core::State::Uninitialized);
+      netplay_search->setEnabled(state == Core::State::Uninitialized);
     });
     netplay_host->setEnabled(!Core::IsRunning());
-
     menu->addAction(netplay_host);
   }
 
@@ -768,7 +783,7 @@ void GameList::OpenGCSaveFolder()
 }
 
 #ifdef _WIN32
-bool GameList::AddShortcutToDesktop()
+bool GameList::AddShortcutToDesktop( bool matchmaking )
 {
   auto init = wil::CoInitializeEx_failfast(COINIT_APARTMENTTHREADED);
   auto shell_link = wil::CoCreateInstanceNoThrow<ShellLink, IShellLink>();
@@ -781,7 +796,9 @@ bool GameList::AddShortcutToDesktop()
 
   const auto game = GetSelectedGame();
   const auto& file_path = game->GetFilePath();
-  std::wstring args = UTF8ToTStr("-e \"" + file_path + "\"");
+  const std::string flag = matchmaking ? "-M" : "-e";
+  std::wstring args = UTF8ToTStr(flag + " \"" + file_path + "\"");
+  
   if (FAILED(shell_link->SetArguments(args.c_str())))
     return false;
 
@@ -801,7 +818,9 @@ bool GameList::AddShortcutToDesktop()
                                  }),
                   game_name.end());
 
-  std::wstring desktop_path = std::wstring(desktop.get()) + UTF8ToTStr("\\" + game_name + ".lnk");
+  auto str = matchmaking ? "\\Play " + game_name + " Online.lnk" : "\\" + game_name + ".lnk";
+
+  std::wstring desktop_path = std::wstring(desktop.get()) + UTF8ToTStr(str);
   auto persist_file = shell_link.try_query<IPersistFile>();
   if (!persist_file)
     return false;

@@ -420,6 +420,10 @@ add_library(core
   LocalPlayers.h
   LocalPlayersConfig.cpp
   LocalPlayersConfig.h
+  Lylat/LylatMatchmakingClient.cpp
+  Lylat/LylatMatchmakingClient.h
+  Lylat/LylatUser.cpp
+  Lylat/LylatUser.h
   MemTools.cpp
   MemTools.h
   Movie.cpp

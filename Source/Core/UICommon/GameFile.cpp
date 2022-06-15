@@ -196,6 +196,12 @@ GameFile::GameFile(std::string path) : m_file_path(std::move(path))
 
 GameFile::~GameFile() = default;
 
+const std::string& GameFile::GetLylatID() const
+{
+  // TODO: get lylat ID from game somehow.
+  return m_game_id;
+}
+
 bool GameFile::IsValid() const
 {
   if (!m_valid)

@@ -42,6 +42,7 @@ public:
   void RemoveDirectory(const QString& dir);
   void RefreshAll();
   void PurgeCache();
+  UICommon::GameFileCache& GetGameCache();
 
 signals:
   void GameLoaded(const std::shared_ptr<const UICommon::GameFile>& game);

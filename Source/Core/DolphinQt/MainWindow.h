@@ -6,11 +6,14 @@
 #include <QMainWindow>
 #include <QStringList>
 
+#include <QProgressDialog>
 #include <array>
 #include <memory>
 #include <optional>
 #include <string>
-
+#include "Core/Lylat/LylatMatchmakingClient.h"
+#include "DolphinQt/QtUtils/ParallelProgressDialog.h"
+#include <random>
 class QStackedWidget;
 class QString;
 
@@ -69,7 +72,8 @@ class MainWindow final : public QMainWindow
 
 public:
   explicit MainWindow(std::unique_ptr<BootParameters> boot_parameters,
-                      const std::string& movie_path);
+                      const std::string& movie_path,
+                      std::string init_netplay_path );
   ~MainWindow();
 
   void Show();
@@ -79,13 +83,19 @@ public:
 signals:
   void ReadOnlyModeChanged(bool read_only);
   void RecordingStatusChanged(bool recording);
+  bool OnMatchmakingConnection(const UICommon::GameFile& game, bool isHost, std::string ip,
+                               unsigned short port, unsigned short local_port);
+  bool OnMatchmakingError(const UICommon::GameFile& game, std::string errorMessage);
 
 private:
   void Open();
+  bool OpenLylatJSON(std::optional<std::string> path);
   void RefreshGameList();
   void Play(const std::optional<std::string>& savestate_path = {});
   void Pause();
   void TogglePause();
+  void SearchAndPlay();
+  void SearchAndOpen();
 
   // May ask for confirmation. Returns whether or not it actually stopped.
   bool RequestStop();
@@ -166,8 +176,15 @@ private:
 
   void NetPlayInit();
   bool NetPlayJoin();
+  bool NetPlaySearch(const UICommon::GameFile& game);
   bool NetPlayHost(const UICommon::GameFile& game);
+  bool NetPlayHostWithCallback(const UICommon::GameFile& game, std::function<void(std::string)> onTraversalConnectCallback);
   void NetPlayQuit();
+  void ShowLylatConnectedNotification();
+  bool OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHost, std::string host_ip,
+                            unsigned short host_port, unsigned short local_port);
+  bool OnNetPlayMatchResultFailed(const UICommon::GameFile& game, std::string errorMessage);
+  void NetPlayMatchCancel();
 
   void OnBootGameCubeIPL(DiscIO::Region region);
   void OnImportNANDBackup();
@@ -207,6 +224,7 @@ private:
   SearchBar* m_search_bar;
   GameList* m_game_list;
   RenderWidget* m_render_widget = nullptr;
+  bool m_should_show_lylat_connected_notification = false;
   bool m_rendering_to_main;
   bool m_stop_confirm_showing = false;
   bool m_stop_requested = false;
@@ -215,6 +233,9 @@ private:
   bool m_is_screensaver_inhibited = false;
   int m_state_slot = 1;
   std::unique_ptr<BootParameters> m_pending_boot;
+  std::default_random_engine generator;
+
+  std::function<void(std::string)> m_room_id_callback;
 
   ControllersWindow* m_controllers_window = nullptr;
   SettingsWindow* m_settings_window = nullptr;
@@ -246,4 +267,7 @@ private:
   WatchWidget* m_watch_widget;
   CheatsManager* m_cheats_manager;
   QByteArray m_render_widget_geometry;
+  LylatMatchmakingClient* m_lylat_matchmaking_client = nullptr;
+  ParallelProgressDialog* m_lylat_progress_dialog;
+  std::string m_init_netplay_path;
 };

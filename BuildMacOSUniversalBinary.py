@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-The current tooling supported in CMake, Homebrew, and Qt5 are insufficient for
+The current tooling supported in CMake, Homebrew, and Qt6 are insufficient for
 creating macOS universal binaries automatically for applications like Dolphin
 which have more complicated build requirements (like different libraries, build
 flags and source files for each target architecture).
@@ -46,11 +46,11 @@ DEFAULT_CONFIG = {
     "arm64_cmake_prefix":  "/opt/homebrew",
     "x86_64_cmake_prefix": "/usr/local",
 
-    # Locations to qt5 directories for arm and x64 libraries
+    # Locations to qt6 directories for arm and x64 libraries
     # The default values of these paths are taken from the default
     # paths used for homebrew
-    "arm64_qt5_path":  "/opt/homebrew/opt/qt5",
-    "x86_64_qt5_path": "/usr/local/opt/qt5",
+    "arm64_qt6_path":  "/opt/homebrew/opt/qt6",
+    "x86_64_qt6_path": "/usr/local/opt/qt6",
 
     # Identity to use for code signing. "-" indicates that the app will not
     # be cryptographically signed/notarized but will instead just use a
@@ -133,9 +133,9 @@ def parse_args(conf=DEFAULT_CONFIG):
              dest=arch+"_cmake_prefix")
 
         parser.add_argument(
-             f"--{arch}_qt5_path",
-             help=f"Install path for {arch} qt5 libraries",
-             default=conf[arch+"_qt5_path"])
+             f"--{arch}_qt6_path",
+             help=f"Install path for {arch} qt6 libraries",
+             default=conf[arch+"_qt6_path"])
 
         parser.add_argument(
              f"--{arch}_mac_os_deployment_target",
@@ -261,7 +261,7 @@ def build(config):
             os.mkdir(arch)
 
         # Place Qt on the prefix path.
-        prefix_path = config[arch+"_qt5_path"]+';'+config[arch+"_cmake_prefix"]
+        prefix_path = config[arch+"_qt6_path"]+';'+config[arch+"_cmake_prefix"]
 
         env = os.environ.copy()
         env["CMAKE_OSX_ARCHITECTURES"] = arch

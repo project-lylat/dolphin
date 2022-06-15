@@ -7,6 +7,7 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDesktopServices>
 #include <QDialogButtonBox>
 #include <QGridLayout>
 #include <QLabel>
@@ -22,6 +23,7 @@
 #include <QRadioButton>
 #include <QHeaderView>
 #include <QInputDialog>
+#include <QUrl>
 
 #include "Core/Config/NetplaySettings.h"
 #include "Core/NetPlayProto.h"
@@ -31,12 +33,62 @@
 #include "DolphinQt/QtUtils/UTF8CodePointCountValidator.h"
 #include "DolphinQt/Settings.h"
 
+#include <QDropEvent>
+#include <QMimeData>
+#include "Common/FileUtil.h"
 #include "UICommon/GameFile.h"
 #include "UICommon/NetPlayIndex.h"
 #include "DolphinQt/NetPlay/NetPlayBrowser.h"
 #include "Common/Version.h"
 //#include "Core/NetPlayServer.h"
 
+
+static std::string SIGN_IN_STR =
+    "SIGN IN:<br /><br />"
+    "Click on the Sign In Button Above to login.<br /><br />"
+    "If that doesn't work, <a href=\"https://lylat.gg/users/enable\">Click "
+    "Here</a> or open your browser at <a "
+    "href=\"https://lylat.gg/users/enable\">https://lylat.gg/"
+    "users/enable</a> and follow the steps to sign in. <br /><br /><br /> "
+    "AFTER YOU HAVE DOWNLOADED YOUR \"lylat.json\" FILE, DRAG AND DROP IT HERE OR <br />"
+    "CLICK THE \"Attach lylat.json\" BUTTON TO FINISH SET UP!";
+
+void LylatWidget::dragEnterEvent(QDragEnterEvent* event)
+{
+  setBackgroundRole(QPalette::Highlight);
+  m_netplay_setup_dialog->m_sign_in_label->setText(tr("Drop your lylat.json here!"));
+
+  if (event->mimeData()->hasText())
+    event->acceptProposedAction();
+}
+
+void LylatWidget::dragLeaveEvent(QDragLeaveEvent* event)
+{
+  setBackgroundRole(QPalette::Base);
+  m_netplay_setup_dialog->m_sign_in_label->setText(tr(SIGN_IN_STR.c_str()));
+  event->accept();
+}
+
+void LylatWidget::dropEvent(QDropEvent* event)
+{
+  m_netplay_setup_dialog->m_sign_in_label->setText(tr(SIGN_IN_STR.c_str()));
+
+  const QMimeData* mimeData = event->mimeData();
+  if (!mimeData->hasText())
+    return;
+
+  if (mimeData->text().isEmpty())
+    return;
+
+  auto jsonPath = mimeData->text().toStdString();
+  jsonPath = ReplaceAll(std::move(jsonPath), "file://", "");
+  auto user = LylatUser::GetUserFromDisk(jsonPath);
+  if (!user)
+    return;
+
+  File::Copy(jsonPath, LylatUser::GetFilePath());
+  m_netplay_setup_dialog->Refresh();
+}
 
 NetPlaySetupDialog::NetPlaySetupDialog(const GameListModel& game_list_model, QWidget* parent)
     : QDialog(parent), m_game_list_model(game_list_model)
@@ -64,7 +116,7 @@ NetPlaySetupDialog::NetPlaySetupDialog(const GameListModel& game_list_model, QWi
 #endif
 
   m_nickname_edit->setText(QString::fromStdString(nickname));
-  m_connection_type->setCurrentIndex(traversal_choice == "direct" ? 0 : 1);
+  m_connection_type->setCurrentIndex(TraversalChoiceReversedMap[traversal_choice]);
   m_connect_port_box->setValue(connect_port);
   m_host_port_box->setValue(host_port);
 
@@ -133,10 +185,24 @@ void NetPlaySetupDialog::CreateMainLayout()
   m_connection_type = new QComboBox;
   m_connection_type->setCurrentIndex(1); // default to traversal server
   m_reset_traversal_button = new NonDefaultQPushButton(tr("Reset Traversal Settings"));
+  m_lylat_toggle_login_button = new NonDefaultQPushButton(tr("Sign In"));
+  m_lylat_reload_button = new NonDefaultQPushButton(tr("Refresh"));
   m_tab_widget = new QTabWidget;
 
   m_nickname_edit->setValidator(
       new UTF8CodePointCountValidator(NetPlay::MAX_NAME_LENGTH, m_nickname_edit));
+
+  auto alert_label = new QLabel(
+      tr("ALERT:\n\n"
+         "All players must use the same Dolphin version.\n"
+         "If enabled, SD cards must be identical between players.\n"
+         "If DSP LLE is used, DSP ROMs must be identical between players.\n"
+         "If a game is hanging on boot, it may not support Dual Core Netplay."
+         " Disable Dual Core.\n"
+         "If connecting directly, the host must have the chosen UDP port open/forwarded!\n"
+         "\n"
+         "Wii Remote support in netplay is experimental and may not work correctly.\n"
+         "Use at your own risk.\n"));
 
   // Connection widget
   auto* connection_widget = new QWidget;
@@ -215,19 +281,7 @@ void NetPlaySetupDialog::CreateMainLayout()
   connection_layout->addWidget(m_ip_edit, 0, 1);
   connection_layout->addWidget(m_connect_port_label, 0, 2);
   connection_layout->addWidget(m_connect_port_box, 0, 3);
-  connection_layout->addWidget(
-      new QLabel(
-          tr("ALERT:\n\n"
-             "All players must use the same Dolphin version.\n"
-             "If enabled, SD cards must be identical between players.\n"
-             "If DSP LLE is used, DSP ROMs must be identical between players.\n"
-             "If a game is hanging on boot, it may not support Dual Core Netplay."
-             " Disable Dual Core.\n"
-             "If connecting directly, the host must have the chosen UDP port open/forwarded!\n"
-             "\n"
-             "Wii Remote support in netplay is experimental and may not work correctly.\n"
-             "Use at your own risk.\n")),
-      1, 0, -1, -1);
+  connection_layout->addWidget(alert_label, 1, 0, -1, -1);
   connection_layout->addWidget(m_connect_button, 3, 3, Qt::AlignRight);
 
   connection_widget->setLayout(connection_layout);
@@ -261,6 +315,7 @@ void NetPlaySetupDialog::CreateMainLayout()
   m_host_upnp = new QCheckBox(tr("Forward port (UPnP)"));
 #endif
   m_host_games = new QListWidget;
+  m_lylat_games = new QListWidget;
   m_host_button = new NonDefaultQPushButton(tr("Host"));
 
   m_host_port_box->setMaximum(65535);
@@ -304,12 +359,56 @@ void NetPlaySetupDialog::CreateMainLayout()
 
   host_widget->setLayout(host_layout);
 
+  // Lylat Sign In Widget
+  m_lylat_widget = new LylatWidget;
+  m_lylat_sign_in_widget = new QWidget;
+  m_lylat_connect_widget = new QWidget;
+  auto lylat_layout = new QGridLayout;
+  auto lylat_sign_in_layout = new QGridLayout;
+  auto lylat_connect_layout = new QGridLayout;
+  m_lylat_attach_json_button = new NonDefaultQPushButton(tr("Attach lylat.json"));
+
+  m_lylat_widget->m_netplay_setup_dialog = this;
+  m_lylat_widget->setAcceptDrops(true);
+  m_lylat_widget->autoFillBackground();
+
+  m_sign_in_label = new QLabel(tr(SIGN_IN_STR.c_str()));
+
+  m_sign_in_label->setTextFormat(Qt::RichText);
+  m_sign_in_label->setTextInteractionFlags(Qt::TextBrowserInteraction);
+  m_sign_in_label->setOpenExternalLinks(true);
+
+  // Lylat Sign In Layout
+  lylat_sign_in_layout->addWidget(m_sign_in_label, 0, 0, 4, -1);
+  lylat_sign_in_layout->addWidget(m_lylat_attach_json_button, 5, 0, 1, -1);
+  // Lylat Connect Layout
+  m_lylat_connect_button = new NonDefaultQPushButton(tr("Connect"));
+
+  lylat_connect_layout->addWidget(
+      new QLabel(tr("Choose the game you want to start playing and then click on Connect button")),
+      0, 0, 2, -1);
+  lylat_connect_layout->addWidget(m_lylat_games, 2, 0, 1, -1);
+  lylat_connect_layout->addWidget(m_lylat_connect_button, 4, 3, 2, 1, Qt::AlignRight);
+
+  lylat_layout->addWidget(m_lylat_sign_in_widget, 0, 0, -1, -1);
+  lylat_layout->addWidget(m_lylat_connect_widget, 0, 0, -1, -1);
+
+  connection_widget->setVisible(false);
+
+  m_lylat_sign_in_widget->setLayout(lylat_sign_in_layout);
+  m_lylat_connect_widget->setLayout(lylat_connect_layout);
+  m_lylat_widget->setLayout(lylat_layout);
+
+  // Setup Tabs
+  m_connection_type->addItem(tr("Lylat"));
   m_connection_type->addItem(tr("Direct Connection"));
   m_connection_type->addItem(tr("Traversal Server"));
 
   m_main_layout->addWidget(new QLabel(tr("Connection Type:")), 0, 0);
   m_main_layout->addWidget(m_connection_type, 0, 1);
   m_main_layout->addWidget(m_reset_traversal_button, 0, 2);
+  m_main_layout->addWidget(m_lylat_toggle_login_button, 0, 2);
+  m_main_layout->addWidget(m_lylat_reload_button, 1, 2);
   m_main_layout->addWidget(new QLabel(tr("Nickname:")), 1, 0);
   m_main_layout->addWidget(m_nickname_edit, 1, 1);
   m_main_layout->addWidget(m_tab_widget, 2, 0, 1, -1);
@@ -318,6 +417,7 @@ void NetPlaySetupDialog::CreateMainLayout()
   // Tabs
   m_tab_widget->addTab(connection_widget, tr("Connect"));
   m_tab_widget->addTab(host_widget, tr("Host"));
+  m_tab_widget->addTab(m_lylat_widget, tr("Lylat"));
   m_tab_widget->addTab(browser_widget, tr("Browser"));
 
 
@@ -376,6 +476,30 @@ void NetPlaySetupDialog::ConnectWidgets()
 #ifdef USE_UPNP
   connect(m_host_upnp, &QCheckBox::stateChanged, this, &NetPlaySetupDialog::SaveSettings);
 #endif
+  // Lylat Widget
+  connect(m_lylat_games, qOverload<int>(&QListWidget::currentRowChanged), [this](int index) {
+    Settings::GetQSettings().setValue(QStringLiteral("netplay/lylatgame"),
+                                      m_host_games->item(index)->text());
+  });
+  connect(m_lylat_games, &QListWidget::itemDoubleClicked, this, &NetPlaySetupDialog::accept);
+  connect(m_lylat_toggle_login_button, &QPushButton::clicked, this, [this]() {
+    if (LylatUser::GetUser(true))
+    {
+      LylatUser::DeleteUserFile();
+      this->OnConnectionTypeChanged(this->m_connection_type->currentIndex());
+    }
+    else
+    {
+      QDesktopServices::openUrl(QUrl(tr("http://lylat.gg/users/enable"), QUrl::TolerantMode));
+    }
+  });
+
+  connect(m_lylat_attach_json_button, &QPushButton::clicked, this,
+          [this]() { emit OpenLylatJSON(std::nullopt); });
+
+  connect(m_lylat_reload_button, &QPushButton::clicked, this,
+          [this]() { this->OnConnectionTypeChanged(this->m_connection_type->currentIndex()); });
+  connect(m_lylat_connect_button, &QPushButton::clicked, this, &QDialog::accept);
 
   connect(m_connect_button, &QPushButton::clicked, this, &QDialog::accept);
   connect(m_host_button, &QPushButton::clicked, this, &QDialog::accept);
@@ -422,8 +546,9 @@ void NetPlaySetupDialog::SaveSettings()
   Config::ConfigChangeCallbackGuard config_guard;
 
   Config::SetBaseOrCurrent(Config::NETPLAY_NICKNAME, m_nickname_edit->text().toStdString());
-  Config::SetBaseOrCurrent(m_connection_type->currentIndex() == 0 ? Config::NETPLAY_ADDRESS :
-                                                                    Config::NETPLAY_HOST_CODE,
+  Config::SetBaseOrCurrent(m_connection_type->currentIndex() == CONN_TYPE_DIRECT ?
+                               Config::NETPLAY_ADDRESS :
+                               Config::NETPLAY_HOST_CODE,
                            m_ip_edit->text().toStdString());
   Config::SetBaseOrCurrent(Config::NETPLAY_CONNECT_PORT,
                            static_cast<u16>(m_connect_port_box->value()));
@@ -466,59 +591,139 @@ void NetPlaySetupDialog::SaveSettings()
   settings.setValue(QStringLiteral("netplaybrowser/hide_ingame"), m_check_hide_ingame->isChecked());
 }
 
+enum TabIndexes : int
+{
+  TAB_CONNECT,
+  TAB_HOST,
+  TAB_LYLAT,
+};
+
+void NetPlaySetupDialog::SetConnectionType(ConnectionType type)
+{
+  m_connection_type->setCurrentIndex(type);
+}
+
+void NetPlaySetupDialog::Refresh()
+{
+  OnConnectionTypeChanged(m_connection_type->currentIndex());
+}
+
 void NetPlaySetupDialog::OnConnectionTypeChanged(int index)
 {
-  m_connect_port_box->setHidden(index != 0);
-  m_connect_port_label->setHidden(index != 0);
+  ConnectionType type = (ConnectionType)index;
+  std::string address;
 
-  m_host_port_label->setHidden(index != 0);
-  m_host_port_box->setHidden(index != 0);
+  m_ip_label->setText(index == CONN_TYPE_DIRECT ? tr("IP Address:") : tr("Host Code:"));
+  m_nickname_edit->setEnabled(true);  // Enable Nickname editing
+
+  m_connect_port_box->setHidden(index != CONN_TYPE_DIRECT);
+  m_connect_port_label->setHidden(index != CONN_TYPE_DIRECT);
+
+  m_host_port_label->setHidden(index != CONN_TYPE_DIRECT);
+  m_host_port_box->setHidden(index != CONN_TYPE_DIRECT);
 #ifdef USE_UPNP
-  m_host_upnp->setHidden(index != 0);
+  m_host_upnp->setHidden(index != CONN_TYPE_DIRECT);
 #endif
-  m_host_force_port_check->setHidden(index == 0);
-  m_host_force_port_box->setHidden(index == 0);
+  m_host_force_port_check->setHidden(index == CONN_TYPE_DIRECT);
+  m_host_force_port_box->setHidden(index == CONN_TYPE_DIRECT);
 
-  m_reset_traversal_button->setHidden(index == 0);
+  m_reset_traversal_button->setHidden(index != CONN_TYPE_TRAVERSAL);
+  m_lylat_toggle_login_button->setHidden(index != CONN_TYPE_LYLAT);
+  m_lylat_reload_button->setHidden(index != CONN_TYPE_LYLAT);
 
-  std::string address =
-      index == 0 ? Config::Get(Config::NETPLAY_ADDRESS) : Config::Get(Config::NETPLAY_HOST_CODE);
+#if QT_VERSION < QT_VERSION_CHECK(5, 15, 0)
 
-  m_ip_label->setText(index == 0 ? tr("IP Address:") : tr("Host Code:"));
+  m_tab_widget->setTabEnabled(TAB_CONNECT, type != CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_CONNECT)->setVisible(type != CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_CONNECT)->setEnabled(type != CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_CONNECT)->setHidden(type == CONN_TYPE_LYLAT);
+
+  m_tab_widget->setTabEnabled(TAB_HOST, type != CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_HOST)->setVisible(type != CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_HOST)->setEnabled(type != CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_HOST)->setHidden(type == CONN_TYPE_LYLAT);
+
+  m_tab_widget->setTabEnabled(TAB_LYLAT, type == CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_LYLAT)->setVisible(type == CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_LYLAT)->setEnabled(type == CONN_TYPE_LYLAT);
+  m_tab_widget->widget(TAB_LYLAT)->setHidden(type != CONN_TYPE_LYLAT);
+#else
+  m_tab_widget->setTabVisible(TAB_CONNECT, type != CONN_TYPE_LYLAT);
+  m_tab_widget->setTabVisible(TAB_HOST, type != CONN_TYPE_LYLAT);
+  m_tab_widget->setTabVisible(TAB_LYLAT, type == CONN_TYPE_LYLAT);
+#endif
+  if(type == CONN_TYPE_LYLAT)
+  {
+    m_tab_widget->setCurrentIndex(TAB_LYLAT);
+    auto current_widget = m_tab_widget->widget(TAB_LYLAT);
+    if(current_widget) m_tab_widget->setCurrentWidget(current_widget);
+  }
+
+  switch (type)
+  {
+  case CONN_TYPE_LYLAT:
+    m_lylat_user = LylatUser::GetUser(true);  // Get Lylat User
+    m_nickname_edit->setEnabled(false);       // Disable Nickname editing
+    m_tab_widget->tabBarClicked(TAB_LYLAT);
+
+    // Before switching layouts the current LayoutManager needs to be deleted.
+
+    if (m_lylat_user)
+    {
+      m_lylat_toggle_login_button->setText(tr("Sign Out"));
+      m_tab_widget->setTabText(TAB_LYLAT, tr("Connect"));
+      m_nickname_edit->setText(tr(m_lylat_user->displayName.c_str()));
+      m_lylat_sign_in_widget->setVisible(false);
+      m_lylat_connect_widget->setVisible(true);
+    }
+    else
+    {
+      m_lylat_toggle_login_button->setText(tr("Sign In"));
+      m_tab_widget->setTabText(TAB_LYLAT, tr("Sign in"));
+      m_lylat_sign_in_widget->setVisible(true);
+      m_lylat_connect_widget->setVisible(false);
+    }
+
+    break;
+  case CONN_TYPE_DIRECT:
+    address = Config::Get(Config::NETPLAY_ADDRESS);
+    m_ip_label->setText(tr("IP Address:"));
+
+    break;
+  case CONN_TYPE_TRAVERSAL:
+    address = Config::Get(Config::NETPLAY_HOST_CODE);
+    m_ip_label->setText(tr("Host Code:"));
+    break;
+  default:
+    break;
+  }
   m_ip_edit->setText(QString::fromStdString(address));
-
   Config::SetBaseOrCurrent(Config::NETPLAY_TRAVERSAL_CHOICE,
-                           std::string(index == 0 ? "direct" : "traversal"));
+                           std::string(TraversalChoiceMap[(ConnectionType)index]));
 }
 
 void NetPlaySetupDialog::show()
 {
-  // Here i'm setting the lobby name if it's empty to make
-  // NetPlay sessions start more easily for first time players
-  if (m_host_server_name->text().isEmpty())
-  {
-    std::string nickname = Config::Get(Config::NETPLAY_NICKNAME);
-    m_host_server_name->setText(QString::fromStdString(nickname));
-  }
-  m_host_server_browser->setChecked(true);
-  m_host_ranked->setChecked(false);
-  m_host_superstars->setChecked(false);
-  m_connection_type->setCurrentIndex(1);
-  m_tab_widget->setCurrentIndex(2); // start on browser
-  RefreshBrowser();
-
-  PopulateGameList();
+  PopulateGameList(
+      m_host_games,
+      Settings::GetQSettings().value(QStringLiteral("netplay/hostgame"), QString{}).toString());
+  PopulateGameList(
+      m_lylat_games,
+      Settings::GetQSettings().value(QStringLiteral("netplay/lylatgame"), QString{}).toString());
   QDialog::show();
 }
 
 void NetPlaySetupDialog::accept()
 {
   SaveSettings();
-  if (m_tab_widget->currentIndex() == 0)
+  switch (m_tab_widget->currentIndex())
+  {
+  case TAB_CONNECT:
   {
     emit Join();
+    break;
   }
-  else
+  case TAB_HOST:
   {
     auto items = m_host_games->selectedItems();
     if (items.empty())
@@ -541,35 +746,53 @@ void NetPlaySetupDialog::accept()
       return;
     }
 
-    emit Host(*items[0]->data(Qt::UserRole).value <std::shared_ptr<const UICommon::GameFile>>());
+    emit Host(*items[0]->data(Qt::UserRole).value<std::shared_ptr<const UICommon::GameFile>>());
+    break;
+  }
+  case TAB_LYLAT:
+  {
+    auto games = m_lylat_games->selectedItems();
+    if (games.empty())
+    {
+      ModalMessageBox::critical(this, tr("Error"), tr("You must select a game to find a match!"));
+      return;
+    }
+
+    emit Search(*games[0]->data(Qt::UserRole).value<std::shared_ptr<const UICommon::GameFile>>());
+    break;
+  }
+  default:
+  {
+    break;
+  }
   }
 }
 
-void NetPlaySetupDialog::PopulateGameList()
+void NetPlaySetupDialog::PopulateGameList(QListWidget* list, QString selected_game)
 {
-  QSignalBlocker blocker(m_host_games);
+  QSignalBlocker blocker(list);
 
-  m_host_games->clear();
+  list->clear();
   for (int i = 0; i < m_game_list_model.rowCount(QModelIndex()); i++)
   {
     std::shared_ptr<const UICommon::GameFile> game = m_game_list_model.GetGameFile(i);
+    // TODO: rio review, only allow superstar baseball game
     if ((m_game_list_model.GetNetPlayName(*game) == "Mario Superstar Baseball (GYQE01)"))
     {
       auto* item =
           new QListWidgetItem(QString::fromStdString(m_game_list_model.GetNetPlayName(*game)));
       item->setData(Qt::UserRole, QVariant::fromValue(std::move(game)));
-      m_host_games->addItem(item);
+      list->addItem(item);
     }
+
   }
 
-  m_host_games->sortItems();
+  list->sortItems();
 
-  const QString selected_game =
-      Settings::GetQSettings().value(QStringLiteral("netplay/hostgame"), QString{}).toString();
-  const auto find_list = m_host_games->findItems(selected_game, Qt::MatchFlag::MatchExactly);
+  auto find_list = list->findItems(selected_game, Qt::MatchFlag::MatchExactly);
 
   if (find_list.count() > 0)
-    m_host_games->setCurrentItem(find_list[0]);
+    list->setCurrentItem(find_list[0]);
 }
 
 void NetPlaySetupDialog::ResetTraversalHost()

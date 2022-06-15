@@ -15,8 +15,6 @@
 #include "DolphinQt/Resources.h"
 #include "DolphinQt/Settings.h"
 
-
-
 static QSize ICON_SIZE(32, 32);
 
 ToolBar::ToolBar(QWidget* parent) : QToolBar(parent)
@@ -126,14 +124,13 @@ void ToolBar::MakeActions()
   // addSeparator();
 
   m_pause_play_action = addAction(tr("Play"), this, &ToolBar::PlayPressed);
-
   m_stop_action = addAction(tr("Stop"), this, &ToolBar::StopPressed);
 
   // addSeparator();
 
-
   m_local_play_action = addAction(tr("Local Play"), this, &ToolBar::ViewLocalPlayers);
   m_start_netplay_action = addAction(tr("Online Play"), this, &ToolBar::StartNetPlayPressed);
+  m_lylat_play_action = addAction(tr("Find Match"), this, &ToolBar::SearchPressed);
 
   addSeparator();
 
@@ -153,7 +150,7 @@ void ToolBar::MakeActions()
   std::vector<QWidget*> items;
   for (const auto& action : {
         m_open_action, m_pause_play_action, m_stop_action, m_stop_action,
-        m_local_play_action, m_start_netplay_action, m_fullscreen_action,
+        m_local_play_action, m_start_netplay_action, m_lylat_play_action, m_fullscreen_action,
         m_config_action, m_graphics_action, m_controllers_action,
         m_step_action, m_step_over_action, m_step_out_action, m_skip_action, m_show_pc_action,
         m_set_pc_action})
@@ -213,6 +210,7 @@ void ToolBar::UpdateIcons()
   m_config_action->setIcon(Resources::GetScaledThemeIcon("config"));
   m_controllers_action->setIcon(Resources::GetScaledThemeIcon("classic"));
   m_graphics_action->setIcon(Resources::GetScaledThemeIcon("graphics"));
+  m_lylat_play_action->setIcon(Resources::GetScaledThemeIcon("lylat_play"));
   m_start_netplay_action->setIcon(Resources::GetScaledThemeIcon("wifi"));
   m_view_gecko_codes_action->setIcon(Resources::GetScaledThemeIcon("debugger_add_breakpoint@2x"));
   m_local_play_action->setIcon(Resources::GetScaledThemeIcon("play"));

@@ -14,6 +14,7 @@
 #include <thread>
 #include <type_traits>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include <fmt/format.h>
@@ -115,7 +116,7 @@ NetPlayServer::~NetPlayServer()
 
 // called from ---GUI--- thread
 NetPlayServer::NetPlayServer(const u16 port, const bool forward_port, NetPlayUI* dialog,
-                             const NetTraversalConfig& traversal_config)
+                             const NetTraversalConfig& traversal_config, std::function<void(std::string)> onTraversalConnectCallback)
     : m_dialog(dialog)
 {
   //--use server time
@@ -123,6 +124,9 @@ NetPlayServer::NetPlayServer(const u16 port, const bool forward_port, NetPlayUI*
   {
     PanicAlertFmtT("Enet Didn't Initialize");
   }
+
+  // empty callback
+  OnTraversalConnectCallback = std::move(onTraversalConnectCallback);
 
   m_pad_map.fill(0);
   m_gba_config.fill({});
@@ -1348,6 +1352,12 @@ void NetPlayServer::OnTraversalStateChanged()
 
   if (state == TraversalClient::State::Failure)
     m_dialog->OnTraversalError(m_traversal_client->GetFailureReason());
+  if (state == TraversalClient::State::Connected)
+  {
+    const auto host_id = g_TraversalClient->GetHostID();
+    OnTraversalConnectCallback(std::string(host_id.begin(), host_id.end()));
+
+  }
 
   m_dialog->OnTraversalStateChanged(state);
 }
@@ -1514,6 +1524,7 @@ bool NetPlayServer::SetupNetSettings()
   settings.m_EFBAccessTileSize = Config::Get(Config::GFX_HACK_EFB_ACCESS_TILE_SIZE);
   settings.m_EFBAccessDeferInvalidation = Config::Get(Config::GFX_HACK_EFB_DEFER_INVALIDATION);
 
+  settings.m_LoadPreloadedSaveFiles = Config::Get(Config::NETPLAY_PRELOADED_SAVES);
   settings.m_StrictSettingsSync = Config::Get(Config::NETPLAY_STRICT_SETTINGS_SYNC);
   settings.m_SyncSaveData = Config::Get(Config::NETPLAY_SYNC_SAVES);
   settings.m_SyncCodes = true;
@@ -1692,6 +1703,7 @@ bool NetPlayServer::StartGame()
   spac << m_settings.m_DeferEFBCopies;
   spac << m_settings.m_EFBAccessTileSize;
   spac << m_settings.m_EFBAccessDeferInvalidation;
+  spac << m_settings.m_LoadPreloadedSaveFiles;
   spac << m_settings.m_StrictSettingsSync;
   spac << initial_rtc;
   spac << m_settings.m_SyncSaveData;
@@ -2217,6 +2229,13 @@ bool NetPlayServer::PlayerHasControllerMapped(const PlayerId pid) const
 
   return std::any_of(m_pad_map.begin(), m_pad_map.end(), mapping_matches_player_id) ||
          std::any_of(m_wiimote_map.begin(), m_wiimote_map.end(), mapping_matches_player_id);
+}
+
+std::string NetPlayServer::GetServerID()
+{
+  if(!g_TraversalClient) return "";
+  const auto host_id = g_TraversalClient->GetHostID();
+  return std::string(host_id.begin(), host_id.end());
 }
 
 u16 NetPlayServer::GetPort() const

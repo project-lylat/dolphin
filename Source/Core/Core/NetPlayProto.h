@@ -95,6 +95,7 @@ struct NetSettings
   int m_EFBAccessTileSize = 0;
   bool m_EFBAccessDeferInvalidation = false;
 
+  bool m_LoadPreloadedSaveFiles = true;
   bool m_StrictSettingsSync = false;
   bool m_SyncSaveData = false;
   bool m_SyncCodes = true;
@@ -109,6 +110,8 @@ struct NetSettings
   bool m_IsHosting = false;
   bool m_HostInputAuthority = false;
   std::array<std::string, 4> m_GBARomPaths{};
+  bool m_isChatEnabled = true;
+
 };
 
 struct NetTraversalConfig

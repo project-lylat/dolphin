@@ -47,12 +47,13 @@ public:
 
   void PurgeCache();
 
-  const GameListModel& GetGameListModel() const { return m_model; }
+  GameListModel& GetGameListModel() { return m_model; }
 
 signals:
   void GameSelected();
   void OnStartWithRiivolution(const UICommon::GameFile& game);
   void NetPlayHost(const UICommon::GameFile& game);
+  void NetPlaySearch(const UICommon::GameFile& game);
   void SelectionChanged(std::shared_ptr<const UICommon::GameFile> game_file);
   void OpenGeneralSettings();
 
@@ -69,7 +70,7 @@ private:
   void SetDefaultISO();
   void DeleteFile();
 #ifdef _WIN32
-  bool AddShortcutToDesktop();
+  bool AddShortcutToDesktop( bool matchmaking );
 #endif
   void InstallWAD();
   void UninstallWAD();

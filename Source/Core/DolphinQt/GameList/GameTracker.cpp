@@ -365,3 +365,8 @@ void GameTracker::PurgeCache()
   m_needs_purge = true;
   Settings::Instance().RefreshGameList();
 }
+
+UICommon::GameFileCache& GameTracker::GetGameCache()
+{
+  return m_cache;
+}
