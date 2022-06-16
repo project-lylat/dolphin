@@ -65,7 +65,7 @@ const Info<bool> NETPLAY_ENABLE_AUTO_START_GAME{{System::Main, "NetPlay", "Enabl
 
 // get game tags from entry.name string -- each tag seperated by "%%"
 // first tag is the name of the lobby, second is ranked, third is superstars
-std::vector<std::string> Config::LobbyNameVector(const std::string& name)
+std::vector<std::string> LobbyNameVector(const std::string& name)
 {
   std::vector<std::string> game_tags;
   {
