@@ -82,7 +82,7 @@ signals:
   void ReadOnlyModeChanged(bool read_only);
   void RecordingStatusChanged(bool recording);
   bool OnMatchmakingConnection(const UICommon::GameFile& game, bool isHost, std::string ip,
-                               unsigned short port, unsigned short local_port);
+                               unsigned short port, unsigned short local_port, LylatNetplayClient* netplayClient);
   bool OnMatchmakingError(const UICommon::GameFile& game, std::string errorMessage);
 
 private:
@@ -178,7 +178,7 @@ private:
   void NetPlayQuit();
   void ShowLylatConnectedNotification();
   bool OnNetPlayMatchResult(const UICommon::GameFile& game, bool isHost, std::string host_ip,
-                            unsigned short host_port, unsigned short local_port);
+                            unsigned short host_port, unsigned short local_port, LylatNetplayClient* netplayClient);
   bool OnNetPlayMatchResultFailed(const UICommon::GameFile& game, std::string errorMessage);
   void NetPlayMatchCancel();
 
@@ -240,6 +240,7 @@ private:
   MappingWindow* m_hotkey_window = nullptr;
   FreeLookWindow* m_freelook_window = nullptr;
 
+  LylatNetplayClient* m_netplay_client = nullptr;
   HotkeyScheduler* m_hotkey_scheduler;
   NetPlayDialog* m_netplay_dialog;
   DiscordHandler* m_netplay_discord;

@@ -124,10 +124,19 @@ NetPlayClient::~NetPlayClient()
 
 // called from ---GUI--- thread
 NetPlayClient::NetPlayClient(const std::string& address, const u16 port, NetPlayUI* dialog,
-                             const std::string& name, const NetTraversalConfig& traversal_config)
+                             const std::string& name, const NetTraversalConfig& traversal_config, ENetHost *client, ENetPeer *peer)
     : m_dialog(dialog), m_player_name(name)
 {
   ClearBuffers();
+
+  if(client && peer) {
+    m_server = peer;
+    m_client = client;
+    m_connection_state = ConnectionState::Connected;
+    m_client->intercept = ENetUtil::InterceptCallback;
+    m_thread = std::thread(&NetPlayClient::ThreadFunc, this);
+    return;
+  }
 
   if (!traversal_config.use_traversal)
   {

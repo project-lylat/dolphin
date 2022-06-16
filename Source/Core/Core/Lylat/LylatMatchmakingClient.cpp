@@ -61,7 +61,7 @@ void LylatMatchmakingClient::CancelSearch()
 void LylatMatchmakingClient::Match(
     const UICommon::GameFile& game, std::string traversalRoomId,
     std::function<void(const UICommon::GameFile& game, bool isHost, std::string ip,
-                       unsigned short port, unsigned short local_port)>
+                       unsigned short port, unsigned short local_port, std::unique_ptr<LylatNetplayClient> netplayClient)>
         onSuccessCallback,
     std::function<void(const UICommon::GameFile&, std::string)> onFailureCallback)
 {
@@ -528,9 +528,43 @@ void LylatMatchmakingClient::handleConnecting()
   INFO_LOG_FMT(LYLAT, "[Matchmaking] Connect with: {} at {}", remoteUser.displayName,
                remoteUser.connectCode);
 
+  // Is host is now used to specify who the decider is
+  auto client = std::make_unique<LylatNetplayClient>(addrs, ports, 1, m_hostPort, m_isHost,
+                                                      m_localPlayerIndex);
+
+  while (!m_netplayClient)
+  {
+    auto status = client->GetConnectStatus();
+    if (status == LylatNetplayClient::ConnectStatus::NET_CONNECT_STATUS_INITIATED)
+    {
+      INFO_LOG_FMT(LYLAT, "[Matchmaking] Connection not yet successful");
+      Common::SleepCurrentThread(500);
+
+      // Deal with class shut down
+      if (m_state != ProcessState::OPPONENT_CONNECTING)
+        return;
+
+      continue;
+    }
+    else if (status != LylatNetplayClient::ConnectStatus::NET_CONNECT_STATUS_CONNECTED)
+    {
+      ERROR_LOG_FMT(LYLAT, "[Matchmaking] Connection attempt failed, looking for someone else.");
+
+      // Return to the start to get a new ticket to find someone else we can hopefully connect with
+      m_netplayClient = nullptr;
+      m_state = ProcessState::INITIALIZING;
+      return;
+    }
+
+    WARN_LOG_FMT(LYLAT, "[Matchmaking] Connection success!");
+
+    // Successful connection
+    m_netplayClient = std::move(client);
+  }
+
   // Connection success, our work is done
   m_state = ProcessState::CONNECTION_SUCCESS;
-  m_onSuccessCallback(*m_game, m_isHost, remoteUser.connectCode, ports[0], m_hostPort);
+  m_onSuccessCallback(*m_game, m_isHost, remoteUser.connectCode, ports[0], m_hostPort, std::move(m_netplayClient));
   terminateMmConnection();
 }
 

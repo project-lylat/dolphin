@@ -414,6 +414,8 @@ add_library(core
   LibusbUtils.h
   Lylat/LylatMatchmakingClient.cpp
   Lylat/LylatMatchmakingClient.h
+  Lylat/LylatNetplay.cpp
+  Lylat/LylatNetplay.h
   Lylat/LylatUser.cpp
   Lylat/LylatUser.h
   MemTools.cpp

@@ -20,6 +20,7 @@
 #include "Common/Version.h"
 
 #include "LylatUser.h"
+#include "LylatNetplay.h"
 #include "picojson.h"
 
 #include <random>
@@ -73,7 +74,7 @@ public:
 
   void Match(const UICommon::GameFile& game, std::string traversalRoomId,
              std::function<void(const UICommon::GameFile& game, bool isHost, std::string ip,
-                                unsigned short port, unsigned short localPort)>
+                                unsigned short port, unsigned short localPort, std::unique_ptr<LylatNetplayClient> netplayClient)>
                  onSuccessCallback,
              std::function<void(const UICommon::GameFile&, std::string)> onFailureCallback);
   void MatchmakeThread();
@@ -106,6 +107,7 @@ protected:
   std::vector<LylatUser> m_playerInfo;
   std::vector<u16> m_allowedStages;
   LylatUser* m_user;
+  std::unique_ptr<LylatNetplayClient> m_netplayClient;
 
   int m_isSwapAttempt = false;
   int m_hostPort;
@@ -119,7 +121,7 @@ protected:
       {ProcessState::OPPONENT_CONNECTING, true},
   };
 
-  std::function<void(const UICommon::GameFile&, bool, std::string, unsigned short, unsigned short)>
+  std::function<void(const UICommon::GameFile&, bool, std::string, unsigned short, unsigned short, std::unique_ptr<LylatNetplayClient>)>
       m_onSuccessCallback;
   std::function<void(const UICommon::GameFile&, std::string)> m_onFailureCallback;
 

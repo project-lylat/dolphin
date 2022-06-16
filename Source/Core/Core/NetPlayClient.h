@@ -108,7 +108,7 @@ public:
   void SendAsync(sf::Packet&& packet, u8 channel_id = DEFAULT_CHANNEL);
 
   NetPlayClient(const std::string& address, const u16 port, NetPlayUI* dialog,
-                const std::string& name, const NetTraversalConfig& traversal_config);
+                const std::string& name, const NetTraversalConfig& traversal_config, ENetHost *client, ENetPeer *peer);
   ~NetPlayClient();
 
   std::vector<const Player*> GetPlayers();
