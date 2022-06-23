@@ -3,7 +3,7 @@ name: Builds
 on:
   push:
     branches:
-      - lylat/rio
+      - '**'
     paths-ignore:
       - "**.md"
       - "**.ini"
