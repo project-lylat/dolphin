@@ -132,9 +132,11 @@ NetPlayClient::NetPlayClient(const std::string& address, const u16 port, NetPlay
   if(client && peer) {
     m_server = peer;
     m_client = client;
-    m_connection_state = ConnectionState::Connected;
-    m_client->intercept = ENetUtil::InterceptCallback;
-    m_thread = std::thread(&NetPlayClient::ThreadFunc, this);
+    if(Connect()){
+      m_connection_state = ConnectionState::Connected;
+      //m_client->intercept = ENetUtil::InterceptCallback;
+      m_thread = std::thread(&NetPlayClient::ThreadFunc, this);
+    }
     return;
   }
 

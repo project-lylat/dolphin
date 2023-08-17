@@ -1644,8 +1644,8 @@ bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
     m_lylat_matchmaking_client->Match(
         game, traversalRoomId,
         [this](const UICommon::GameFile& game, bool isHost, std::string ip, unsigned short port,
-               unsigned short local_port, std::unique_ptr<LylatNetplayClient> netplayClient) {
-          emit this->OnMatchmakingConnection(game, isHost, ip, port, local_port, std::move(netplayClient).get());
+               unsigned short local_port, LylatNetplayClient* netplayClient) {
+          emit this->OnMatchmakingConnection(game, isHost, ip, port, local_port, netplayClient);
         },
         [this](const UICommon::GameFile& game, std::string errorMessage) {
           emit this->OnMatchmakingError(game, errorMessage);
@@ -1658,8 +1658,8 @@ bool MainWindow::NetPlaySearch(const UICommon::GameFile& game)
   m_lylat_matchmaking_client->Match(
       game, "Test",
       [this](const UICommon::GameFile& game, bool isHost, std::string ip, unsigned short port,
-             unsigned short local_port, std::unique_ptr<LylatNetplayClient> netplayClient) {
-        emit this->OnMatchmakingConnection(game, isHost, ip, port, local_port, std::move(netplayClient).get());
+             unsigned short local_port, LylatNetplayClient* netplayClient) {
+        emit this->OnMatchmakingConnection(game, isHost, ip, port, local_port, netplayClient);
       },
       [this](const UICommon::GameFile& game, std::string errorMessage) {
         emit this->OnMatchmakingError(game, errorMessage);
@@ -1729,6 +1729,7 @@ bool MainWindow::NetPlayJoin()
                traversal_host, traversal_port, is_traversal);
 
   // Create Client
+
   const bool is_hosting_netplay = server != nullptr;
   Settings::Instance().ResetNetPlayClient(new NetPlay::NetPlayClient(
       host_ip, host_port, m_netplay_dialog, nickname,

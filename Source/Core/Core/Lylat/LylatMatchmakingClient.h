@@ -74,7 +74,7 @@ public:
 
   void Match(const UICommon::GameFile& game, std::string traversalRoomId,
              std::function<void(const UICommon::GameFile& game, bool isHost, std::string ip,
-                                unsigned short port, unsigned short localPort, std::unique_ptr<LylatNetplayClient> netplayClient)>
+                                unsigned short port, unsigned short localPort, LylatNetplayClient* netplayClient)>
                  onSuccessCallback,
              std::function<void(const UICommon::GameFile&, std::string)> onFailureCallback);
   void MatchmakeThread();
@@ -107,7 +107,7 @@ protected:
   std::vector<LylatUser> m_playerInfo;
   std::vector<u16> m_allowedStages;
   LylatUser* m_user;
-  std::unique_ptr<LylatNetplayClient> m_netplayClient;
+  LylatNetplayClient* m_netplayClient = nullptr;
 
   int m_isSwapAttempt = false;
   int m_hostPort;
@@ -121,7 +121,8 @@ protected:
       {ProcessState::OPPONENT_CONNECTING, true},
   };
 
-  std::function<void(const UICommon::GameFile&, bool, std::string, unsigned short, unsigned short, std::unique_ptr<LylatNetplayClient>)>
+
+  std::function<void(const UICommon::GameFile&, bool, std::string, unsigned short, unsigned short, LylatNetplayClient*)>
       m_onSuccessCallback;
   std::function<void(const UICommon::GameFile&, std::string)> m_onFailureCallback;
 

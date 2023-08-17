@@ -61,7 +61,7 @@ void LylatMatchmakingClient::CancelSearch()
 void LylatMatchmakingClient::Match(
     const UICommon::GameFile& game, std::string traversalRoomId,
     std::function<void(const UICommon::GameFile& game, bool isHost, std::string ip,
-                       unsigned short port, unsigned short local_port, std::unique_ptr<LylatNetplayClient> netplayClient)>
+                       unsigned short port, unsigned short local_port, LylatNetplayClient* netplayClient)>
         onSuccessCallback,
     std::function<void(const UICommon::GameFile&, std::string)> onFailureCallback)
 {
@@ -529,7 +529,7 @@ void LylatMatchmakingClient::handleConnecting()
                remoteUser.connectCode);
 
   // Is host is now used to specify who the decider is
-  auto client = std::make_unique<LylatNetplayClient>(addrs, ports, 1, m_hostPort, m_isHost,
+  auto client = new LylatNetplayClient(addrs, ports, 1, m_hostPort, m_isHost,
                                                       m_localPlayerIndex);
 
   while (!m_netplayClient)
@@ -559,13 +559,14 @@ void LylatMatchmakingClient::handleConnecting()
     WARN_LOG_FMT(LYLAT, "[Matchmaking] Connection success!");
 
     // Successful connection
-    m_netplayClient = std::move(client);
+    m_netplayClient = client;
   }
+
 
   // Connection success, our work is done
   m_state = ProcessState::CONNECTION_SUCCESS;
-  m_onSuccessCallback(*m_game, m_isHost, remoteUser.connectCode, ports[0], m_hostPort, std::move(m_netplayClient));
-  terminateMmConnection();
+  m_onSuccessCallback(*m_game, m_isHost, remoteUser.connectCode, ports[0], m_hostPort, m_netplayClient);
+  //terminateMmConnection();
 }
 
 void LylatMatchmakingClient::disconnectFromServer()

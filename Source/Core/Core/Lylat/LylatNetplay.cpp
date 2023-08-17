@@ -79,7 +79,11 @@ LylatNetplayClient::LylatNetplayClient(std::vector<std::string> addrs, std::vect
 
   if (m_client == nullptr)
   {
+
+    ERROR_LOG_FMT(LYLAT, "Couldn't Create Client");
     PanicAlertFmt("Couldn't Create Client");
+    slippiConnectStatus = ConnectStatus::NET_CONNECT_STATUS_FAILED;
+    return;
   }
 
   for (int i = 0; i < remotePlayerCount; i++)
@@ -101,6 +105,9 @@ LylatNetplayClient::LylatNetplayClient(std::vector<std::string> addrs, std::vect
     if (peer == nullptr)
     {
       PanicAlertFmt("Couldn't create peer.");
+      ERROR_LOG_FMT(LYLAT, "Couldn't Create peer");
+      slippiConnectStatus = ConnectStatus::NET_CONNECT_STATUS_FAILED;
+      return;
     }
     else
     {
