@@ -498,7 +498,7 @@ constexpr std::array<u8, 512> ROOT_PUBLIC_KEY = {
      0xA8, 0x1E, 0xA7, 0xCE, 0x71, 0x44, 0xDC, 0x29, 0x94, 0xCF, 0xC4, 0x4E, 0x1F, 0x91, 0xCB,
      0xD4, 0x95}};
 
-void IOSC::LoadDefaultEntries(ConsoleType console_type)
+void IOSC::LoadDefaultEntries(ConsoleType)
 {
   m_key_entries[HANDLE_CONSOLE_KEY] = {
       TYPE_SECRET_KEY, SUBTYPE_ECC233, {DEFAULT_PRIVATE_KEY.begin(), DEFAULT_PRIVATE_KEY.end()}, 3};
@@ -508,46 +508,22 @@ void IOSC::LoadDefaultEntries(ConsoleType console_type)
   m_key_entries[HANDLE_FS_KEY] = {TYPE_SECRET_KEY, SUBTYPE_AES128, std::vector<u8>(16), 5};
   m_key_entries[HANDLE_FS_MAC] = {TYPE_SECRET_KEY, SUBTYPE_MAC, std::vector<u8>(20), 5};
 
-  switch (console_type)
-  {
-  case ConsoleType::Retail:
-    m_key_entries[HANDLE_COMMON_KEY] = {TYPE_SECRET_KEY,
-                                        SUBTYPE_AES128,
-                                        {{0xeb, 0xe4, 0x2a, 0x22, 0x5e, 0x85, 0x93, 0xe4, 0x48,
-                                          0xd9, 0xc5, 0x45, 0x73, 0x81, 0xaa, 0xf7}},
-                                        3};
-    break;
-  case ConsoleType::RVT:
-    m_key_entries[HANDLE_COMMON_KEY] = {TYPE_SECRET_KEY,
-                                        SUBTYPE_AES128,
-                                        {{0xa1, 0x60, 0x4a, 0x6a, 0x71, 0x23, 0xb5, 0x29, 0xae,
-                                          0x8b, 0xec, 0x32, 0xc8, 0x16, 0xfc, 0xaa}},
-                                        3};
-    break;
-  default:
-    ASSERT_MSG(IOS, false, "Unknown console type");
-    break;
-  }
+  m_key_entries[HANDLE_COMMON_KEY] = {TYPE_SECRET_KEY, SUBTYPE_AES128,
+                                      std::vector<u8>(AES128_KEY_SIZE), 3};
 
   m_key_entries[HANDLE_PRNG_KEY] = {TYPE_SECRET_KEY, SUBTYPE_AES128,
                                     std::vector<u8>(AES128_KEY_SIZE), 3};
 
-  m_key_entries[HANDLE_SD_KEY] = {TYPE_SECRET_KEY,
-                                  SUBTYPE_AES128,
-                                  {{0xab, 0x01, 0xb9, 0xd8, 0xe1, 0x62, 0x2b, 0x08, 0xaf, 0xba,
-                                    0xd8, 0x4d, 0xbf, 0xc2, 0xa5, 0x5d}},
-                                  3};
+  m_key_entries[HANDLE_SD_KEY] = {TYPE_SECRET_KEY, SUBTYPE_AES128,
+                                  std::vector<u8>(AES128_KEY_SIZE), 3};
 
   m_key_entries[HANDLE_BOOT2_VERSION] = {TYPE_DATA, SUBTYPE_VERSION, {}, 3};
   m_key_entries[HANDLE_UNKNOWN_8] = {TYPE_DATA, SUBTYPE_VERSION, {}, 3};
   m_key_entries[HANDLE_UNKNOWN_9] = {TYPE_DATA, SUBTYPE_VERSION, {}, 3};
   m_key_entries[HANDLE_FS_VERSION] = {TYPE_DATA, SUBTYPE_VERSION, {}, 3};
 
-  m_key_entries[HANDLE_NEW_COMMON_KEY] = {TYPE_SECRET_KEY,
-                                          SUBTYPE_AES128,
-                                          {{0x63, 0xb8, 0x2b, 0xb4, 0xf4, 0x61, 0x4e, 0x2e, 0x13,
-                                            0xf2, 0xfe, 0xfb, 0xba, 0x4c, 0x9b, 0x7e}},
-                                          3};
+  m_key_entries[HANDLE_NEW_COMMON_KEY] = {TYPE_SECRET_KEY, SUBTYPE_AES128,
+                                          std::vector<u8>(AES128_KEY_SIZE), 3};
 
   m_root_key_entry = {TYPE_PUBLIC_KEY, SUBTYPE_RSA4096,
                       std::vector<u8>(ROOT_PUBLIC_KEY.begin(), ROOT_PUBLIC_KEY.end()),
