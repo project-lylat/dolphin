@@ -1,7 +1,10 @@
 ########################################
 # General setup
 #
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.13)
+
+cmake_policy(SET CMP0079 NEW) # let target_link_libraries() link to a target defined in a different directory
+cmake_policy(SET CMP0080 OLD) # allow using BundleUtilities at configure time
 
 # Weird chicken-and-egg problem: We can't check the compiler before the project() call, but we have to set the policies before it.
 # So we do this in two steps: Set the policies if they exist, then error out afterwards if we end up being MSVC and they don't exist.
@@ -64,6 +67,7 @@ option(ENABLE_VULKAN "Enables vulkan video backend" ON)
 option(USE_DISCORD_PRESENCE "Enables Discord Rich Presence, show the current game on Discord" ON)
 option(USE_MGBA "Enables GBA controllers emulation using libmgba" ON)
 option(ENABLE_AUTOUPDATE "Enables support for automatic updates" ON)
+option(STEAM "Creates a build for Steam" OFF)
 
 # Maintainers: if you consider blanket disabling this for your users, please
 # consider the following points:
@@ -82,8 +86,8 @@ option(OPROFILING "Enable profiling" OFF)
 # TODO: Add DSPSpy
 option(DSPTOOL "Build dsptool" OFF)
 
-# Enable SDL for default on operating systems that aren't Android, Linux or Windows.
-if(NOT ANDROID AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT MSVC)
+# Enable SDL for default on operating systems that aren't Android or Linux.
+if(NOT ANDROID AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
   option(ENABLE_SDL "Enables SDL as a generic controller backend" ON)
 else()
   option(ENABLE_SDL "Enables SDL as a generic controller backend" OFF)
@@ -94,6 +98,7 @@ if(APPLE)
   option(SKIP_POSTPROCESS_BUNDLE "Skip postprocessing bundle for redistributability" OFF)
   # Enable adhoc code signing by default (otherwise makefile builds on ARM will not work)
   option(MACOS_CODE_SIGNING "Enable codesigning" ON)
+  option(USE_BUNDLED_MOLTENVK "Build MoltenVK from Externals with Dolphin-specific patches" ON)
   set(MACOS_CODE_SIGNING_IDENTITY "-" CACHE STRING "The identity used for codesigning.")
   set(MACOS_CODE_SIGNING_IDENTITY_UPDATER "-" CACHE STRING "The identity used for codesigning, for the updater.")
 endif()
@@ -420,8 +425,10 @@ if(ENABLE_LTO)
   endif()
 endif()
 
-if(UNIX AND LINUX_LOCAL_DEV)
-  add_definitions(-DLINUX_LOCAL_DEV)
+if(UNIX)
+  if(LINUX_LOCAL_DEV OR (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND STEAM))
+    add_definitions(-DLINUX_LOCAL_DEV)
+  endif()
 endif()
 
 # BSDs put packages in /usr/local instead of /usr, so we need to
@@ -433,6 +440,12 @@ if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD|NetBSD")
   set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH};/usr/local")
   set(CMAKE_REQUIRED_INCLUDES "/usr/local/include")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L/usr/local/lib")
+
+  if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14.0)
+    # Workaround: the llvm libc++ and versions of clang eariler than 14 have a bug with consteval
+    # so we define FMT_CONSTEVAL to blank to just disable consteval in fmt
+    add_definitions(-DFMT_CONSTEVAL=)
+  endif()
 endif()
 
 # Dolphin requires threads.
@@ -604,6 +617,35 @@ if(UNIX)
   add_definitions(-DUSE_MEMORYWATCHER=1)
 endif()
 
+if(ENABLE_SDL)
+  find_package(SDL2)
+
+  if(SDL2_FOUND)
+    message(STATUS "Using system SDL2")
+  else()
+    message(STATUS "Using static SDL2 from Externals")
+    option(SDL2_DISABLE_SDL2MAIN "" ON)
+    option(SDL2_DISABLE_INSTALL "" ON)
+    option(SDL2_DISABLE_UNINSTALL "" ON)
+    set(SDL_SHARED OFF)
+    set(SDL_SHARED_ENABLED_BY_DEFAULT OFF)
+    set(SDL_STATIC ON)
+    set(SDL_STATIC_ENABLED_BY_DEFAULT ON)
+    set(SDL_TEST OFF)
+    set(SDL_TEST_ENABLED_BY_DEFAULT OFF)
+    set(OPT_DEF_LIBC ON)
+    add_subdirectory(Externals/SDL/SDL)
+    if (TARGET SDL2)
+      dolphin_disable_warnings_msvc(SDL2)
+    endif()
+    if (TARGET SDL2-static)
+      dolphin_disable_warnings_msvc(SDL2-static)
+    endif()
+    set(SDL2_FOUND TRUE)
+  endif()
+  add_definitions(-DHAVE_SDL2=1)
+endif()
+
 if(ENABLE_ANALYTICS)
   message(STATUS "Enabling analytics collection (subject to end-user opt-in)")
   add_definitions(-DUSE_ANALYTICS=1)
@@ -652,11 +694,12 @@ else()
 endif()
 add_subdirectory(Externals/imgui)
 add_subdirectory(Externals/glslang)
+add_subdirectory(Externals/spirv_cross)
 
 if(ENABLE_VULKAN)
   add_definitions(-DHAS_VULKAN)
 
-  if(APPLE)
+  if(APPLE AND USE_BUNDLED_MOLTENVK)
     add_subdirectory(Externals/MoltenVK)
   endif()
 endif()
@@ -744,16 +787,9 @@ else()
   add_subdirectory(Externals/zstd)
 endif()
 
-find_package(ZLIB)
-if(ZLIB_FOUND)
-  message(STATUS "Using shared zlib")
-else()
-  check_vendoring_approved(zlib)
-  message(STATUS "Shared zlib not found, falling back to the static library")
-  add_subdirectory(Externals/zlib)
-endif()
+add_subdirectory(Externals/zlib-ng)
 
-pkg_check_modules(MINIZIP minizip>=2.0.0)
+pkg_check_modules(MINIZIP minizip-ng>=3.0.0)
 if(MINIZIP_FOUND)
   message(STATUS "Using shared minizip")
   include_directories(${MINIZIP_INCLUDE_DIRS})
@@ -776,17 +812,7 @@ else()
   set(LZO lzo2)
 endif()
 
-if(NOT APPLE)
-  check_lib(PNG libpng png png.h QUIET)
-endif()
-if (PNG_FOUND)
-  message(STATUS "Using shared libpng")
-else()
-  check_vendoring_approved(libpng)
-  message(STATUS "Using static libpng from Externals")
-  add_subdirectory(Externals/libpng)
-  set(PNG png)
-endif()
+add_subdirectory(Externals/libspng)
 
 # Using static FreeSurround from Externals
 # There is no system FreeSurround library.
@@ -930,6 +956,10 @@ else()
   message(STATUS "libsystemd not found, disabling traversal server watchdog support")
 endif()
 
+if(STEAM)
+  add_definitions(-DSTEAM)
+endif()
+
 if (WIN32)
   include_directories(Externals/WIL/include)
   include_directories(Externals/OpenAL/include)
@@ -939,6 +969,8 @@ include_directories(Externals/picojson)
 
 add_subdirectory(Externals/rangeset)
 
+add_subdirectory(Externals/FatFs)
+
 ########################################
 # Pre-build events: Define configuration variables and write SCM info header
 #
@@ -947,6 +979,10 @@ if(DOLPHIN_WC_BRANCH STREQUAL "master" OR DOLPHIN_WC_BRANCH STREQUAL "stable")
 else()
   set(DOLPHIN_WC_IS_STABLE "0")
 endif()
+
+# Remove in-tree revision information generated by Visual Studio
+# This is because the compiler will check in-tree first and use this, even if it is outdated
+file(REMOVE "${PROJECT_SOURCE_DIR}/Source/Core/Common/scmrev.h")
 
 configure_file(
   "${PROJECT_SOURCE_DIR}/Source/Core/Common/scmrev.h.in"

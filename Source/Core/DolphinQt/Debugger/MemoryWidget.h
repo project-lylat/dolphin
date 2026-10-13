@@ -20,21 +20,6 @@ class QRadioButton;
 class QShowEvent;
 class QSplitter;
 
-enum class InputID : int
-{
-  // Order does not matter here.
-  S8 = 1,
-  S16,
-  S32,
-  U8,
-  U16,
-  U32,
-  HEXSTR,
-  FLOAT,
-  DOUBLE,
-  ASCII
-};
-
 class MemoryWidget : public QDockWidget
 {
   Q_OBJECT
@@ -100,11 +85,6 @@ private:
   QComboBox* m_row_length_combo;
   QCheckBox* m_dual_check;
   QPushButton* m_set_value;
-  QPushButton* m_from_file;
-  QPushButton* m_dump_mram;
-  QPushButton* m_dump_exram;
-  QPushButton* m_dump_aram;
-  QPushButton* m_dump_fake_vmem;
 
   // Search
   QPushButton* m_find_next;

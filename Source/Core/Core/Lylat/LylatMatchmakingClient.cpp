@@ -22,7 +22,7 @@ LylatMatchmakingClient::LylatMatchmakingClient()
   m_client = nullptr;
   m_server = nullptr;
   m_game = nullptr;
-  generator = std::default_random_engine(Common::Timer::GetTimeMs());
+  generator = std::default_random_engine(Common::Timer::NowMs());
   if (singleton != nullptr)
   {
     delete singleton;

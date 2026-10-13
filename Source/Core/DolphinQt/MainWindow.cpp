@@ -327,24 +327,12 @@ void MainWindow::InitControllers()
   if (g_controller_interface.IsInit())
     return;
 
-  g_controller_interface.Initialize(GetWindowSystemInfo(windowHandle()));
-  if (!g_controller_interface.HasDefaultDevice())
-  {
-    // Note that the CI default device could be still temporarily removed at any time
-    WARN_LOG_FMT(CONTROLLERINTERFACE,
-                 "No default device has been added in time. EmulatedController(s) defaulting adds"
-                 " input mappings made for a specific default device depending on the platform");
-  }
-  GCAdapter::Init();
-  Pad::Initialize();
-  Pad::InitializeGBA();
-  Keyboard::Initialize();
-  Wiimote::Initialize(Wiimote::InitializeMode::DO_NOT_WAIT_FOR_WIIMOTES);
-  FreeLook::Initialize();
+  UICommon::InitControllers(GetWindowSystemInfo(windowHandle()));
+
   m_hotkey_scheduler = new HotkeyScheduler();
   m_hotkey_scheduler->Start();
 
-  // Defaults won't work reliabily without loading and saving the config first
+  // Defaults won't work reliably without loading and saving the config first
 
   Wiimote::LoadConfig();
   Wiimote::GetConfig()->SaveConfig();
@@ -368,24 +356,16 @@ void MainWindow::ShutdownControllers()
 
   Settings::Instance().UnregisterDevicesChangedCallback();
 
-  Pad::Shutdown();
-  Pad::ShutdownGBA();
-  Keyboard::Shutdown();
-  Wiimote::Shutdown();
-  HotkeyManagerEmu::Shutdown();
-  FreeLook::Shutdown();
-  g_controller_interface.Shutdown();
+  UICommon::ShutdownControllers();
 
   m_hotkey_scheduler->deleteLater();
 }
 
 void MainWindow::InitCoreCallbacks()
 {
-  connect(&Settings::Instance(), &Settings::EmulationStateChanged, this, [=](Core::State state) {
+  connect(&Settings::Instance(), &Settings::EmulationStateChanged, this, [this](Core::State state) {
     if (state == Core::State::Uninitialized)
       OnStopComplete();
-    if (state != Core::State::Uninitialized && NetPlay::IsNetPlayRunning() && m_controllers_window)
-      m_controllers_window->reject();
 
     if (state == Core::State::Running && m_fullscreen_requested)
     {
@@ -398,7 +378,7 @@ void MainWindow::InitCoreCallbacks()
 
   // Handle file open events
   auto* filter = new FileOpenEventFilter(QGuiApplication::instance());
-  connect(filter, &FileOpenEventFilter::fileOpened, this, [=](const QString& file_name) {
+  connect(filter, &FileOpenEventFilter::fileOpened, this, [this](const QString& file_name) {
     StartGame(BootParameters::GenerateFromFile(file_name.toStdString()));
   });
 }
@@ -428,15 +408,6 @@ void MainWindow::CreateComponents()
     m_gc_tas_input_windows[i] = new GCTASInputWindow(nullptr, i);
     m_wii_tas_input_windows[i] = new WiiTASInputWindow(nullptr, i);
   }
-
-  Movie::SetGCInputManip([this](GCPadStatus* pad_status, int controller_id) {
-    m_gc_tas_input_windows[controller_id]->GetValues(pad_status);
-  });
-
-  Movie::SetWiiInputManip([this](WiimoteCommon::DataReportBuilder& rpt, int controller_id, int ext,
-                                 const WiimoteEmu::EncryptionKey& key) {
-    m_wii_tas_input_windows[controller_id]->GetValues(rpt, ext, key);
-  });
 
   m_jit_widget = new JITWidget(this);
   m_log_widget = new LogWidget(this);
@@ -619,6 +590,10 @@ void MainWindow::ConnectHotkeys()
           &MainWindow::StateSaveSlot);
   connect(m_hotkey_scheduler, &HotkeyScheduler::SetStateSlotHotkey, this,
           &MainWindow::SetStateSlot);
+  connect(m_hotkey_scheduler, &HotkeyScheduler::IncrementSelectedStateSlotHotkey, this,
+          &MainWindow::IncrementSelectedStateSlot);
+  connect(m_hotkey_scheduler, &HotkeyScheduler::DecrementSelectedStateSlotHotkey, this,
+          &MainWindow::DecrementSelectedStateSlot);
   connect(m_hotkey_scheduler, &HotkeyScheduler::StartRecording, this,
           &MainWindow::OnStartRecording);
   connect(m_hotkey_scheduler, &HotkeyScheduler::PlayRecording, this, &MainWindow::OnPlayRecording);
@@ -680,6 +655,7 @@ void MainWindow::ConnectGameList()
           &MainWindow::ShowRiivolutionBootWidget);
 
   connect(m_game_list, &GameList::OpenGeneralSettings, this, &MainWindow::ShowGeneralWindow);
+  connect(m_game_list, &GameList::OpenGraphicsSettings, this, &MainWindow::ShowGraphicsWindow);
 }
 
 void MainWindow::ConnectRenderWidget()
@@ -750,8 +726,8 @@ QStringList MainWindow::PromptFileNames()
   QStringList paths = DolphinFileDialog::getOpenFileNames(
       this, tr("Select a File"),
       settings.value(QStringLiteral("mainwindow/lastdir"), QString{}).toString(),
-      QStringLiteral("%1 (*.elf *.dol *.gcm *.iso *.tgc *.wbfs *.ciso *.gcz *.wia *.rvz *.wad "
-                     "*.dff *.m3u *.json);;%2 (*)")
+      QStringLiteral("%1 (*.elf *.dol *.gcm *.iso *.tgc *.wbfs *.ciso *.gcz *.wia *.rvz "
+                     "hif_000000.nfs *.wad *.dff *.m3u *.json);;%2 (*)")
           .arg(tr("All GC/Wii files"))
           .arg(tr("All Files")));
 
@@ -1478,6 +1454,22 @@ void MainWindow::SetStateSlot(int slot)
   Core::DisplayMessage(StringFromFormat("Selected slot %d - %s", m_state_slot,
                                         State::GetInfoStringOfSlot(m_state_slot, false).c_str()),
                        2500);
+}
+
+void MainWindow::IncrementSelectedStateSlot()
+{
+  int state_slot = m_state_slot + 1;
+  if (state_slot > State::NUM_STATES)
+    state_slot = 1;
+  m_menu_bar->SetStateSlot(state_slot);
+}
+
+void MainWindow::DecrementSelectedStateSlot()
+{
+  int state_slot = m_state_slot - 1;
+  if (state_slot < 1)
+    state_slot = State::NUM_STATES;
+  m_menu_bar->SetStateSlot(state_slot);
 }
 
 void MainWindow::PerformOnlineUpdate(const std::string& region)

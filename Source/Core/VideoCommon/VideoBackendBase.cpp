@@ -35,6 +35,9 @@
 #ifdef HAS_VULKAN
 #include "VideoBackends/Vulkan/VideoBackend.h"
 #endif
+#ifdef __APPLE__
+#include "VideoBackends/Metal/VideoBackend.h"
+#endif
 
 #include "VideoCommon/AsyncRequests.h"
 #include "VideoCommon/BPStructs.h"
@@ -223,6 +226,9 @@ const std::vector<std::unique_ptr<VideoBackendBase>>& VideoBackendBase::GetAvail
 #ifdef HAS_OPENGL
     backends.push_back(std::make_unique<OGL::VideoBackend>());
 #endif
+#ifdef __APPLE__
+    backends.push_back(std::make_unique<Metal::VideoBackend>());
+#endif
 #ifdef HAS_VULKAN
 #ifdef __APPLE__
     // Emplace the Vulkan backend at the beginning so it takes precedence over OpenGL.
@@ -264,6 +270,9 @@ void VideoBackendBase::ActivateBackend(const std::string& name)
 void VideoBackendBase::PopulateBackendInfo()
 {
   g_Config.Refresh();
+  // Reset backend_info so if the backend forgets to initialize something it doesn't end up using
+  // a value from the previously used renderer
+  g_Config.backend_info = {};
   ActivateBackend(Config::Get(Config::MAIN_GFX_BACKEND));
   g_video_backend->InitBackendInfo();
   // We validate the config after initializing the backend info, as system-specific settings

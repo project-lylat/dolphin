@@ -261,6 +261,16 @@ bool DXContext::CreateDescriptorHeaps()
   return true;
 }
 
+static void SetRootParamConstant(D3D12_ROOT_PARAMETER* rp, u32 shader_reg, u32 num_values,
+                                 D3D12_SHADER_VISIBILITY visibility)
+{
+  rp->ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+  rp->Constants.Num32BitValues = num_values;
+  rp->Constants.ShaderRegister = shader_reg;
+  rp->Constants.RegisterSpace = 0;
+  rp->ShaderVisibility = visibility;
+}
+
 static void SetRootParamCBV(D3D12_ROOT_PARAMETER* rp, u32 shader_reg,
                             D3D12_SHADER_VISIBILITY visibility)
 {
@@ -323,7 +333,7 @@ bool DXContext::CreateRootSignatures()
 bool DXContext::CreateGXRootSignature()
 {
   // GX:
-  //  - 3 constant buffers (bindings 0-2), 0/1 visible in PS, 1 visible in VS, 2 visible in GS.
+  //  - 3 constant buffers (bindings 0-2), 0/1 visible in PS, 2 visible in VS, 1 visible in GS.
   //  - 8 textures (visible in PS).
   //  - 8 samplers (visible in PS).
   //  - 1 UAV (visible in PS).
@@ -341,7 +351,14 @@ bool DXContext::CreateGXRootSignature()
   param_count++;
   SetRootParamCBV(&params[param_count], 0, D3D12_SHADER_VISIBILITY_VERTEX);
   param_count++;
+  SetRootParamCBV(&params[param_count], 1, D3D12_SHADER_VISIBILITY_VERTEX);
+  param_count++;
   SetRootParamCBV(&params[param_count], 0, D3D12_SHADER_VISIBILITY_GEOMETRY);
+  param_count++;
+  SetRootParamTable(&params[param_count], &ranges[param_count], D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3,
+                    1, D3D12_SHADER_VISIBILITY_VERTEX);
+  param_count++;
+  SetRootParamConstant(&params[param_count], 2, 1, D3D12_SHADER_VISIBILITY_VERTEX);
   param_count++;
 
   // Since these must be contiguous, pixel lighting goes to bbox if not enabled.

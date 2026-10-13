@@ -14,10 +14,11 @@ import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.google.android.material.divider.MaterialDividerItemDecoration;
+
 import org.dolphinemu.dolphinemu.R;
 import org.dolphinemu.dolphinemu.features.settings.model.Settings;
 import org.dolphinemu.dolphinemu.features.settings.model.view.SettingsItem;
-import org.dolphinemu.dolphinemu.ui.DividerItemDecoration;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -44,6 +45,7 @@ public final class SettingsFragment extends Fragment implements SettingsFragment
     titles.put(MenuTag.CONFIG_AUDIO, R.string.audio_submenu);
     titles.put(MenuTag.CONFIG_PATHS, R.string.paths_submenu);
     titles.put(MenuTag.CONFIG_GAME_CUBE, R.string.gamecube_submenu);
+    titles.put(MenuTag.CONFIG_SERIALPORT1, R.string.serialport1_submenu);
     titles.put(MenuTag.CONFIG_WII, R.string.wii_submenu);
     titles.put(MenuTag.CONFIG_ADVANCED, R.string.advanced_submenu);
     titles.put(MenuTag.DEBUG, R.string.debug_submenu);
@@ -126,7 +128,7 @@ public final class SettingsFragment extends Fragment implements SettingsFragment
 
     if (titles.containsKey(menuTag))
     {
-      getActivity().setTitle(titles.get(menuTag));
+      mActivity.setToolbarTitle(getString(titles.get(menuTag)));
     }
 
     LinearLayoutManager manager = new LinearLayoutManager(getActivity());
@@ -135,7 +137,11 @@ public final class SettingsFragment extends Fragment implements SettingsFragment
 
     recyclerView.setAdapter(mAdapter);
     recyclerView.setLayoutManager(manager);
-    recyclerView.addItemDecoration(new DividerItemDecoration(requireActivity(), null));
+
+    MaterialDividerItemDecoration divider =
+            new MaterialDividerItemDecoration(requireActivity(), LinearLayoutManager.VERTICAL);
+    divider.setLastItemDecorated(false);
+    recyclerView.addItemDecoration(divider);
 
     SettingsActivityView activity = (SettingsActivityView) getActivity();
     mPresenter.onViewCreated(menuTag, activity.getSettings());
@@ -200,6 +206,12 @@ public final class SettingsFragment extends Fragment implements SettingsFragment
   public void onSettingChanged()
   {
     mActivity.onSettingChanged();
+  }
+
+  @Override
+  public void onSerialPort1SettingChanged(MenuTag menuTag, int value)
+  {
+    mActivity.onSerialPort1SettingChanged(menuTag, value);
   }
 
   @Override

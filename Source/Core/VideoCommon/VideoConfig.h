@@ -9,17 +9,13 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "Common/CommonTypes.h"
+#include "VideoCommon/GraphicsModSystem/Config/GraphicsModGroup.h"
 #include "VideoCommon/VideoCommon.h"
-
-// Log in two categories, and save three other options in the same byte
-#define CONF_LOG 1
-#define CONF_PRIMLOG 2
-#define CONF_SAVETARGETS 8
-#define CONF_SAVESHADERS 16
 
 constexpr int EFB_SCALE_AUTO_INTEGRAL = 0;
 
@@ -111,6 +107,8 @@ struct VideoConfig final
   bool bBorderlessFullscreen = false;
   bool bEnableGPUTextureDecoding = false;
   int iBitrateKbps = 0;
+  bool bGraphicMods = false;
+  std::optional<GraphicsModGroupConfig> graphics_mod_config;
 
   // Hacks
   bool bEFBAccessEnable = false;
@@ -134,7 +132,6 @@ struct VideoConfig final
   bool bFastDepthCalc = false;
   bool bVertexRounding = false;
   int iEFBAccessTileSize = 0;
-  int iLog = 0;           // CONF_ bits
   int iSaveTargetId = 0;  // TODO: Should be dropped
   u32 iMissingColorValue = 0;
   bool bFastTextureSampling = false;
@@ -150,13 +147,6 @@ struct VideoConfig final
 
   // D3D only config, mostly to be merged into the above
   int iAdapter = 0;
-
-  // VideoSW Debugging
-  int drawStart = 0;
-  int drawEnd = 0;
-  bool bDumpObjects = false;
-  bool bDumpTevStages = false;
-  bool bDumpTevTextureFetches = false;
 
   // Enable API validation layers, currently only supported with Vulkan.
   bool bEnableValidationLayer = false;
@@ -234,6 +224,8 @@ struct VideoConfig final
     bool bSupportsTextureQueryLevels = false;
     bool bSupportsLodBiasInSampler = false;
     bool bSupportsSettingObjectNames = false;
+    bool bSupportsPartialMultisampleResolve = false;
+    bool bSupportsDynamicVertexLoader = false;
   } backend_info;
 
   // Utility
