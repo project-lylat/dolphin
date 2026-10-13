@@ -259,3 +259,22 @@ Build status: not built yet (C: is full).
   Android JNI caller and other 4-argument callers still compile.
 - `LylatDeviceLogin.cpp`: on POSIX the account file is owner read/write only;
   `Cancel()` sets the flag under the mutex before notifying.
+
+## Building master on this machine
+
+- Tags 2609 and later (and so `upstream/master`) need MSVC 19.51, which is
+  Visual Studio 2026: `Source/PCH/pch.h` stops with "Please update your build
+  environment to the latest Visual Studio 2026!" when `_MSC_FULL_VER <
+  195136252`. This machine has VS 2022 17.6 (MSVC 19.36.32532), the minimum for
+  2407 through 2606. The master build ran to [1084/2054] and failed there
+  (exit 1). The tip of this branch is not built.
+- With MSVC 19.36, `Externals/libspng/libspng/spng/spng.c(2368)` also fails on
+  C4706 (assignment within conditional expression) as a warning-as-error. A
+  local test build silences it with `set CL=/wd4706`; nothing in the tree
+  changes. VS 2026 probably does not raise it; not checked.
+- As a stand-in, the step 9 merge (tag 2603) plus the fork fixes and the QR
+  sign-in was built in a throwaway worktree (`tmp-dolphin/wt2603`, branch
+  `lylat/verify-2603`, never merged here). That build also needed
+  `-DMZ_FETCH_LIBS=OFF -DMZ_BZIP2=OFF -DMZ_PKCRYPT=OFF -DMZ_WZAES=OFF
+  -DMZ_OPENSSL=OFF -DMZ_LIBBSD=OFF` (master sets these itself), or minizip-ng
+  builds its own bzip2 next to Dolphin's.
