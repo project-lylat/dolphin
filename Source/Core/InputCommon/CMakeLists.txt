@@ -56,6 +56,8 @@ add_library(inputcommon
   ControllerInterface/ControllerInterface.h
   ControllerInterface/CoreDevice.cpp
   ControllerInterface/CoreDevice.h
+  ControllerInterface/InputBackend.cpp
+  ControllerInterface/InputBackend.h
   ControllerInterface/MappingCommon.cpp
   ControllerInterface/MappingCommon.h
   ControllerInterface/Wiimote/WiimoteController.cpp
@@ -123,6 +125,9 @@ elseif(APPLE)
     ${COCOA_LIBRARY}
     ${FORCEFEEDBACK_LIBRARY}
     ${IOK_LIBRARY}
+  )
+  target_compile_options(inputcommon PRIVATE
+    -fobjc-arc
   )
 elseif(X11_FOUND)
   target_sources(inputcommon PRIVATE

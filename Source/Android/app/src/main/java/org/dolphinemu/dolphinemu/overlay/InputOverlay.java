@@ -15,7 +15,6 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
-import android.preference.PreferenceManager;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.view.Display;
@@ -24,6 +23,8 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.view.View.OnTouchListener;
 import android.widget.Toast;
+
+import androidx.preference.PreferenceManager;
 
 import org.dolphinemu.dolphinemu.NativeLibrary;
 import org.dolphinemu.dolphinemu.NativeLibrary.ButtonType;
@@ -105,11 +106,14 @@ public final class InputOverlay extends SurfaceView implements OnTouchListener
     // Determine the button size based on the smaller screen dimension.
     // This makes sure the buttons are the same size in both portrait and landscape.
     DisplayMetrics dm = context.getResources().getDisplayMetrics();
-    int minDimension = Math.min(dm.widthPixels, dm.heightPixels);
+    int minScreenDimension = Math.min(dm.widthPixels, dm.heightPixels);
+
+    int maxBitmapDimension = Math.max(bitmap.getWidth(), bitmap.getHeight());
+    float bitmapScale = scale * minScreenDimension / maxBitmapDimension;
 
     return Bitmap.createScaledBitmap(bitmap,
-            (int) (minDimension * scale),
-            (int) (minDimension * scale),
+            (int) (bitmap.getWidth() * bitmapScale),
+            (int) (bitmap.getHeight() * bitmapScale),
             true);
   }
 

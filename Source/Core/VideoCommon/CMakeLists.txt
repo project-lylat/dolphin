@@ -27,8 +27,6 @@ add_library(videocommon
   DriverDetails.h
   Fifo.cpp
   Fifo.h
-  FPSCounter.cpp
-  FPSCounter.h
   FramebufferManager.cpp
   FramebufferManager.h
   FramebufferShaderGen.cpp
@@ -61,6 +59,7 @@ add_library(videocommon
   GraphicsModSystem/Runtime/FBInfo.cpp
   GraphicsModSystem/Runtime/FBInfo.h
   GraphicsModSystem/Runtime/GraphicsModAction.h
+  GraphicsModSystem/Runtime/GraphicsModActionData.h
   GraphicsModSystem/Runtime/GraphicsModActionFactory.cpp
   GraphicsModSystem/Runtime/GraphicsModActionFactory.h
   GraphicsModSystem/Runtime/GraphicsModManager.cpp
@@ -84,6 +83,10 @@ add_library(videocommon
   OpcodeDecoding.h
   PerfQueryBase.cpp
   PerfQueryBase.h
+  PerformanceMetrics.cpp
+  PerformanceMetrics.h
+  PerformanceTracker.cpp
+  PerformanceTracker.h
   PixelEngine.cpp
   PixelEngine.h
   PixelShaderGen.cpp
@@ -167,6 +170,7 @@ PRIVATE
   spng
   xxhash
   imgui
+  implot
   glslang
 )
 

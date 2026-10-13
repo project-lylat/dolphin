@@ -10,19 +10,21 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
-import android.widget.Button;
-import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.widget.Toolbar;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 
-import com.google.android.material.appbar.AppBarLayout;
-import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import org.dolphinemu.dolphinemu.R;
+import org.dolphinemu.dolphinemu.databinding.ActivityUserDataBinding;
 import org.dolphinemu.dolphinemu.utils.DirectoryInitialization;
+import org.dolphinemu.dolphinemu.utils.InsetsHelper;
 import org.dolphinemu.dolphinemu.utils.Log;
 import org.dolphinemu.dolphinemu.utils.ThemeHelper;
 import org.dolphinemu.dolphinemu.utils.ThreadUtil;
@@ -46,6 +48,8 @@ public class UserDataActivity extends AppCompatActivity
 
   private boolean sMustRestartApp = false;
 
+  private ActivityUserDataBinding mBinding;
+
   public static void launch(Context context)
   {
     Intent launcher = new Intent(context, UserDataActivity.class);
@@ -59,14 +63,10 @@ public class UserDataActivity extends AppCompatActivity
 
     super.onCreate(savedInstanceState);
 
-    setContentView(R.layout.activity_user_data);
+    mBinding = ActivityUserDataBinding.inflate(getLayoutInflater());
+    setContentView(mBinding.getRoot());
 
-    TextView textType = findViewById(R.id.text_type);
-    TextView textPath = findViewById(R.id.text_path);
-    TextView textAndroid11 = findViewById(R.id.text_android_11);
-    Button buttonOpenSystemFileManager = findViewById(R.id.button_open_system_file_manager);
-    Button buttonImportUserData = findViewById(R.id.button_import_user_data);
-    Button buttonExportUserData = findViewById(R.id.button_export_user_data);
+    WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
 
     boolean android_10 = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
     boolean android_11 = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R;
@@ -74,25 +74,24 @@ public class UserDataActivity extends AppCompatActivity
 
     int user_data_new_location = android_10 ?
             R.string.user_data_new_location_android_10 : R.string.user_data_new_location;
-    textType.setText(legacy ? R.string.user_data_old_location : user_data_new_location);
+    mBinding.textType.setText(legacy ? R.string.user_data_old_location : user_data_new_location);
 
-    textPath.setText(DirectoryInitialization.getUserDirectory());
+    mBinding.textPath.setText(DirectoryInitialization.getUserDirectory());
 
-    textAndroid11.setVisibility(android_11 && !legacy ? View.VISIBLE : View.GONE);
+    mBinding.textAndroid11.setVisibility(android_11 && !legacy ? View.VISIBLE : View.GONE);
 
-    buttonOpenSystemFileManager.setVisibility(android_11 ? View.VISIBLE : View.GONE);
-    buttonOpenSystemFileManager.setOnClickListener(view -> openFileManager());
+    mBinding.buttonOpenSystemFileManager.setVisibility(android_11 ? View.VISIBLE : View.GONE);
+    mBinding.buttonOpenSystemFileManager.setOnClickListener(view -> openFileManager());
 
-    buttonImportUserData.setOnClickListener(view -> importUserData());
+    mBinding.buttonImportUserData.setOnClickListener(view -> importUserData());
 
-    buttonExportUserData.setOnClickListener(view -> exportUserData());
+    mBinding.buttonExportUserData.setOnClickListener(view -> exportUserData());
 
-    MaterialToolbar tb = findViewById(R.id.toolbar_user_data);
-    setSupportActionBar(tb);
+    setSupportActionBar(mBinding.toolbarUserData);
     getSupportActionBar().setDisplayHomeAsUpEnabled(true);
 
-    AppBarLayout appBarLayout = findViewById(R.id.appbar_user_data);
-    ThemeHelper.enableScrollTint(tb, appBarLayout, this);
+    setInsets();
+    ThemeHelper.enableScrollTint(this, mBinding.toolbarUserData, mBinding.appbarUserData);
   }
 
   @Override
@@ -358,5 +357,23 @@ public class UserDataActivity extends AppCompatActivity
         }
       }
     }
+  }
+
+  private void setInsets()
+  {
+    ViewCompat.setOnApplyWindowInsetsListener(mBinding.appbarUserData, (v, windowInsets) ->
+    {
+      Insets insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+
+      InsetsHelper.insetAppBar(insets, mBinding.appbarUserData);
+
+      mBinding.scrollViewUserData.setPadding(insets.left, 0, insets.right, insets.bottom);
+
+      InsetsHelper.applyNavbarWorkaround(insets.bottom, mBinding.workaroundView);
+      ThemeHelper.setNavigationBarColor(this,
+              MaterialColors.getColor(mBinding.appbarUserData, R.attr.colorSurface));
+
+      return windowInsets;
+    });
   }
 }

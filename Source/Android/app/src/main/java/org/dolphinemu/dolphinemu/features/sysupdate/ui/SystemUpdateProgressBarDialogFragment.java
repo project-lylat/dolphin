@@ -5,19 +5,20 @@ package org.dolphinemu.dolphinemu.features.sysupdate.ui;
 import android.app.Dialog;
 import android.content.pm.ActivityInfo;
 import android.os.Bundle;
-import android.view.View;
 import android.widget.Button;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.DialogFragment;
 import androidx.lifecycle.ViewModelProvider;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import com.google.android.material.progressindicator.LinearProgressIndicator;
 
 import org.dolphinemu.dolphinemu.R;
+import org.dolphinemu.dolphinemu.databinding.DialogProgressBinding;
+import org.dolphinemu.dolphinemu.databinding.DialogProgressTvBinding;
 
 public class SystemUpdateProgressBarDialogFragment extends DialogFragment
 {
@@ -33,30 +34,58 @@ public class SystemUpdateProgressBarDialogFragment extends DialogFragment
     SystemUpdateViewModel viewModel =
             new ViewModelProvider(requireActivity()).get(SystemUpdateViewModel.class);
 
-    View dialogView = getLayoutInflater().inflate(R.layout.dialog_progress, null, false);
-    LinearProgressIndicator progressBar = dialogView.findViewById(R.id.update_progress);
+    DialogProgressBinding dialogProgressBinding;
+    DialogProgressTvBinding dialogProgressTvBinding;
 
     // We need to set the message to something here, otherwise the text will not appear when we set it later.
-    AlertDialog progressDialog = new MaterialAlertDialogBuilder(requireContext())
-            .setTitle(getString(R.string.updating))
-            .setMessage("")
-            .setNegativeButton(getString(R.string.cancel), null)
-            .setView(dialogView)
-            .setCancelable(false)
-            .create();
+    MaterialAlertDialogBuilder progressDialogBuilder =
+            new MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(getString(R.string.updating))
+                    .setMessage("")
+                    .setNegativeButton(getString(R.string.cancel), null)
+                    .setCancelable(false);
 
-    viewModel.getProgressData()
-            .observe(this, (@Nullable Integer progress) -> progressBar.setProgress(progress));
-
-    viewModel.getTotalData().observe(this, (@Nullable Integer total) ->
+    // TODO: Remove dialog_progress_tv if we switch to an AppCompatActivity for leanback
+    if (getActivity() instanceof AppCompatActivity)
     {
-      if (total == 0)
-      {
-        return;
-      }
+      dialogProgressBinding = DialogProgressBinding.inflate(getLayoutInflater());
+      progressDialogBuilder.setView(dialogProgressBinding.getRoot());
 
-      progressBar.setMax(total);
-    });
+      viewModel.getProgressData().observe(this,
+              (@Nullable Integer progress) -> dialogProgressBinding.updateProgress.setProgress(
+                      progress));
+
+      viewModel.getTotalData().observe(this, (@Nullable Integer total) ->
+      {
+        if (total == 0)
+        {
+          return;
+        }
+
+        dialogProgressBinding.updateProgress.setMax(total);
+      });
+    }
+    else
+    {
+      dialogProgressTvBinding = DialogProgressTvBinding.inflate(getLayoutInflater());
+      progressDialogBuilder.setView(dialogProgressTvBinding.getRoot());
+
+      viewModel.getProgressData().observe(this,
+              (@Nullable Integer progress) -> dialogProgressTvBinding.updateProgress.setProgress(
+                      progress));
+
+      viewModel.getTotalData().observe(this, (@Nullable Integer total) ->
+      {
+        if (total == 0)
+        {
+          return;
+        }
+
+        dialogProgressTvBinding.updateProgress.setMax(total);
+      });
+    }
+
+    AlertDialog progressDialog = progressDialogBuilder.create();
 
     viewModel.getTitleIdData().observe(this, (@Nullable Long titleId) -> progressDialog.setMessage(
             getString(R.string.updating_message, titleId)));
@@ -94,6 +123,11 @@ public class SystemUpdateProgressBarDialogFragment extends DialogFragment
     SystemUpdateViewModel viewModel =
             new ViewModelProvider(requireActivity()).get(SystemUpdateViewModel.class);
     Button negativeButton = alertDialog.getButton(Dialog.BUTTON_NEGATIVE);
-    negativeButton.setOnClickListener(v -> viewModel.setCanceled());
+    negativeButton.setOnClickListener(v ->
+    {
+      alertDialog.setTitle(getString(R.string.cancelling));
+      alertDialog.setMessage(getString(R.string.update_cancelling));
+      viewModel.setCanceled();
+    });
   }
 }

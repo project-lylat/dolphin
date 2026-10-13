@@ -19,6 +19,14 @@
 
 namespace DX12
 {
+static bool UsesDynamicVertexLoader(const AbstractPipeline* pipeline)
+{
+  const AbstractPipelineUsage usage = static_cast<const DXPipeline*>(pipeline)->GetUsage();
+  return (g_ActiveConfig.backend_info.bSupportsDynamicVertexLoader &&
+          usage == AbstractPipelineUsage::GXUber) ||
+         (g_ActiveConfig.UseVSForLinePointExpand() && usage != AbstractPipelineUsage::Utility);
+}
+
 Renderer::Renderer(std::unique_ptr<SwapChain> swap_chain, float backbuffer_scale)
     : ::Renderer(swap_chain ? swap_chain->GetWidth() : 0, swap_chain ? swap_chain->GetHeight() : 0,
                  backbuffer_scale,
@@ -228,18 +236,20 @@ void Renderer::SetFramebuffer(AbstractFramebuffer* framebuffer)
 
 void Renderer::SetAndDiscardFramebuffer(AbstractFramebuffer* framebuffer)
 {
-  BindFramebuffer(static_cast<DXFramebuffer*>(framebuffer));
+  SetFramebuffer(framebuffer);
 
   static const D3D12_DISCARD_REGION dr = {0, nullptr, 0, 1};
   if (framebuffer->HasColorBuffer())
   {
-    g_dx_context->GetCommandList()->DiscardResource(
-        static_cast<DXTexture*>(framebuffer->GetColorAttachment())->GetResource(), &dr);
+    DXTexture* color_attachment = static_cast<DXTexture*>(framebuffer->GetColorAttachment());
+    color_attachment->TransitionToState(D3D12_RESOURCE_STATE_RENDER_TARGET);
+    g_dx_context->GetCommandList()->DiscardResource(color_attachment->GetResource(), &dr);
   }
   if (framebuffer->HasDepthBuffer())
   {
-    g_dx_context->GetCommandList()->DiscardResource(
-        static_cast<DXTexture*>(framebuffer->GetDepthAttachment())->GetResource(), &dr);
+    DXTexture* depth_attachment = static_cast<DXTexture*>(framebuffer->GetDepthAttachment());
+    depth_attachment->TransitionToState(D3D12_RESOURCE_STATE_DEPTH_WRITE);
+    g_dx_context->GetCommandList()->DiscardResource(depth_attachment->GetResource(), &dr);
   }
 }
 
@@ -364,8 +374,7 @@ void Renderer::DrawIndexed(u32 base_index, u32 num_indices, u32 base_vertex)
     return;
 
   // DX12 is great and doesn't include the base vertex in SV_VertexID
-  if (static_cast<const DXPipeline*>(m_current_pipeline)->GetUsage() ==
-      AbstractPipelineUsage::GXUber)
+  if (UsesDynamicVertexLoader(m_current_pipeline))
     g_dx_context->GetCommandList()->SetGraphicsRoot32BitConstant(
         ROOT_PARAMETER_BASE_VERTEX_CONSTANT, base_vertex, 0);
   g_dx_context->GetCommandList()->DrawIndexedInstanced(num_indices, 1, base_index, base_vertex, 0);
@@ -601,8 +610,7 @@ bool Renderer::ApplyState()
       }
     }
 
-    if (dirty_bits & DirtyState_VS_SRV_Descriptor &&
-        pipeline->GetUsage() == AbstractPipelineUsage::GXUber)
+    if (dirty_bits & DirtyState_VS_SRV_Descriptor && UsesDynamicVertexLoader(pipeline))
     {
       cmdlist->SetGraphicsRootDescriptorTable(ROOT_PARAMETER_VS_SRV,
                                               m_state.vertex_srv_descriptor_base);
@@ -724,9 +732,7 @@ bool Renderer::UpdateUAVDescriptorTable()
 
 bool Renderer::UpdateVSSRVDescriptorTable()
 {
-  if (!g_ActiveConfig.backend_info.bSupportsDynamicVertexLoader ||
-      static_cast<const DXPipeline*>(m_current_pipeline)->GetUsage() !=
-          AbstractPipelineUsage::GXUber)
+  if (!UsesDynamicVertexLoader(m_current_pipeline))
   {
     return true;
   }

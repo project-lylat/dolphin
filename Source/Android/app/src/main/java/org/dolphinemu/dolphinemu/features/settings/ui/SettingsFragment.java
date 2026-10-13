@@ -10,6 +10,9 @@ import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -17,6 +20,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.divider.MaterialDividerItemDecoration;
 
 import org.dolphinemu.dolphinemu.R;
+import org.dolphinemu.dolphinemu.databinding.FragmentSettingsBinding;
 import org.dolphinemu.dolphinemu.features.settings.model.Settings;
 import org.dolphinemu.dolphinemu.features.settings.model.view.SettingsItem;
 
@@ -53,6 +57,7 @@ public final class SettingsFragment extends Fragment implements SettingsFragment
     titles.put(MenuTag.ENHANCEMENTS, R.string.enhancements_submenu);
     titles.put(MenuTag.STEREOSCOPY, R.string.stereoscopy_submenu);
     titles.put(MenuTag.HACKS, R.string.hacks_submenu);
+    titles.put(MenuTag.STATISTICS, R.string.statistics_submenu);
     titles.put(MenuTag.ADVANCED_GRAPHICS, R.string.advanced_graphics_submenu);
     titles.put(MenuTag.CONFIG_LOG, R.string.log_submenu);
     titles.put(MenuTag.GCPAD_TYPE, R.string.gcpad_settings);
@@ -71,6 +76,8 @@ public final class SettingsFragment extends Fragment implements SettingsFragment
     titles.put(MenuTag.WIIMOTE_EXTENSION_3, R.string.wiimote_extension_6);
     titles.put(MenuTag.WIIMOTE_EXTENSION_4, R.string.wiimote_extension_7);
   }
+
+  private FragmentSettingsBinding mBinding;
 
   public static Fragment newInstance(MenuTag menuTag, String gameId, Bundle extras)
   {
@@ -112,12 +119,13 @@ public final class SettingsFragment extends Fragment implements SettingsFragment
     mPresenter.onCreate(menuTag, gameId, args);
   }
 
-  @Nullable
+  @NonNull
   @Override
-  public View onCreateView(LayoutInflater inflater, @Nullable ViewGroup container,
+  public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
           @Nullable Bundle savedInstanceState)
   {
-    return inflater.inflate(R.layout.fragment_settings, container, false);
+    mBinding = FragmentSettingsBinding.inflate(inflater, container, false);
+    return mBinding.getRoot();
   }
 
   @Override
@@ -133,7 +141,7 @@ public final class SettingsFragment extends Fragment implements SettingsFragment
 
     LinearLayoutManager manager = new LinearLayoutManager(getActivity());
 
-    RecyclerView recyclerView = view.findViewById(R.id.list_settings);
+    RecyclerView recyclerView = mBinding.listSettings;
 
     recyclerView.setAdapter(mAdapter);
     recyclerView.setLayoutManager(manager);
@@ -143,8 +151,17 @@ public final class SettingsFragment extends Fragment implements SettingsFragment
     divider.setLastItemDecorated(false);
     recyclerView.addItemDecoration(divider);
 
+    setInsets();
+
     SettingsActivityView activity = (SettingsActivityView) getActivity();
     mPresenter.onViewCreated(menuTag, activity.getSettings());
+  }
+
+  @Override
+  public void onDestroyView()
+  {
+    super.onDestroyView();
+    mBinding = null;
   }
 
   @Override
@@ -230,5 +247,16 @@ public final class SettingsFragment extends Fragment implements SettingsFragment
   public void onExtensionSettingChanged(MenuTag menuTag, int value)
   {
     mActivity.onExtensionSettingChanged(menuTag, value);
+  }
+
+  private void setInsets()
+  {
+    ViewCompat.setOnApplyWindowInsetsListener(mBinding.listSettings, (v, windowInsets) ->
+    {
+      Insets insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+      v.setPadding(0, 0, 0,
+              insets.bottom + getResources().getDimensionPixelSize(R.dimen.spacing_list));
+      return windowInsets;
+    });
   }
 }

@@ -882,7 +882,7 @@ void NetPlayClient::OnStartGame(sf::Packet& packet)
     packet >> m_net_settings.fast_depth_calc;
     packet >> m_net_settings.enable_pixel_lighting;
     packet >> m_net_settings.widescreen_hack;
-    packet >> m_net_settings.force_filtering;
+    packet >> m_net_settings.force_texture_filtering;
     packet >> m_net_settings.max_anisotropy;
     packet >> m_net_settings.force_true_color;
     packet >> m_net_settings.disable_copy_filter;
@@ -991,6 +991,8 @@ void NetPlayClient::OnSyncSaveData(sf::Packet& packet)
   if (m_local_player->IsHost())
     return;
 
+  INFO_LOG_FMT(NETPLAY, "Processing OnSyncSaveData sub id: {}", static_cast<u8>(sub_id));
+
   switch (sub_id)
   {
   case SyncSaveDataID::Notify:
@@ -1024,6 +1026,8 @@ void NetPlayClient::OnSyncSaveDataNotify(sf::Packet& packet)
   packet >> m_sync_save_data_count;
   m_sync_save_data_success_count = 0;
 
+  INFO_LOG_FMT(NETPLAY, "Initializing wait for {} savegame chunks.", m_sync_save_data_count);
+
   if (m_sync_save_data_count == 0)
     SyncSaveDataResponse(true);
   else
@@ -1037,9 +1041,13 @@ void NetPlayClient::OnSyncSaveDataRaw(sf::Packet& packet)
   int size_override;
   packet >> is_slot_a >> region >> size_override;
 
+  INFO_LOG_FMT(NETPLAY, "Received raw memcard data for slot {}: region {}, size override {}.",
+               is_slot_a ? 'A' : 'B', region, size_override);
+
   // This check is mainly intended to filter out characters which have special meanings in paths
   if (region != JAP_DIR && region != USA_DIR && region != EUR_DIR)
   {
+    WARN_LOG_FMT(NETPLAY, "Received invalid raw memory card region.");
     SyncSaveDataResponse(false);
     return;
   }
@@ -1073,6 +1081,9 @@ void NetPlayClient::OnSyncSaveDataGCI(sf::Packet& packet)
   const std::string path = File::GetUserPath(D_GCUSER_IDX) + GC_MEMCARD_NETPLAY DIR_SEP +
                            fmt::format("Card {}", is_slot_a ? 'A' : 'B');
 
+  INFO_LOG_FMT(NETPLAY, "Received GCI memcard data for slot {}: {}, {} files.",
+               is_slot_a ? 'A' : 'B', path, file_count);
+
   if ((File::Exists(path) && !File::DeleteDirRecursively(path + DIR_SEP)) ||
       !File::CreateFullPath(path + DIR_SEP))
   {
@@ -1086,9 +1097,12 @@ void NetPlayClient::OnSyncSaveDataGCI(sf::Packet& packet)
     std::string file_name;
     packet >> file_name;
 
+    INFO_LOG_FMT(NETPLAY, "Received GCI: {}", file_name);
+
     if (!Common::IsFileNameSafe(file_name) ||
         !DecompressPacketIntoFile(packet, path + DIR_SEP + file_name))
     {
+      WARN_LOG_FMT(NETPLAY, "Received invalid GCI.");
       SyncSaveDataResponse(false);
       return;
     }
@@ -1129,6 +1143,8 @@ void NetPlayClient::OnSyncSaveDataWii(sf::Packet& packet)
   packet >> mii_data;
   if (mii_data)
   {
+    INFO_LOG_FMT(NETPLAY, "Received Mii data.");
+
     auto buffer = DecompressPacketIntoBuffer(packet);
 
     temp_fs->CreateFullPath(IOS::PID_KERNEL, IOS::PID_KERNEL, "/shared2/menu/FaceLib/", 0,
@@ -1147,6 +1163,7 @@ void NetPlayClient::OnSyncSaveDataWii(sf::Packet& packet)
   // Read the saves
   u32 save_count;
   packet >> save_count;
+  INFO_LOG_FMT(NETPLAY, "Received data for {} Wii saves.", save_count);
   for (u32 n = 0; n < save_count; n++)
   {
     u64 title_id = Common::PacketReadU64(packet);
@@ -1158,7 +1175,12 @@ void NetPlayClient::OnSyncSaveDataWii(sf::Packet& packet)
     bool exists;
     packet >> exists;
     if (!exists)
+    {
+      INFO_LOG_FMT(NETPLAY, "No data for Wii save of title {:016x}.", title_id);
       continue;
+    }
+
+    INFO_LOG_FMT(NETPLAY, "Received Wii save of title {:016x}.", title_id);
 
     // Header
     WiiSave::Header header;
@@ -1197,6 +1219,9 @@ void NetPlayClient::OnSyncSaveDataWii(sf::Packet& packet)
       packet >> file.type;
       packet >> file.path;
 
+      INFO_LOG_FMT(NETPLAY, "Received Wii save data of type {} at {}", static_cast<u8>(file.type),
+                   file.path);
+
       if (file.type == WiiSave::Storage::SaveFile::Type::File)
       {
         auto buffer = DecompressPacketIntoBuffer(packet);
@@ -1224,6 +1249,7 @@ void NetPlayClient::OnSyncSaveDataWii(sf::Packet& packet)
   packet >> has_redirected_save;
   if (has_redirected_save)
   {
+    INFO_LOG_FMT(NETPLAY, "Received redirected save.");
     if (!DecompressPacketIntoFolder(packet, redirect_path))
     {
       PanicAlertFmtT("Failed to write redirected save.");
@@ -1240,6 +1266,8 @@ void NetPlayClient::OnSyncSaveDataGBA(sf::Packet& packet)
 {
   u8 slot;
   packet >> slot;
+
+  INFO_LOG_FMT(NETPLAY, "Received GBA save for slot {}.", slot);
 
   const std::string path =
       fmt::format("{}{}{}.sav", File::GetUserPath(D_GBAUSER_IDX), GBA_SAVE_NETPLAY, slot + 1);
@@ -1476,9 +1504,7 @@ void NetPlayClient::OnGameDigestAbort()
 
 void NetPlayClient::Send(const sf::Packet& packet, const u8 channel_id)
 {
-  ENetPacket* epac =
-      enet_packet_create(packet.getData(), packet.getDataSize(), ENET_PACKET_FLAG_RELIABLE);
-  enet_peer_send(m_server, channel_id, epac);
+  ENetUtil::SendPacket(m_server, packet, channel_id);
 }
 
 void NetPlayClient::DisplayPlayersPing()

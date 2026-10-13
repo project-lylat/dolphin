@@ -16,6 +16,8 @@
 #include <QVBoxLayout>
 #include <QWindow>
 
+#include <fmt/format.h>
+
 #include <future>
 #include <optional>
 #include <variant>
@@ -107,6 +109,7 @@
 #include "DolphinQt/RiivolutionBootWidget.h"
 #include "DolphinQt/SearchBar.h"
 #include "DolphinQt/Settings.h"
+#include "DolphinQt/TAS/GBATASInputWindow.h"
 #include "DolphinQt/TAS/GCTASInputWindow.h"
 #include "DolphinQt/TAS/WiiTASInputWindow.h"
 #include "DolphinQt/ToolBar.h"
@@ -307,6 +310,7 @@ MainWindow::~MainWindow()
   for (int i = 0; i < 4; i++)
   {
     delete m_gc_tas_input_windows[i];
+    delete m_gba_tas_input_windows[i];
     delete m_wii_tas_input_windows[i];
   }
 
@@ -406,6 +410,7 @@ void MainWindow::CreateComponents()
   for (int i = 0; i < 4; i++)
   {
     m_gc_tas_input_windows[i] = new GCTASInputWindow(nullptr, i);
+    m_gba_tas_input_windows[i] = new GBATASInputWindow(nullptr, i);
     m_wii_tas_input_windows[i] = new WiiTASInputWindow(nullptr, i);
   }
 
@@ -1451,8 +1456,8 @@ void MainWindow::SetStateSlot(int slot)
   Settings::Instance().SetStateSlot(slot);
   m_state_slot = slot;
 
-  Core::DisplayMessage(StringFromFormat("Selected slot %d - %s", m_state_slot,
-                                        State::GetInfoStringOfSlot(m_state_slot, false).c_str()),
+  Core::DisplayMessage(fmt::format("Selected slot {} - {}", m_state_slot,
+                                   State::GetInfoStringOfSlot(m_state_slot, false)),
                        2500);
 }
 
@@ -2055,8 +2060,14 @@ void MainWindow::ShowTASInput()
   for (int i = 0; i < num_gc_controllers; i++)
   {
     const auto si_device = Config::Get(Config::GetInfoForSIDevice(i));
-    if (si_device != SerialInterface::SIDEVICE_NONE &&
-        si_device != SerialInterface::SIDEVICE_GC_GBA)
+    if (si_device == SerialInterface::SIDEVICE_GC_GBA_EMULATED)
+    {
+      m_gba_tas_input_windows[i]->show();
+      m_gba_tas_input_windows[i]->raise();
+      m_gba_tas_input_windows[i]->activateWindow();
+    }
+    else if (si_device != SerialInterface::SIDEVICE_NONE &&
+             si_device != SerialInterface::SIDEVICE_GC_GBA)
     {
       m_gc_tas_input_windows[i]->show();
       m_gc_tas_input_windows[i]->raise();

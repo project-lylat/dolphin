@@ -59,3 +59,14 @@ Build fixes:
 
 Build status: reached [1275/1810] with only the error above, then got as far
 as [193/689] on the rebuild before C: ran out of space. Not yet fully built.
+
+## Step 2: `ed9915308b` (PR #11386, 1548 commits)
+
+Conflicts (all default values next to new upstream settings):
+
+- `Core/Config/GraphicsSettings.cpp`, `VideoCommon/VideoConfig.h`, Android
+  `BooleanSetting.java`: upstream added the new performance overlay settings
+  (`ShowFTimes`, `ShowVPS`, `ShowGraphs`, ...). Took upstream and kept the
+  fork's defaults: `ShowFPS` on and `ShowNetPlayPing` on.
+
+Build status: not built yet (C: is full; builds are on hold).

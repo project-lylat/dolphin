@@ -7,18 +7,24 @@ import android.content.Intent;
 import android.os.Bundle;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 
-import com.google.android.material.appbar.AppBarLayout;
-import com.google.android.material.appbar.CollapsingToolbarLayout;
-import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.color.MaterialColors;
 
 import org.dolphinemu.dolphinemu.R;
+import org.dolphinemu.dolphinemu.databinding.ActivityConvertBinding;
 import org.dolphinemu.dolphinemu.fragments.ConvertFragment;
+import org.dolphinemu.dolphinemu.utils.InsetsHelper;
 import org.dolphinemu.dolphinemu.utils.ThemeHelper;
 
 public class ConvertActivity extends AppCompatActivity
 {
   private static final String ARG_GAME_PATH = "game_path";
+
+  private ActivityConvertBinding mBinding;
 
   public static void launch(Context context, String gamePath)
   {
@@ -34,7 +40,10 @@ public class ConvertActivity extends AppCompatActivity
 
     super.onCreate(savedInstanceState);
 
-    setContentView(R.layout.activity_convert);
+    mBinding = ActivityConvertBinding.inflate(getLayoutInflater());
+    setContentView(mBinding.getRoot());
+
+    WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
 
     String path = getIntent().getStringExtra(ARG_GAME_PATH);
 
@@ -46,14 +55,12 @@ public class ConvertActivity extends AppCompatActivity
       getSupportFragmentManager().beginTransaction().add(R.id.fragment_convert, fragment).commit();
     }
 
-    MaterialToolbar tb = findViewById(R.id.toolbar_convert);
-    CollapsingToolbarLayout ctb = findViewById(R.id.toolbar_convert_layout);
-    ctb.setTitle(getString(R.string.convert_convert));
-    setSupportActionBar(tb);
+    mBinding.toolbarConvertLayout.setTitle(getString(R.string.convert_convert));
+    setSupportActionBar(mBinding.toolbarConvert);
     getSupportActionBar().setDisplayHomeAsUpEnabled(true);
 
-    AppBarLayout appBarLayout = findViewById(R.id.appbar_convert);
-    ThemeHelper.enableScrollTint(tb, appBarLayout, this);
+    setInsets();
+    ThemeHelper.enableScrollTint(this, mBinding.toolbarConvert, mBinding.appbarConvert);
   }
 
   @Override
@@ -61,5 +68,23 @@ public class ConvertActivity extends AppCompatActivity
   {
     onBackPressed();
     return true;
+  }
+
+  private void setInsets()
+  {
+    ViewCompat.setOnApplyWindowInsetsListener(mBinding.appbarConvert, (v, windowInsets) ->
+    {
+      Insets insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+
+      InsetsHelper.insetAppBar(insets, mBinding.appbarConvert);
+
+      mBinding.scrollViewConvert.setPadding(insets.left, 0, insets.right, insets.bottom);
+
+      InsetsHelper.applyNavbarWorkaround(insets.bottom, mBinding.workaroundView);
+      ThemeHelper.setNavigationBarColor(this,
+              MaterialColors.getColor(mBinding.appbarConvert, R.attr.colorSurface));
+
+      return windowInsets;
+    });
   }
 }

@@ -37,6 +37,7 @@
     <ClInclude Include="Common\Crypto\bn.h" />
     <ClInclude Include="Common\Crypto\ec.h" />
     <ClInclude Include="Common\Crypto\SHA1.h" />
+    <ClInclude Include="Common\Debug\CodeTrace.h" />
     <ClInclude Include="Common\Debug\MemoryPatches.h" />
     <ClInclude Include="Common\Debug\Threads.h" />
     <ClInclude Include="Common\Debug\Watches.h" />
@@ -354,6 +355,9 @@
     <ClInclude Include="Core\IOS\Network\KD\NetKDRequest.h" />
     <ClInclude Include="Core\IOS\Network\KD\NetKDTime.h" />
     <ClInclude Include="Core\IOS\Network\KD\NWC24Config.h" />
+    <ClInclude Include="Core\IOS\Network\KD\NWC24DL.h" />
+    <ClInclude Include="Core\IOS\Network\KD\VFF\VFFUtil.h" />
+    <ClInclude Include="Core\IOS\Network\KD\WC24File.h" />
     <ClInclude Include="Core\IOS\Network\MACUtils.h" />
     <ClInclude Include="Core\IOS\Network\NCD\Manage.h" />
     <ClInclude Include="Core\IOS\Network\NCD\WiiNetConfig.h" />
@@ -403,6 +407,7 @@
     <ClInclude Include="Core\PowerPC\CachedInterpreter\InterpreterBlockCache.h" />
     <ClInclude Include="Core\PowerPC\ConditionRegister.h" />
     <ClInclude Include="Core\PowerPC\CPUCoreBase.h" />
+    <ClInclude Include="Core\PowerPC\Expression.h" />
     <ClInclude Include="Core\PowerPC\GDBStub.h" />
     <ClInclude Include="Core\PowerPC\Gekko.h" />
     <ClInclude Include="Core\PowerPC\Interpreter\ExceptionUtils.h" />
@@ -486,6 +491,7 @@
     <ClInclude Include="InputCommon\ControllerEmu\StickGate.h" />
     <ClInclude Include="InputCommon\ControllerInterface\ControllerInterface.h" />
     <ClInclude Include="InputCommon\ControllerInterface\CoreDevice.h" />
+    <ClInclude Include="InputCommon\ControllerInterface\InputBackend.h" />
     <ClInclude Include="InputCommon\ControllerInterface\DInput\DInput.h" />
     <ClInclude Include="InputCommon\ControllerInterface\DInput\DInput8.h" />
     <ClInclude Include="InputCommon\ControllerInterface\DInput\DInputJoystick.h" />
@@ -633,7 +639,6 @@
     <ClInclude Include="VideoCommon\DataReader.h" />
     <ClInclude Include="VideoCommon\DriverDetails.h" />
     <ClInclude Include="VideoCommon\Fifo.h" />
-    <ClInclude Include="VideoCommon\FPSCounter.h" />
     <ClInclude Include="VideoCommon\FramebufferManager.h" />
     <ClInclude Include="VideoCommon\FramebufferShaderGen.h" />
     <ClInclude Include="VideoCommon\FrameDump.h" />
@@ -652,6 +657,7 @@
     <ClInclude Include="VideoCommon\GraphicsModSystem\Runtime\Actions\SkipAction.h" />
     <ClInclude Include="VideoCommon\GraphicsModSystem\Runtime\FBInfo.h" />
     <ClInclude Include="VideoCommon\GraphicsModSystem\Runtime\GraphicsModAction.h" />
+    <ClInclude Include="VideoCommon\GraphicsModSystem\Runtime\GraphicsModActionData.h" />
     <ClInclude Include="VideoCommon\GraphicsModSystem\Runtime\GraphicsModActionFactory.h" />
     <ClInclude Include="VideoCommon\GraphicsModSystem\Runtime\GraphicsModGroup.h" />
     <ClInclude Include="VideoCommon\GraphicsModSystem\Runtime\GraphicsModManager.h" />
@@ -667,6 +673,8 @@
     <ClInclude Include="VideoCommon\OnScreenDisplay.h" />
     <ClInclude Include="VideoCommon\OpcodeDecoding.h" />
     <ClInclude Include="VideoCommon\PerfQueryBase.h" />
+    <ClInclude Include="VideoCommon\PerformanceMetrics.h" />
+    <ClInclude Include="VideoCommon\PerformanceTracker.h" />
     <ClInclude Include="VideoCommon\PixelEngine.h" />
     <ClInclude Include="VideoCommon\PixelShaderGen.h" />
     <ClInclude Include="VideoCommon\PixelShaderManager.h" />
@@ -728,12 +736,8 @@
     <ClCompile Include="Common\Crypto\AES.cpp" />
     <ClCompile Include="Common\Crypto\bn.cpp" />
     <ClCompile Include="Common\Crypto\ec.cpp" />
-    <ClCompile Include="Common\Crypto\SHA1.cpp">
-      <!--Workaround msvc arm64 optimizer bug
-      TODO remove after updating to VS 17.4
-      -->
-      <AdditionalOptions Condition="'$(Platform)'=='ARM64'">/d2ssa-peeps-post-color- %(AdditionalOptions)</AdditionalOptions>
-    </ClCompile>
+    <ClCompile Include="Common\Crypto\SHA1.cpp" />
+    <ClCompile Include="Common\Debug\CodeTrace.cpp" />
     <ClCompile Include="Common\Debug\MemoryPatches.cpp" />
     <ClCompile Include="Common\Debug\Watches.cpp" />
     <ClCompile Include="Common\DynamicLibrary.cpp" />
@@ -981,6 +985,8 @@
     <ClCompile Include="Core\IOS\Network\KD\NetKDRequest.cpp" />
     <ClCompile Include="Core\IOS\Network\KD\NetKDTime.cpp" />
     <ClCompile Include="Core\IOS\Network\KD\NWC24Config.cpp" />
+    <ClCompile Include="Core\IOS\Network\KD\NWC24DL.cpp" />
+    <ClCompile Include="Core\IOS\Network\KD\VFF\VFFUtil.cpp" />
     <ClCompile Include="Core\IOS\Network\MACUtils.cpp" />
     <ClCompile Include="Core\IOS\Network\NCD\Manage.cpp" />
     <ClCompile Include="Core\IOS\Network\NCD\WiiNetConfig.cpp" />
@@ -1024,6 +1030,7 @@
     <ClCompile Include="Core\PowerPC\CachedInterpreter\CachedInterpreter.cpp" />
     <ClCompile Include="Core\PowerPC\CachedInterpreter\InterpreterBlockCache.cpp" />
     <ClCompile Include="Core\PowerPC\ConditionRegister.cpp" />
+    <ClCompile Include="Core\PowerPC\Expression.cpp" />
     <ClCompile Include="Core\PowerPC\GDBStub.cpp" />
     <ClCompile Include="Core\PowerPC\Interpreter\Interpreter_Branch.cpp" />
     <ClCompile Include="Core\PowerPC\Interpreter\Interpreter_FloatingPoint.cpp" />
@@ -1109,6 +1116,7 @@
     <ClCompile Include="InputCommon\ControllerEmu\StickGate.cpp" />
     <ClCompile Include="InputCommon\ControllerInterface\ControllerInterface.cpp" />
     <ClCompile Include="InputCommon\ControllerInterface\CoreDevice.cpp" />
+    <ClCompile Include="InputCommon\ControllerInterface\InputBackend.cpp" />
     <ClCompile Include="InputCommon\ControllerInterface\DInput\DInput.cpp" />
     <ClCompile Include="InputCommon\ControllerInterface\DInput\DInputJoystick.cpp" />
     <ClCompile Include="InputCommon\ControllerInterface\DInput\DInputKeyboardMouse.cpp" />
@@ -1236,7 +1244,6 @@
     <ClCompile Include="VideoCommon\CPMemory.cpp" />
     <ClCompile Include="VideoCommon\DriverDetails.cpp" />
     <ClCompile Include="VideoCommon\Fifo.cpp" />
-    <ClCompile Include="VideoCommon\FPSCounter.cpp" />
     <ClCompile Include="VideoCommon\FramebufferManager.cpp" />
     <ClCompile Include="VideoCommon\FramebufferShaderGen.cpp" />
     <ClCompile Include="VideoCommon\FrameDump.cpp" />
@@ -1264,6 +1271,8 @@
     <ClCompile Include="VideoCommon\OnScreenDisplay.cpp" />
     <ClCompile Include="VideoCommon\OpcodeDecoding.cpp" />
     <ClCompile Include="VideoCommon\PerfQueryBase.cpp" />
+    <ClCompile Include="VideoCommon\PerformanceMetrics.cpp" />
+    <ClCompile Include="VideoCommon\PerformanceTracker.cpp" />
     <ClCompile Include="VideoCommon\PixelEngine.cpp" />
     <ClCompile Include="VideoCommon\PixelShaderGen.cpp" />
     <ClCompile Include="VideoCommon\PixelShaderManager.cpp" />

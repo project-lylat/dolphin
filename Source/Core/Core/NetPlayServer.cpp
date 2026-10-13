@@ -1345,7 +1345,7 @@ bool NetPlayServer::SetupNetSettings()
   settings.fast_depth_calc = Config::Get(Config::GFX_FAST_DEPTH_CALC);
   settings.enable_pixel_lighting = Config::Get(Config::GFX_ENABLE_PIXEL_LIGHTING);
   settings.widescreen_hack = Config::Get(Config::GFX_WIDESCREEN_HACK);
-  settings.force_filtering = Config::Get(Config::GFX_ENHANCE_FORCE_FILTERING);
+  settings.force_texture_filtering = Config::Get(Config::GFX_ENHANCE_FORCE_TEXTURE_FILTERING);
   settings.max_anisotropy = Config::Get(Config::GFX_ENHANCE_MAX_ANISOTROPY);
   settings.force_true_color = Config::Get(Config::GFX_ENHANCE_FORCE_TRUE_COLOR);
   settings.disable_copy_filter = Config::Get(Config::GFX_ENHANCE_DISABLE_COPY_FILTER);
@@ -1391,6 +1391,17 @@ bool NetPlayServer::DoAllPlayersHaveHardwareFMA() const
                      [](const auto& p) { return p.second.has_hardware_fma; });
 }
 
+struct SaveSyncInfo
+{
+  u8 save_count = 0;
+  std::shared_ptr<const UICommon::GameFile> game;
+  bool has_wii_save = false;
+  std::unique_ptr<IOS::HLE::FS::FileSystem> configured_fs;
+  std::optional<std::vector<u8>> mii_data;
+  std::vector<std::pair<u64, WiiSave::StoragePointer>> wii_saves;
+  std::optional<DiscIO::Riivolution::SavegameRedirect> redirected_save;
+};
+
 // called from ---GUI--- thread
 bool NetPlayServer::RequestStartGame()
 {
@@ -1399,15 +1410,37 @@ bool NetPlayServer::RequestStartGame()
 
   bool start_now = true;
 
-  if (m_settings.savedata_load && m_players.size() > 1)
+  if (m_settings.savedata_load)
   {
-    start_now = false;
-    m_start_pending = true;
-    if (!SyncSaveData())
+    auto save_sync_info = CollectSaveSyncInfo();
+    if (!save_sync_info)
     {
-      PanicAlertFmtT("Error synchronizing save data!");
+      PanicAlertFmtT("Error collecting save data!");
       m_start_pending = false;
       return false;
+    }
+
+    if (save_sync_info->has_wii_save)
+    {
+      // Set titles for host-side loading in WiiRoot
+      std::vector<u64> titles;
+      for (const auto& [title_id, storage] : save_sync_info->wii_saves)
+        titles.push_back(title_id);
+      m_dialog->SetHostWiiSyncData(
+          std::move(titles),
+          save_sync_info->redirected_save ? save_sync_info->redirected_save->m_target_path : "");
+    }
+
+    if (m_players.size() > 1)
+    {
+      start_now = false;
+      m_start_pending = true;
+      if (!SyncSaveData(*save_sync_info))
+      {
+        PanicAlertFmtT("Error synchronizing save data!");
+        m_start_pending = false;
+        return false;
+      }
     }
   }
 
@@ -1516,7 +1549,7 @@ bool NetPlayServer::StartGame()
   spac << m_settings.fast_depth_calc;
   spac << m_settings.enable_pixel_lighting;
   spac << m_settings.widescreen_hack;
-  spac << m_settings.force_filtering;
+  spac << m_settings.force_texture_filtering;
   spac << m_settings.max_anisotropy;
   spac << m_settings.force_true_color;
   spac << m_settings.disable_copy_filter;
@@ -1562,73 +1595,112 @@ void NetPlayServer::AbortGameStart()
 }
 
 // called from ---GUI--- thread
-bool NetPlayServer::SyncSaveData()
+std::optional<SaveSyncInfo> NetPlayServer::CollectSaveSyncInfo()
 {
-  // We're about to sync saves, so set m_saves_synced to false (waits to start game)
-  m_saves_synced = false;
+  SaveSyncInfo sync_info;
 
-  m_save_data_synced_players = 0;
-
-  u8 save_count = 0;
-
+  sync_info.save_count = 0;
   for (ExpansionInterface::Slot slot : ExpansionInterface::MEMCARD_SLOTS)
   {
     if (m_settings.exi_device[slot] == ExpansionInterface::EXIDeviceType::MemoryCard ||
         Config::Get(Config::GetInfoForEXIDevice(slot)) ==
             ExpansionInterface::EXIDeviceType::MemoryCardFolder)
     {
-      save_count++;
+      ++sync_info.save_count;
     }
   }
 
-  const auto game = m_dialog->FindGameFile(m_selected_game_identifier);
-  if (game == nullptr)
+  sync_info.game = m_dialog->FindGameFile(m_selected_game_identifier);
+  if (sync_info.game == nullptr)
   {
     PanicAlertFmtT("Selected game doesn't exist in game list!");
-    return false;
+    return std::nullopt;
   }
 
-  bool wii_save = false;
-  if (m_settings.savedata_load && (game->GetPlatform() == DiscIO::Platform::WiiDisc ||
-                                   game->GetPlatform() == DiscIO::Platform::WiiWAD ||
-                                   game->GetPlatform() == DiscIO::Platform::ELFOrDOL))
+  sync_info.has_wii_save = false;
+  if (m_settings.savedata_load && (sync_info.game->GetPlatform() == DiscIO::Platform::WiiDisc ||
+                                   sync_info.game->GetPlatform() == DiscIO::Platform::WiiWAD ||
+                                   sync_info.game->GetPlatform() == DiscIO::Platform::ELFOrDOL))
   {
-    wii_save = true;
-    save_count++;
-  }
+    sync_info.has_wii_save = true;
+    ++sync_info.save_count;
 
-  std::optional<DiscIO::Riivolution::SavegameRedirect> redirected_save;
-  if (wii_save && game->GetBlobType() == DiscIO::BlobType::MOD_DESCRIPTOR)
-  {
-    auto boot_params = BootParameters::GenerateFromFile(game->GetFilePath());
-    if (boot_params)
+    sync_info.configured_fs = IOS::HLE::FS::MakeFileSystem(IOS::HLE::FS::Location::Configured);
+    if (m_settings.savedata_sync_all_wii)
     {
-      redirected_save =
-          DiscIO::Riivolution::ExtractSavegameRedirect(boot_params->riivolution_patches);
+      IOS::HLE::Kernel ios;
+      for (const u64 title : ios.GetES()->GetInstalledTitles())
+      {
+        auto save = WiiSave::MakeNandStorage(sync_info.configured_fs.get(), title);
+        sync_info.wii_saves.emplace_back(title, std::move(save));
+      }
+    }
+    else if (sync_info.game->GetPlatform() == DiscIO::Platform::WiiDisc ||
+             sync_info.game->GetPlatform() == DiscIO::Platform::WiiWAD)
+    {
+      auto save =
+          WiiSave::MakeNandStorage(sync_info.configured_fs.get(), sync_info.game->GetTitleID());
+      sync_info.wii_saves.emplace_back(sync_info.game->GetTitleID(), std::move(save));
+    }
+
+    {
+      auto file = sync_info.configured_fs->OpenFile(
+          IOS::PID_KERNEL, IOS::PID_KERNEL, Common::GetMiiDatabasePath(), IOS::HLE::FS::Mode::Read);
+      if (file)
+      {
+        std::vector<u8> file_data(file->GetStatus()->size);
+        if (!file->Read(file_data.data(), file_data.size()))
+          return std::nullopt;
+        sync_info.mii_data = std::move(file_data);
+      }
+    }
+
+    if (sync_info.game->GetBlobType() == DiscIO::BlobType::MOD_DESCRIPTOR)
+    {
+      auto boot_params = BootParameters::GenerateFromFile(sync_info.game->GetFilePath());
+      if (boot_params)
+      {
+        sync_info.redirected_save =
+            DiscIO::Riivolution::ExtractSavegameRedirect(boot_params->riivolution_patches);
+      }
     }
   }
 
   for (const auto& config : m_gba_config)
   {
     if (config.enabled && config.has_rom)
-      save_count++;
+      ++sync_info.save_count;
   }
+
+  return sync_info;
+}
+
+// called from ---GUI--- thread
+bool NetPlayServer::SyncSaveData(const SaveSyncInfo& sync_info)
+{
+  INFO_LOG_FMT(NETPLAY, "Sending {} savegame chunks to clients.", sync_info.save_count);
+
+  // We're about to sync saves, so set m_saves_synced to false (waits to start game)
+  m_saves_synced = false;
+
+  m_save_data_synced_players = 0;
 
   {
     sf::Packet pac;
     pac << MessageID::SyncSaveData;
     pac << SyncSaveDataID::Notify;
-    pac << save_count;
+    pac << sync_info.save_count;
 
     // send this on the chunked data channel to ensure it's sequenced properly
     SendAsyncToClients(std::move(pac), 0, CHUNKED_DATA_CHANNEL);
   }
 
-  if (save_count == 0)
+  if (sync_info.save_count == 0)
     return true;
 
-  const auto game_region = game->GetRegion();
-  const std::string region = Config::GetDirectoryForRegion(Config::ToGameCubeRegion(game_region));
+  const auto game_region = sync_info.game->GetRegion();
+  const auto gamecube_region = Config::ToGameCubeRegion(game_region);
+  const std::string region = Config::GetDirectoryForRegion(gamecube_region);
 
   for (ExpansionInterface::Slot slot : ExpansionInterface::MEMCARD_SLOTS)
   {
@@ -1650,12 +1722,16 @@ bool NetPlayServer::SyncSaveData()
 
       if (File::Exists(path))
       {
+        INFO_LOG_FMT(NETPLAY, "Sending data of raw memcard {} in slot {}.", path,
+                     is_slot_a ? 'A' : 'B');
         if (!CompressFileIntoPacket(path, pac))
           return false;
       }
       else
       {
         // No file, so we'll say the size is 0
+        INFO_LOG_FMT(NETPLAY, "Sending empty marker for raw memcard {} in slot {}.", path,
+                     is_slot_a ? 'A' : 'B');
         pac << sf::Uint64{0};
       }
 
@@ -1665,8 +1741,7 @@ bool NetPlayServer::SyncSaveData()
     else if (Config::Get(Config::GetInfoForEXIDevice(slot)) ==
              ExpansionInterface::EXIDeviceType::MemoryCardFolder)
     {
-      const std::string path = File::GetUserPath(D_GCUSER_IDX) + region + DIR_SEP +
-                               fmt::format("Card {}", is_slot_a ? 'A' : 'B');
+      const std::string path = Config::GetGCIFolderPath(slot, gamecube_region);
 
       sf::Packet pac;
       pac << MessageID::SyncSaveData;
@@ -1676,19 +1751,27 @@ bool NetPlayServer::SyncSaveData()
       if (File::IsDirectory(path))
       {
         std::vector<std::string> files =
-            GCMemcardDirectory::GetFileNamesForGameID(path + DIR_SEP, game->GetGameID());
+            GCMemcardDirectory::GetFileNamesForGameID(path + DIR_SEP, sync_info.game->GetGameID());
+
+        INFO_LOG_FMT(NETPLAY, "Sending data of GCI memcard {} in slot {} ({} files).", path,
+                     is_slot_a ? 'A' : 'B', files.size());
 
         pac << static_cast<u8>(files.size());
 
         for (const std::string& file : files)
         {
-          pac << file.substr(file.find_last_of('/') + 1);
+          const std::string filename = file.substr(file.find_last_of('/') + 1);
+          INFO_LOG_FMT(NETPLAY, "Sending GCI {}.", filename);
+          pac << filename;
           if (!CompressFileIntoPacket(file, pac))
             return false;
         }
       }
       else
       {
+        INFO_LOG_FMT(NETPLAY, "Sending empty marker for GCI memcard {} in slot {}.", path,
+                     is_slot_a ? 'A' : 'B');
+
         pac << static_cast<u8>(0);
       }
 
@@ -1697,70 +1780,46 @@ bool NetPlayServer::SyncSaveData()
     }
   }
 
-  if (wii_save)
+  if (sync_info.has_wii_save)
   {
-    const auto configured_fs = IOS::HLE::FS::MakeFileSystem(IOS::HLE::FS::Location::Configured);
-
-    std::vector<std::pair<u64, WiiSave::StoragePointer>> saves;
-    if (m_settings.savedata_sync_all_wii)
-    {
-      IOS::HLE::Kernel ios;
-      for (const u64 title : ios.GetES()->GetInstalledTitles())
-      {
-        auto save = WiiSave::MakeNandStorage(configured_fs.get(), title);
-        saves.push_back(std::make_pair(title, std::move(save)));
-      }
-    }
-    else if (game->GetPlatform() == DiscIO::Platform::WiiDisc ||
-             game->GetPlatform() == DiscIO::Platform::WiiWAD)
-    {
-      auto save = WiiSave::MakeNandStorage(configured_fs.get(), game->GetTitleID());
-      saves.push_back(std::make_pair(game->GetTitleID(), std::move(save)));
-    }
-
-    std::vector<u64> titles;
-
     sf::Packet pac;
     pac << MessageID::SyncSaveData;
     pac << SyncSaveDataID::WiiData;
 
     // Shove the Mii data into the start the packet
+    if (sync_info.mii_data)
     {
-      auto file = configured_fs->OpenFile(IOS::PID_KERNEL, IOS::PID_KERNEL,
-                                          Common::GetMiiDatabasePath(), IOS::HLE::FS::Mode::Read);
-      if (file)
-      {
-        pac << true;
-
-        std::vector<u8> file_data(file->GetStatus()->size);
-        if (!file->Read(file_data.data(), file_data.size()))
-          return false;
-        if (!CompressBufferIntoPacket(file_data, pac))
-          return false;
-      }
-      else
-      {
-        pac << false;  // no mii data
-      }
+      INFO_LOG_FMT(NETPLAY, "Sending Mii data.");
+      pac << true;
+      if (!CompressBufferIntoPacket(*sync_info.mii_data, pac))
+        return false;
+    }
+    else
+    {
+      INFO_LOG_FMT(NETPLAY, "Not sending Mii data.");
+      pac << false;  // no mii data
     }
 
     // Carry on with the save files
-    pac << static_cast<u32>(saves.size());
+    INFO_LOG_FMT(NETPLAY, "Sending {} Wii saves.", sync_info.wii_saves.size());
+    pac << static_cast<u32>(sync_info.wii_saves.size());
 
-    for (const auto& pair : saves)
+    for (const auto& [title_id, storage] : sync_info.wii_saves)
     {
-      pac << sf::Uint64{pair.first};
-      titles.push_back(pair.first);
-      const auto& save = pair.second;
+      pac << sf::Uint64{title_id};
 
-      if (save->SaveExists())
+      if (storage->SaveExists())
       {
-        const std::optional<WiiSave::Header> header = save->ReadHeader();
-        const std::optional<WiiSave::BkHeader> bk_header = save->ReadBkHeader();
-        const std::optional<std::vector<WiiSave::Storage::SaveFile>> files = save->ReadFiles();
+        const std::optional<WiiSave::Header> header = storage->ReadHeader();
+        const std::optional<WiiSave::BkHeader> bk_header = storage->ReadBkHeader();
+        const std::optional<std::vector<WiiSave::Storage::SaveFile>> files = storage->ReadFiles();
         if (!header || !bk_header || !files)
+        {
+          INFO_LOG_FMT(NETPLAY, "Wii save of title {:016x} is corrupted.", title_id);
           return false;
+        }
 
+        INFO_LOG_FMT(NETPLAY, "Sending Wii save of title {:016x}.", title_id);
         pac << true;  // save exists
 
         // Header
@@ -1785,6 +1844,9 @@ bool NetPlayServer::SyncSaveData()
         // Files
         for (const WiiSave::Storage::SaveFile& file : *files)
         {
+          INFO_LOG_FMT(NETPLAY, "Sending Wii save data of type {} at {}",
+                       static_cast<u8>(file.type), file.path);
+
           pac << file.mode << file.attributes << file.type << file.path;
 
           if (file.type == WiiSave::Storage::SaveFile::Type::File)
@@ -1797,24 +1859,24 @@ bool NetPlayServer::SyncSaveData()
       }
       else
       {
+        INFO_LOG_FMT(NETPLAY, "No data for Wii save of title {:016x}.", title_id);
         pac << false;  // save does not exist
       }
     }
 
-    if (redirected_save)
+    if (sync_info.redirected_save)
     {
+      INFO_LOG_FMT(NETPLAY, "Sending redirected save at {}.",
+                   sync_info.redirected_save->m_target_path);
       pac << true;
-      if (!CompressFolderIntoPacket(redirected_save->m_target_path, pac))
+      if (!CompressFolderIntoPacket(sync_info.redirected_save->m_target_path, pac))
         return false;
     }
     else
     {
+      INFO_LOG_FMT(NETPLAY, "Not sending redirected save.");
       pac << false;  // no redirected save
     }
-
-    // Set titles for host-side loading in WiiRoot
-    m_dialog->SetHostWiiSyncData(std::move(titles),
-                                 redirected_save ? redirected_save->m_target_path : "");
 
     SendChunkedToClients(std::move(pac), 1, "Wii Save Synchronization");
   }
@@ -1835,12 +1897,14 @@ bool NetPlayServer::SyncSaveData()
 #endif
       if (File::Exists(path))
       {
+        INFO_LOG_FMT(NETPLAY, "Sending data of GBA save at {} for slot {}.", path, i);
         if (!CompressFileIntoPacket(path, pac))
           return false;
       }
       else
       {
         // No file, so we'll say the size is 0
+        INFO_LOG_FMT(NETPLAY, "Sending empty marker for GBA save at {} for slot {}.", path, i);
         pac << sf::Uint64{0};
       }
 
@@ -2019,9 +2083,7 @@ void NetPlayServer::SendToClients(const sf::Packet& packet, const PlayerId skip_
 
 void NetPlayServer::Send(ENetPeer* socket, const sf::Packet& packet, const u8 channel_id)
 {
-  ENetPacket* epac =
-      enet_packet_create(packet.getData(), packet.getDataSize(), ENET_PACKET_FLAG_RELIABLE);
-  enet_peer_send(socket, channel_id, epac);
+  ENetUtil::SendPacket(socket, packet, channel_id);
 }
 
 void NetPlayServer::KickPlayer(PlayerId player)

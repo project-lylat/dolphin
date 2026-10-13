@@ -45,6 +45,20 @@ enum class ShaderCompilationMode : int
   AsynchronousSkipRendering
 };
 
+enum class TextureFilteringMode : int
+{
+  Default,
+  Nearest,
+  Linear,
+};
+
+enum class TriState : int
+{
+  Off,
+  On,
+  Auto
+};
+
 // NEVER inherit from this class.
 struct VideoConfig final
 {
@@ -65,7 +79,7 @@ struct VideoConfig final
   u32 iMultisamples = 0;
   bool bSSAA = false;
   int iEFBScale = 0;
-  bool bForceFiltering = false;
+  TextureFilteringMode texture_filtering_mode = TextureFilteringMode::Default;
   int iMaxAnisotropy = 0;
   std::string sPostProcessingShader;
   bool bForceTrueColor = false;
@@ -75,6 +89,13 @@ struct VideoConfig final
 
   // Information
   bool bShowFPS = false;
+  bool bShowFTimes = false;
+  bool bShowVPS = false;
+  bool bShowVTimes = false;
+  bool bShowGraphs = false;
+  bool bShowSpeed = false;
+  bool bShowSpeedColors = false;
+  int iPerfSampleUSec = 0;
   bool bShowNetPlayPing = true;
   bool bShowNetPlayMessages = false;
   bool bOverlayStats = false;
@@ -106,6 +127,7 @@ struct VideoConfig final
   bool bInternalResolutionFrameDumps = false;
   bool bBorderlessFullscreen = false;
   bool bEnableGPUTextureDecoding = false;
+  bool bPreferVSForLinePointExpansion = false;
   int iBitrateKbps = 0;
   bool bGraphicMods = false;
   std::optional<GraphicsModGroupConfig> graphics_mod_config;
@@ -135,6 +157,9 @@ struct VideoConfig final
   int iSaveTargetId = 0;  // TODO: Should be dropped
   u32 iMissingColorValue = 0;
   bool bFastTextureSampling = false;
+#ifdef __APPLE__
+  bool bNoMipmapping = false;  // Used by macOS fifoci to work around an M1 bug
+#endif
 
   // Stereoscopy
   StereoMode stereo_mode{};
@@ -148,15 +173,15 @@ struct VideoConfig final
   // D3D only config, mostly to be merged into the above
   int iAdapter = 0;
 
+  // Metal only config
+  TriState iManuallyUploadBuffers = TriState::Auto;
+  bool bUsePresentDrawable = false;
+
   // Enable API validation layers, currently only supported with Vulkan.
   bool bEnableValidationLayer = false;
 
   // Multithreaded submission, currently only supported with Vulkan.
-#if defined(ANDROID)
-  bool bBackendMultithreading = false;
-#else
   bool bBackendMultithreading = true;
-#endif
 
   // Early command buffer execution interval in number of draws.
   // Currently only supported with Vulkan.
@@ -177,6 +202,7 @@ struct VideoConfig final
   struct
   {
     APIType api_type = APIType::Nothing;
+    std::string DisplayName;
 
     std::vector<std::string> Adapters;  // for D3D
     std::vector<u32> AAModes;
@@ -226,9 +252,18 @@ struct VideoConfig final
     bool bSupportsSettingObjectNames = false;
     bool bSupportsPartialMultisampleResolve = false;
     bool bSupportsDynamicVertexLoader = false;
+    bool bSupportsVSLinePointExpand = false;
   } backend_info;
 
   // Utility
+  bool UseVSForLinePointExpand() const
+  {
+    if (!backend_info.bSupportsVSLinePointExpand)
+      return false;
+    if (!backend_info.bSupportsGeometryShaders)
+      return true;
+    return bPreferVSForLinePointExpansion;
+  }
   bool MultisamplingEnabled() const { return iMultisamples > 1; }
   bool ExclusiveFullscreenEnabled() const
   {
@@ -239,15 +274,25 @@ struct VideoConfig final
     return backend_info.bSupportsGPUTextureDecoding && bEnableGPUTextureDecoding;
   }
   bool UseVertexRounding() const { return bVertexRounding && iEFBScale != 1; }
-  bool ManualTextureSamplingWithHiResTextures() const
+  bool ManualTextureSamplingWithCustomTextureSizes() const
   {
-    // Hi-res textures (including hi-res EFB copies, but not native-resolution EFB copies at higher
-    // internal resolutions) breaks the wrapping logic used by manual texture sampling.
+    // If manual texture sampling is disabled, we don't need to do anything.
     if (bFastTextureSampling)
       return false;
+    // Hi-res textures break the wrapping logic used by manual texture sampling, as a texture's
+    // size won't match the size the game sets.
+    if (bHiresTextures)
+      return true;
+    // Hi-res EFB copies (but not native-resolution EFB copies at higher internal resolutions)
+    // also result in different texture sizes that need special handling.
     if (iEFBScale != 1 && bCopyEFBScaled)
       return true;
-    return bHiresTextures;
+    // Stereoscopic 3D changes the number of layers some textures have (EFB copies have 2 layers,
+    // while game textures still have 1), meaning bounds checks need to be added.
+    if (stereo_mode != StereoMode::Off)
+      return true;
+    // Otherwise, manual texture sampling can use the sizes games specify directly.
+    return false;
   }
   bool UsingUberShaders() const;
   u32 GetShaderCompilerThreads() const;

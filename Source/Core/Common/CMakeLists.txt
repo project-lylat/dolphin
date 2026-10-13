@@ -33,6 +33,8 @@ add_library(common
   Crypto/ec.h
   Crypto/SHA1.cpp
   Crypto/SHA1.h
+  Debug/CodeTrace.cpp
+  Debug/CodeTrace.h
   Debug/MemoryPatches.cpp
   Debug/MemoryPatches.h
   Debug/Threads.h
@@ -135,14 +137,6 @@ add_library(common
   WindowSystemInfo.h
   WorkQueueThread.h
 )
-
-if(MSVC AND _M_ARM_64)
-  # Workaround msvc arm64 optimizer bug
-  # TODO remove after updating to VS 17.4
-  set_source_files_properties(
-    Crypto/SHA1.cpp
-    PROPERTIES COMPILE_FLAGS "/d2ssa-peeps-post-color-")
-endif()
 
 if(NOT MSVC AND _M_ARM_64)
   set_source_files_properties(
@@ -324,6 +318,17 @@ if(UNIX)
     target_link_libraries(traversal_server PRIVATE ${SYSTEMD_LIBRARIES})
   endif()
 elseif(WIN32)
+  find_package(PowerShell REQUIRED)
+  execute_process(
+    COMMAND ${POWERSHELL_EXE} -Command "[System.Diagnostics.FileVersionInfo]::GetVersionInfo('$ENV{VCToolsRedistDir}vc_redist.x64.exe').ProductVersion"
+    OUTPUT_VARIABLE VC_TOOLS_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/build_info.txt.in"
+    "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/build_info.txt"
+    )
+
   target_link_libraries(common PRIVATE "-INCLUDE:enableCompatPatches")
 endif()
 
