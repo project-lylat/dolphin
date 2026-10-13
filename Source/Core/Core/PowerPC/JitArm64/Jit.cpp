@@ -22,6 +22,7 @@
 #include "Core/HW/Memmap.h"
 #include "Core/HW/ProcessorInterface.h"
 #include "Core/PatchEngine.h"
+#include "Core/PowerPC/Interpreter/Interpreter.h"
 #include "Core/PowerPC/JitArm64/JitArm64_RegCache.h"
 #include "Core/PowerPC/JitInterface.h"
 #include "Core/PowerPC/PowerPC.h"
@@ -64,6 +65,8 @@ void JitArm64::Init()
   code_block.m_stats = &js.st;
   code_block.m_gpa = &js.gpa;
   code_block.m_fpa = &js.fpa;
+
+  InitBLROptimization();
 
   GenerateAsm();
 
@@ -317,8 +320,8 @@ void JitArm64::IntializeSpeculativeConstants()
   for (auto i : code_block.m_gpr_inputs)
   {
     u32 compile_time_value = m_ppc_state.gpr[i];
-    if (PowerPC::IsOptimizableGatherPipeWrite(compile_time_value) ||
-        PowerPC::IsOptimizableGatherPipeWrite(compile_time_value - 0x8000) ||
+    if (m_mmu.IsOptimizableGatherPipeWrite(compile_time_value) ||
+        m_mmu.IsOptimizableGatherPipeWrite(compile_time_value - 0x8000) ||
         compile_time_value == 0xCC000000)
     {
       if (!fail)
@@ -327,8 +330,9 @@ void JitArm64::IntializeSpeculativeConstants()
         fail = GetCodePtr();
         MOVI2R(DISPATCHER_PC, js.blockStart);
         STR(IndexType::Unsigned, DISPATCHER_PC, PPC_REG, PPCSTATE_OFF(pc));
-        MOVP2R(ARM64Reg::X8, &JitInterface::CompileExceptionCheck);
-        MOVI2R(ARM64Reg::W0, static_cast<u32>(JitInterface::ExceptionType::SpeculativeConstants));
+        MOVP2R(ARM64Reg::X8, &JitInterface::CompileExceptionCheckFromJIT);
+        MOVP2R(ARM64Reg::X0, &m_system.GetJitInterface());
+        MOVI2R(ARM64Reg::W1, static_cast<u32>(JitInterface::ExceptionType::SpeculativeConstants));
         BLR(ARM64Reg::X8);
         B(dispatcher_no_check);
         SwitchToNearCode();
@@ -513,10 +517,11 @@ void JitArm64::WriteExceptionExit(ARM64Reg dest, bool only_external, bool always
   static_assert(PPCSTATE_OFF(pc) + 4 == PPCSTATE_OFF(npc));
   STP(IndexType::Signed, DISPATCHER_PC, DISPATCHER_PC, PPC_REG, PPCSTATE_OFF(pc));
 
+  MOVP2R(ARM64Reg::X0, &m_system.GetPowerPC());
   if (only_external)
-    MOVP2R(EncodeRegTo64(DISPATCHER_PC), &PowerPC::CheckExternalExceptions);
+    MOVP2R(EncodeRegTo64(DISPATCHER_PC), &PowerPC::CheckExternalExceptionsFromJIT);
   else
-    MOVP2R(EncodeRegTo64(DISPATCHER_PC), &PowerPC::CheckExceptions);
+    MOVP2R(EncodeRegTo64(DISPATCHER_PC), &PowerPC::CheckExceptionsFromJIT);
   BLR(EncodeRegTo64(DISPATCHER_PC));
 
   LDR(IndexType::Unsigned, DISPATCHER_PC, PPC_REG, PPCSTATE_OFF(npc));
@@ -542,7 +547,7 @@ void JitArm64::WriteConditionalExceptionExit(int exception, ARM64Reg temp_gpr, A
                                              u64 increment_sp_on_exit)
 {
   LDR(IndexType::Unsigned, temp_gpr, PPC_REG, PPCSTATE_OFF(Exceptions));
-  FixupBranch no_exception = TBZ(temp_gpr, IntLog2(exception));
+  FixupBranch no_exception = TBZ(temp_gpr, MathUtil::IntLog2(exception));
 
   const bool switch_to_far_code = !IsInFarCode();
 
@@ -741,7 +746,7 @@ void JitArm64::Jit(u32 em_address, bool clear_cache_and_retry_on_failure)
     // Address of instruction could not be translated
     m_ppc_state.npc = nextPC;
     m_ppc_state.Exceptions |= EXCEPTION_ISI;
-    PowerPC::CheckExceptions();
+    m_system.GetPowerPC().CheckExceptions();
     WARN_LOG_FMT(POWERPC, "ISI exception at {:#010x}", nextPC);
     return;
   }
@@ -866,9 +871,10 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
       SetJumpTarget(fail);
       MOVI2R(DISPATCHER_PC, js.blockStart);
       STR(IndexType::Unsigned, DISPATCHER_PC, PPC_REG, PPCSTATE_OFF(pc));
-      MOVI2R(ARM64Reg::W0, static_cast<u32>(JitInterface::ExceptionType::PairedQuantize));
-      MOVP2R(ARM64Reg::X1, &JitInterface::CompileExceptionCheck);
-      BLR(ARM64Reg::X1);
+      MOVP2R(ARM64Reg::X0, &m_system.GetJitInterface());
+      MOVI2R(ARM64Reg::W1, static_cast<u32>(JitInterface::ExceptionType::PairedQuantize));
+      MOVP2R(ARM64Reg::X2, &JitInterface::CompileExceptionCheckFromJIT);
+      BLR(ARM64Reg::X2);
       B(dispatcher_no_check);
       SwitchToNearCode();
       SetJumpTarget(no_fail);
@@ -935,7 +941,7 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
 
       // Inline exception check
       LDR(IndexType::Unsigned, ARM64Reg::W30, PPC_REG, PPCSTATE_OFF(Exceptions));
-      FixupBranch no_ext_exception = TBZ(ARM64Reg::W30, IntLog2(EXCEPTION_EXTERNAL_INT));
+      FixupBranch no_ext_exception = TBZ(ARM64Reg::W30, MathUtil::IntLog2(EXCEPTION_EXTERNAL_INT));
       FixupBranch exception = B();
       SwitchToFarCode();
       const u8* done_here = GetCodePtr();
@@ -971,7 +977,7 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
       ARM64Reg XA = EncodeRegTo64(WA);
 
       LDR(IndexType::Unsigned, WA, PPC_REG, PPCSTATE_OFF(Exceptions));
-      FixupBranch no_ext_exception = TBZ(WA, IntLog2(EXCEPTION_EXTERNAL_INT));
+      FixupBranch no_ext_exception = TBZ(WA, MathUtil::IntLog2(EXCEPTION_EXTERNAL_INT));
       FixupBranch exception = B();
       SwitchToFarCode();
       const u8* done_here = GetCodePtr();
@@ -1031,8 +1037,8 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
         js.firstFPInstructionFound = true;
       }
 
-      if (m_enable_debugging && PowerPC::breakpoints.IsAddressBreakPoint(op.address) &&
-          !cpu.IsStepping())
+      if (m_enable_debugging && !cpu.IsStepping() &&
+          m_system.GetPowerPC().GetBreakPoints().IsAddressBreakPoint(op.address))
       {
         FlushCarry();
         gpr.Flush(FlushMode::All, ARM64Reg::INVALID_REG);
@@ -1043,8 +1049,9 @@ bool JitArm64::DoJit(u32 em_address, JitBlock* b, u32 nextPC)
 
         MOVI2R(DISPATCHER_PC, op.address);
         STP(IndexType::Signed, DISPATCHER_PC, DISPATCHER_PC, PPC_REG, PPCSTATE_OFF(pc));
-        MOVP2R(ARM64Reg::X0, &PowerPC::CheckBreakPoints);
-        BLR(ARM64Reg::X0);
+        MOVP2R(ARM64Reg::X0, &m_system.GetPowerPC());
+        MOVP2R(ARM64Reg::X1, &PowerPC::CheckBreakPointsFromJIT);
+        BLR(ARM64Reg::X1);
 
         LDR(IndexType::Unsigned, ARM64Reg::W0, ARM64Reg::X0,
             MOVPage2R(ARM64Reg::X0, cpu.GetStatePtr()));

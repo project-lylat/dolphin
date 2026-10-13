@@ -20,6 +20,7 @@
 class QStackedWidget;
 class QString;
 
+class AchievementsWindow;
 class BreakpointWidget;
 struct BootParameters;
 class CheatsManager;
@@ -34,6 +35,7 @@ class GBATASInputWindow;
 class GCTASInputWindow;
 class GraphicsWindow;
 class HotkeyScheduler;
+class InfinityBaseWindow;
 class JITWidget;
 class LogConfigWidget;
 class LogWidget;
@@ -52,6 +54,7 @@ class ThreadWidget;
 class ToolBar;
 class WatchWidget;
 class WiiTASInputWindow;
+struct WindowSystemInfo;
 
 namespace DiscIO
 {
@@ -79,6 +82,7 @@ public:
   ~MainWindow();
 
   void Show();
+  WindowSystemInfo GetWindowSystemInfo() const;
 
   bool eventFilter(QObject* object, QEvent* event) override;
 
@@ -172,10 +176,15 @@ private:
   void ShowNetPlayBrowser();
   void ShowFIFOPlayer();
   void ShowSkylanderPortal();
+  void ShowInfinityBase();
   void ShowMemcardManager();
   void ShowResourcePackManager();
   void ShowCheatsManager();
   void ShowRiivolutionBootWidget(const UICommon::GameFile& game);
+
+#ifdef USE_RETRO_ACHIEVEMENTS
+  void ShowAchievementsWindow();
+#endif  // USE_RETRO_ACHIEVEMENTS
 
   void NetPlayInit();
   bool NetPlayJoin();
@@ -247,6 +256,7 @@ private:
   GraphicsWindow* m_graphics_window = nullptr;
   FIFOPlayerWindow* m_fifo_window = nullptr;
   SkylanderPortalWindow* m_skylander_window = nullptr;
+  InfinityBaseWindow* m_infinity_window = nullptr;
   MappingWindow* m_hotkey_window = nullptr;
   FreeLookWindow* m_freelook_window = nullptr;
 
@@ -259,6 +269,10 @@ private:
   std::array<GBATASInputWindow*, num_gc_controllers> m_gba_tas_input_windows{};
   static constexpr int num_wii_controllers = 4;
   std::array<WiiTASInputWindow*, num_wii_controllers> m_wii_tas_input_windows{};
+
+#ifdef USE_RETRO_ACHIEVEMENTS
+  AchievementsWindow* m_achievements_window = nullptr;
+#endif  // USE_RETRO_ACHIEVEMENTS
 
   BreakpointWidget* m_breakpoint_widget;
   CodeWidget* m_code_widget;

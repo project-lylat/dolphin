@@ -61,7 +61,8 @@ void JitTrampoline(JitBase& jit, u32 em_address)
 }
 
 JitBase::JitBase(Core::System& system)
-    : m_code_buffer(code_buffer_size), m_system(system), m_ppc_state(system.GetPPCState())
+    : m_code_buffer(code_buffer_size), m_system(system), m_ppc_state(system.GetPPCState()),
+      m_mmu(system.GetMMU())
 {
   m_registered_config_callback_id = Config::AddConfigChangedCallback(
       [this] { Core::RunAsCPUThread([this] { RefreshConfig(); }); });
@@ -219,8 +220,11 @@ bool JitBase::CanMergeNextInstructions(int count) const
   // Be careful: a breakpoint kills flags in between instructions
   for (int i = 1; i <= count; i++)
   {
-    if (m_enable_debugging && PowerPC::breakpoints.IsAddressBreakPoint(js.op[i].address))
+    if (m_enable_debugging &&
+        m_system.GetPowerPC().GetBreakPoints().IsAddressBreakPoint(js.op[i].address))
+    {
       return false;
+    }
     if (js.op[i].isBranchTarget)
       return false;
   }
@@ -229,7 +233,7 @@ bool JitBase::CanMergeNextInstructions(int count) const
 
 void JitBase::UpdateMemoryAndExceptionOptions()
 {
-  bool any_watchpoints = PowerPC::memchecks.HasAny();
+  bool any_watchpoints = m_system.GetPowerPC().GetMemChecks().HasAny();
   jo.fastmem = m_fastmem_enabled && jo.fastmem_arena && (m_ppc_state.msr.DR || !any_watchpoints);
   jo.memcheck = m_mmu_enabled || m_pause_on_panic_enabled || any_watchpoints;
   jo.fp_exceptions = m_enable_float_exceptions;

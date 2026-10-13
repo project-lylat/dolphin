@@ -23,8 +23,9 @@ class System;
 }
 namespace PowerPC
 {
+class MMU;
 struct PowerPCState;
-}
+}  // namespace PowerPC
 
 //#define JIT_LOG_GENERATED_CODE  // Enables logging of generated code
 //#define JIT_LOG_GPR             // Enables logging of the PPC general purpose regs
@@ -32,7 +33,7 @@ struct PowerPCState;
 
 // Use these to control the instruction selection
 // #define INSTRUCTION_START FallBackToInterpreter(inst); return;
-// #define INSTRUCTION_START PPCTables::CountInstruction(inst);
+// #define INSTRUCTION_START PPCTables::CountInstruction(inst, m_ppc_state.pc);
 #define INSTRUCTION_START
 
 #define FALLBACK_IF(cond)                                                                          \
@@ -198,6 +199,7 @@ public:
 
   Core::System& m_system;
   PowerPC::PowerPCState& m_ppc_state;
+  PowerPC::MMU& m_mmu;
 };
 
 void JitTrampoline(JitBase& jit, u32 em_address);

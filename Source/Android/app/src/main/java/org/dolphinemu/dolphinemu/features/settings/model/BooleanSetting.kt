@@ -128,6 +128,7 @@ enum class BooleanSetting(
         "EnableSaveStates",
         false
     ),
+    MAIN_WII_WIILINK_ENABLE(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "EnableWiiLink", false),
     MAIN_DSP_JIT(Settings.FILE_DOLPHIN, Settings.SECTION_INI_DSP, "EnableJIT", true),
     MAIN_EXPAND_TO_CUTOUT_AREA(
         Settings.FILE_DOLPHIN,
@@ -215,6 +216,12 @@ enum class BooleanSetting(
         Settings.FILE_DOLPHIN,
         Settings.SECTION_EMULATED_USB_DEVICES,
         "EmulateSkylanderPortal",
+        false
+    ),
+    MAIN_EMULATE_INFINITY_BASE(
+        Settings.FILE_DOLPHIN,
+        Settings.SECTION_EMULATED_USB_DEVICES,
+        "EmulateInfinityBase",
         false
     ),
     MAIN_SHOW_GAME_TITLES(
@@ -719,7 +726,8 @@ enum class BooleanSetting(
             MAIN_RAM_OVERRIDE_ENABLE,
             MAIN_CUSTOM_RTC_ENABLE,
             MAIN_DSP_JIT,
-            MAIN_EMULATE_SKYLANDER_PORTAL
+            MAIN_EMULATE_SKYLANDER_PORTAL,
+            MAIN_EMULATE_INFINITY_BASE
         )
         private val NOT_RUNTIME_EDITABLE: Set<BooleanSetting> =
             HashSet(listOf(*NOT_RUNTIME_EDITABLE_ARRAY))

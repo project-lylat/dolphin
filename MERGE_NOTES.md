@@ -84,3 +84,17 @@ Conflicts:
   files: `ShowFPS` on, `UsePanicHandlers` off, volume 50.
 
 Build status: not built yet (C: is full).
+
+## Step 4: `5512d19d4b` (PR #12061, 3265 commits)
+
+Conflicts:
+
+- `Core/NetPlayClient.cpp` (`ThreadFunc`): kept upstream's start log line and
+  the fork's "If your opponent does not connect..." chat line.
+- `DolphinQt/MainWindow.cpp` (destructor): kept the fork's
+  `delete m_lylat_matchmaking_client` and upstream's RetroAchievements shutdown.
+- `DolphinQt/ToolBar.cpp`: upstream replaced `GetScaledThemeIcon` with
+  `GetThemeIcon`. Took upstream and moved the Lylat "Find Match" icon to the
+  new call.
+
+Build status: not built yet (C: is full).
