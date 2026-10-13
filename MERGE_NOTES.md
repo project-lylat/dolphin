@@ -98,3 +98,23 @@ Conflicts:
   new call.
 
 Build status: not built yet (C: is full).
+
+## Step 5: `3cb5d3455f` (PR #12462, 4235 commits)
+
+Conflicts:
+
+- `Core/Config/GraphicsSettings.cpp`: upstream added custom aspect ratio and
+  widescreen heuristic settings. Took upstream and kept the fork's defaults
+  (widescreen hack on, aspect ratio Analog Wide).
+- `DolphinQt/Main.cpp`: upstream replaced `SetCurrentUserStyle` with
+  `InitDefaultPalette/UpdateSystemDark/ApplyStyle`, called before the main
+  window is made. Took that and kept the fork's `MainWindow` constructor with
+  the `-M` matchmaking game path.
+- `DolphinQt/MainWindow.cpp`: took upstream's RetroAchievements init. In
+  `NetPlayHostWithCallback` kept the fork's server with the traversal-connect
+  callback and passed upstream's new `traversal_port_alt`.
+- `DolphinQt/NetPlay/NetPlaySetupDialog.cpp`: upstream rebuilt the ALERT label
+  inside the connect tab. Took upstream and removed the fork's older copy of
+  the label higher up.
+
+Build status: not built yet (C: is full).

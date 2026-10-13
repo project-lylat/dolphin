@@ -51,6 +51,7 @@
 #include "DolphinQt/QtUtils/ModalMessageBox.h"
 #include "DolphinQt/QtUtils/QueueOnObject.h"
 #include "DolphinQt/QtUtils/RunOnObject.h"
+#include "DolphinQt/QtUtils/SetWindowDecorations.h"
 #include "DolphinQt/Resources.h"
 #include "DolphinQt/Settings.h"
 #include "DolphinQt/Settings/GameCubePane.h"
@@ -224,6 +225,7 @@ If you "
   m_game_digest_menu->addAction(tr("Other game..."), this, [this] {
     GameListDialog gld(m_game_list_model, this);
 
+    SetQWidgetWindowDecorations(&gld);
     if (gld.exec() != QDialog::Accepted)
       return;
     Settings::Instance().GetNetPlayServer()->ComputeGameDigest(
@@ -339,8 +341,7 @@ void NetPlayDialog::CreatePlayersLayout()
 void NetPlayDialog::ConnectWidgets()
 {
   // Players
-  connect(m_room_box, qOverload<int>(&QComboBox::currentIndexChanged), this,
-          &NetPlayDialog::UpdateGUI);
+  connect(m_room_box, &QComboBox::currentIndexChanged, this, &NetPlayDialog::UpdateGUI);
   connect(m_hostcode_action_button, &QPushButton::clicked, [this] {
     if (m_is_copy_button_retry)
       Common::g_TraversalClient->ReconnectToServer();
@@ -357,6 +358,7 @@ void NetPlayDialog::ConnectWidgets()
     Settings::Instance().GetNetPlayServer()->KickPlayer(id);
   });
   connect(m_assign_ports_button, &QPushButton::clicked, [this] {
+    SetQWidgetWindowDecorations(m_pad_mapping);
     m_pad_mapping->exec();
 
     Settings::Instance().GetNetPlayServer()->SetPadMapping(m_pad_mapping->GetGCPadArray());
@@ -375,7 +377,7 @@ void NetPlayDialog::ConnectWidgets()
   });
 
   // Other
-  connect(m_buffer_size_box, qOverload<int>(&QSpinBox::valueChanged), [this](int value) {
+  connect(m_buffer_size_box, &QSpinBox::valueChanged, [this](int value) {
     if (value == m_buffer_size)
       return;
 
@@ -414,6 +416,7 @@ void NetPlayDialog::ConnectWidgets()
 
   connect(m_game_button, &QPushButton::clicked, [this] {
     GameListDialog gld(m_game_list_model, this);
+    SetQWidgetWindowDecorations(&gld);
     if (gld.exec() == QDialog::Accepted)
     {
       Settings& settings = Settings::Instance();
@@ -443,8 +446,7 @@ void NetPlayDialog::ConnectWidgets()
 
   // SaveSettings() - Save Hosting-Dialog Settings
 
-  connect(m_buffer_size_box, qOverload<int>(&QSpinBox::valueChanged), this,
-          &NetPlayDialog::SaveSettings);
+  connect(m_buffer_size_box, &QSpinBox::valueChanged, this, &NetPlayDialog::SaveSettings);
   connect(m_savedata_none_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_savedata_load_only_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_savedata_load_and_write_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
@@ -1113,6 +1115,11 @@ void NetPlayDialog::OnGolferChanged(const bool is_golfer, const std::string& gol
 
   if (!golfer_name.empty())
     DisplayMessage(tr("%1 is now golfing").arg(QString::fromStdString(golfer_name)), "");
+}
+
+void NetPlayDialog::OnTtlDetermined(u8 ttl)
+{
+  DisplayMessage(tr("Using TTL %1 for probe packet").arg(QString::number(ttl)), "");
 }
 
 bool NetPlayDialog::IsRecording()

@@ -197,6 +197,7 @@ QVariant GameListModel::data(const QModelIndex& index, int role) const
 
       return tags.join(QStringLiteral(", "));
     }
+    break;
   default:
     break;
   }

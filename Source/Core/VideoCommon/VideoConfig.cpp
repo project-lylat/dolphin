@@ -9,6 +9,7 @@
 #include "Common/CommonTypes.h"
 #include "Common/StringUtil.h"
 
+#include "Core/CPUThreadConfigCallback.h"
 #include "Core/Config/GraphicsSettings.h"
 #include "Core/Config/MainSettings.h"
 #include "Core/ConfigManager.h"
@@ -19,6 +20,7 @@
 #include "VideoCommon/AbstractGfx.h"
 #include "VideoCommon/BPFunctions.h"
 #include "VideoCommon/DriverDetails.h"
+#include "VideoCommon/Fifo.h"
 #include "VideoCommon/FramebufferManager.h"
 #include "VideoCommon/FreeLookCamera.h"
 #include "VideoCommon/GraphicsModSystem/Config/GraphicsMod.h"
@@ -57,14 +59,21 @@ void VideoConfig::Refresh()
   {
     // There was a race condition between the video thread and the host thread here, if
     // corrections need to be made by VerifyValidity(). Briefly, the config will contain
-    // invalid values. Instead, pause emulation first, which will flush the video thread,
-    // update the config and correct it, then resume emulation, after which the video
-    // thread will detect the config has changed and act accordingly.
-    Config::AddConfigChangedCallback([]() {
-      Core::RunAsCPUThread([]() {
-        g_Config.Refresh();
-        g_Config.VerifyValidity();
-      });
+    // invalid values. Instead, pause the video thread first, update the config and correct
+    // it, then resume emulation, after which the video thread will detect the config has
+    // changed and act accordingly.
+    CPUThreadConfigCallback::AddConfigChangedCallback([]() {
+      auto& system = Core::System::GetInstance();
+
+      const bool lock_gpu_thread = Core::IsRunningAndStarted();
+      if (lock_gpu_thread)
+        system.GetFifo().PauseAndLock(true, false);
+
+      g_Config.Refresh();
+      g_Config.VerifyValidity();
+
+      if (lock_gpu_thread)
+        system.GetFifo().PauseAndLock(false, true);
     });
     s_has_registered_callback = true;
   }
@@ -76,7 +85,17 @@ void VideoConfig::Refresh()
 
   bWidescreenHack = Config::Get(Config::GFX_WIDESCREEN_HACK);
   aspect_mode = Config::Get(Config::GFX_ASPECT_RATIO);
+  custom_aspect_width = Config::Get(Config::GFX_CUSTOM_ASPECT_RATIO_WIDTH);
+  custom_aspect_height = Config::Get(Config::GFX_CUSTOM_ASPECT_RATIO_HEIGHT);
   suggested_aspect_mode = Config::Get(Config::GFX_SUGGESTED_ASPECT_RATIO);
+  widescreen_heuristic_transition_threshold =
+      Config::Get(Config::GFX_WIDESCREEN_HEURISTIC_TRANSITION_THRESHOLD);
+  widescreen_heuristic_aspect_ratio_slop =
+      Config::Get(Config::GFX_WIDESCREEN_HEURISTIC_ASPECT_RATIO_SLOP);
+  widescreen_heuristic_standard_ratio =
+      Config::Get(Config::GFX_WIDESCREEN_HEURISTIC_STANDARD_RATIO);
+  widescreen_heuristic_widescreen_ratio =
+      Config::Get(Config::GFX_WIDESCREEN_HEURISTIC_WIDESCREEN_RATIO);
   bCrop = Config::Get(Config::GFX_CROP);
   iSafeTextureCache_ColorSamples = Config::Get(Config::GFX_SAFE_TEXTURE_CACHE_COLOR_SAMPLES);
   bShowFPS = Config::Get(Config::GFX_SHOW_FPS);
@@ -133,6 +152,7 @@ void VideoConfig::Refresh()
 
   texture_filtering_mode = Config::Get(Config::GFX_ENHANCE_FORCE_TEXTURE_FILTERING);
   iMaxAnisotropy = Config::Get(Config::GFX_ENHANCE_MAX_ANISOTROPY);
+  output_resampling_mode = Config::Get(Config::GFX_ENHANCE_OUTPUT_RESAMPLING);
   sPostProcessingShader = Config::Get(Config::GFX_ENHANCE_POST_SHADER);
   bForceTrueColor = Config::Get(Config::GFX_ENHANCE_FORCE_TRUE_COLOR);
   bDisableCopyFilter = Config::Get(Config::GFX_ENHANCE_DISABLE_COPY_FILTER);
@@ -269,6 +289,7 @@ void CheckForConfigChanges()
   const u32 old_game_mod_changes =
       g_ActiveConfig.graphics_mod_config ? g_ActiveConfig.graphics_mod_config->GetChangeCount() : 0;
   const bool old_graphics_mods_enabled = g_ActiveConfig.bGraphicMods;
+  const AspectMode old_aspect_mode = g_ActiveConfig.aspect_mode;
   const AspectMode old_suggested_aspect_mode = g_ActiveConfig.suggested_aspect_mode;
   const bool old_widescreen_hack = g_ActiveConfig.bWidescreenHack;
   const auto old_post_processing_shader = g_ActiveConfig.sPostProcessingShader;
@@ -318,6 +339,8 @@ void CheckForConfigChanges()
     changed_bits |= CONFIG_CHANGE_BIT_BBOX;
   if (old_efb_scale != g_ActiveConfig.iEFBScale)
     changed_bits |= CONFIG_CHANGE_BIT_TARGET_SIZE;
+  if (old_aspect_mode != g_ActiveConfig.aspect_mode)
+    changed_bits |= CONFIG_CHANGE_BIT_ASPECT_RATIO;
   if (old_suggested_aspect_mode != g_ActiveConfig.suggested_aspect_mode)
     changed_bits |= CONFIG_CHANGE_BIT_ASPECT_RATIO;
   if (old_widescreen_hack != g_ActiveConfig.bWidescreenHack)
@@ -351,7 +374,9 @@ void CheckForConfigChanges()
   if (changed_bits & (CONFIG_CHANGE_BIT_HOST_CONFIG | CONFIG_CHANGE_BIT_MULTISAMPLES))
   {
     OSD::AddMessage("Video config changed, reloading shaders.", OSD::Duration::NORMAL);
+    g_gfx->WaitForGPUIdle();
     g_vertex_manager->InvalidatePipelineObject();
+    g_vertex_manager->NotifyCustomShaderCacheOfHostChange(new_host_config);
     g_shader_cache->SetHostConfig(new_host_config);
     g_shader_cache->Reload();
     g_framebuffer_manager->RecompileShaders();

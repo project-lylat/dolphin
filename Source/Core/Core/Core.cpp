@@ -41,6 +41,8 @@
 #include "Core/AchievementManager.h"
 #include "Core/Boot/Boot.h"
 #include "Core/BootManager.h"
+#include "Core/CPUThreadConfigCallback.h"
+#include "Core/Config/AchievementSettings.h"
 #include "Core/Config/MainSettings.h"
 #include "Core/ConfigManager.h"
 #include "Core/CoreTiming.h"
@@ -291,7 +293,7 @@ void Stop()  // - Hammertime!
     return;
 
 #ifdef USE_RETRO_ACHIEVEMENTS
-  AchievementManager::GetInstance()->CloseGame();
+  AchievementManager::GetInstance().CloseGame();
 #endif  // USE_RETRO_ACHIEVEMENTS
 
   s_is_stopping = true;
@@ -390,9 +392,10 @@ static void CpuThread(const std::optional<std::string>& savestate_path, bool del
   static_cast<void>(IDCache::GetEnvForThread());
 #endif
 
-  const bool fastmem_enabled = Config::Get(Config::MAIN_FASTMEM);
-  if (fastmem_enabled)
-    EMM::InstallExceptionHandler();  // Let's run under memory watch
+  // The JIT need to be able to intercept faults, both for fastmem and for the BLR optimization.
+  const bool exception_handler = EMM::IsExceptionHandlerSupported();
+  if (exception_handler)
+    EMM::InstallExceptionHandler();
 
 #ifdef USE_MEMORYWATCHER
   s_memory_watcher = std::make_unique<MemoryWatcher>();
@@ -440,7 +443,7 @@ static void CpuThread(const std::optional<std::string>& savestate_path, bool del
 
   s_is_started = false;
 
-  if (fastmem_enabled)
+  if (exception_handler)
     EMM::UninstallExceptionHandler();
 
   if (GDBStub::IsActive())
@@ -511,6 +514,9 @@ static void EmuThread(std::unique_ptr<BootParameters> boot, WindowSystemInfo wsi
   DeclareAsCPUThread();
   s_frame_step = false;
 
+  // If settings have changed since the previous run, notify callbacks.
+  CPUThreadConfigCallback::CheckForConfigChanges();
+
   // Switch the window used for inputs to the render window. This way, the cursor position
   // is relative to the render window, instead of the main window.
   ASSERT(g_controller_interface.IsInit());
@@ -535,7 +541,16 @@ static void EmuThread(std::unique_ptr<BootParameters> boot, WindowSystemInfo wsi
 
   Common::ScopeGuard sd_folder_sync_guard{[sync_sd_folder] {
     if (sync_sd_folder && Config::Get(Config::MAIN_ALLOW_SD_WRITES))
-      Common::SyncSDImageToSDFolder([]() { return false; });
+    {
+      const bool sync_ok = Common::SyncSDImageToSDFolder([]() { return false; });
+      if (!sync_ok)
+      {
+        PanicAlertFmtT(
+            "Failed to sync SD card with folder. All changes made this session will be "
+            "discarded on next boot if you do not manually re-issue a resync in Config > "
+            "Wii > SD Card Settings > Convert File to Folder Now!");
+      }
+    }
   }};
 
   // Load Wiimotes - only if we are booting in Wii mode
@@ -565,9 +580,6 @@ static void EmuThread(std::unique_ptr<BootParameters> boot, WindowSystemInfo wsi
     HW::Shutdown(system);
     INFO_LOG_FMT(CONSOLE, "{}", StopMessage(false, "HW shutdown"));
 
-    // Clear on screen messages that haven't expired
-    OSD::ClearMessages();
-
     // The config must be restored only after the whole HW has shut down,
     // not when it is still running.
     BootManager::RestoreConfig();
@@ -586,7 +598,12 @@ static void EmuThread(std::unique_ptr<BootParameters> boot, WindowSystemInfo wsi
     PanicAlertFmt("Failed to initialize video backend!");
     return;
   }
-  Common::ScopeGuard video_guard{[] { g_video_backend->Shutdown(); }};
+  Common::ScopeGuard video_guard{[] {
+    // Clear on screen messages that haven't expired
+    OSD::ClearMessages();
+
+    g_video_backend->Shutdown();
+  }};
 
   if (cpu_info.HTT)
     Config::SetBaseOrCurrent(Config::MAIN_DSP_THREAD, cpu_info.num_cores > 4);
@@ -643,7 +660,7 @@ static void EmuThread(std::unique_ptr<BootParameters> boot, WindowSystemInfo wsi
     wiifs_guard.Dismiss();
 
   // This adds the SyncGPU handler to CoreTiming, so now CoreTiming::Advance might block.
-  system.GetFifo().Prepare(system);
+  system.GetFifo().Prepare();
 
   // Setup our core
   if (Config::Get(Config::MAIN_CPU_CORE) != PowerPC::CPUCore::Interpreter)
@@ -670,7 +687,7 @@ static void EmuThread(std::unique_ptr<BootParameters> boot, WindowSystemInfo wsi
     s_cpu_thread = std::thread(cpuThreadFunc, savestate_path, delete_savestate);
 
     // become the GPU thread
-    system.GetFifo().RunGpuLoop(system);
+    system.GetFifo().RunGpuLoop();
 
     // We have now exited the Video Loop
     INFO_LOG_FMT(CONSOLE, "{}", StopMessage(false, "Video Loop Ended"));
@@ -696,7 +713,7 @@ static void EmuThread(std::unique_ptr<BootParameters> boot, WindowSystemInfo wsi
 
 // Set or get the running state
 
-void SetState(State state)
+void SetState(State state, bool report_state_change)
 {
   // State cannot be controlled until the CPU Thread is operational
   if (!IsRunningAndStarted())
@@ -723,7 +740,10 @@ void SetState(State state)
     break;
   }
 
-  CallOnStateChangedCallbacks(GetState());
+  // Certain callers only change the state momentarily. Sending a callback for them causes
+  // unwanted updates, such as the Pause/Play button flickering between states on frame advance.
+  if (report_state_change)
+    CallOnStateChangedCallbacks(GetState());
 }
 
 State GetState()
@@ -734,7 +754,7 @@ State GetState()
   if (s_hardware_initialized)
   {
     auto& system = Core::System::GetInstance();
-    if (system.GetCPU().IsStepping() || s_frame_step)
+    if (system.GetCPU().IsStepping())
       return State::Paused;
 
     return State::Running;
@@ -809,14 +829,12 @@ static bool PauseAndLock(Core::System& system, bool do_lock, bool unpause_on_unl
     was_unpaused = system.GetCPU().PauseAndLock(true);
   }
 
-  system.GetExpansionInterface().PauseAndLock(do_lock, false);
-
   // audio has to come after CPU, because CPU thread can wait for audio thread (m_throttle).
   system.GetDSP().GetDSPEmulator()->PauseAndLock(do_lock);
 
   // video has to come after CPU, because CPU thread can wait for video thread
   // (s_efbAccessRequested).
-  system.GetFifo().PauseAndLock(system, do_lock, false);
+  system.GetFifo().PauseAndLock(do_lock, false);
 
   ResetRumble();
 
@@ -922,7 +940,7 @@ void Callback_NewField(Core::System& system)
   }
 
 #ifdef USE_RETRO_ACHIEVEMENTS
-  AchievementManager::GetInstance()->DoFrame();
+  AchievementManager::GetInstance().DoFrame();
 #endif  // USE_RETRO_ACHIEVEMENTS
 }
 
@@ -1011,7 +1029,7 @@ void UpdateWantDeterminism(bool initial)
         ios->UpdateWantDeterminism(new_want_determinism);
 
       auto& system = Core::System::GetInstance();
-      system.GetFifo().UpdateWantDeterminism(system, new_want_determinism);
+      system.GetFifo().UpdateWantDeterminism(new_want_determinism);
 
       // We need to clear the cache because some parts of the JIT depend on want_determinism,
       // e.g. use of FMA.
@@ -1064,12 +1082,19 @@ void HostDispatchJobs()
 // NOTE: Host Thread
 void DoFrameStep()
 {
+#ifdef USE_RETRO_ACHIEVEMENTS
+  if (AchievementManager::GetInstance().IsHardcoreModeActive())
+  {
+    OSD::AddMessage("Frame stepping is disabled in RetroAchievements hardcore mode");
+    return;
+  }
+#endif  // USE_RETRO_ACHIEVEMENTS
   if (GetState() == State::Paused)
   {
     // if already paused, frame advance for 1 frame
     s_stop_frame_step = false;
     s_frame_step = true;
-    SetState(State::Running);
+    SetState(State::Running, false);
   }
   else if (!s_frame_step)
   {
