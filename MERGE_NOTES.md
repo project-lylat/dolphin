@@ -5,9 +5,12 @@ Upstream is `upstream/master` of dolphin-emu/dolphin. The fork's merge base
 was `664663e8de` (5.0-16607, June 2022), 9185 upstream commits behind.
 
 The merge is done in steps. Each step merges one upstream commit (a first-parent
-merge commit or a release tag), builds Release x64, and is then committed.
+merge commit or a release tag) and is committed. The plan was to build Release
+x64 after every step, but C: ran out of space during the step 1 build, so the
+steps were committed unbuilt. No step has been fully built yet; each step's
+"Build status" line says so.
 
-Build used for every step (CMake + Ninja, VS 2022 17.6, MSVC 19.36):
+Build command (CMake + Ninja, VS 2022 17.6, MSVC 19.36):
 
 ```
 tmp-dolphin\build.bat [configure]
@@ -242,3 +245,17 @@ Build status: not built yet (C: is full).
 - `Externals/qrcodegen`: Nayuki's QR Code generator (C, MIT, v1.8.0, copied
   from doldecomp `native/source/vendor/qrcodegen`), listed in
   `Externals/licenses.md`.
+
+## Review fixes (not built yet)
+
+- `NetPlayDialog.cpp`: the "Load Preloaded Saves" tooltip had a raw line break
+  inside the string literal (a `
+` in my resolve script was expanded).
+- `LylatMatchmakingClient.*`: `Common/ENetUtil.h` is now `Common/ENet.h` and
+  `ENetUtil::InterceptCallback` is `Common::ENet::InterceptCallback`.
+- `WiiRoot.cpp`: `File::CopyDir` was removed; the preloaded saves now copy with
+  `File::Copy(src, dst, true)` (recursive, overwrite).
+- `NetPlayServer.h`: the traversal-connect callback defaults to empty, so the
+  Android JNI caller and other 4-argument callers still compile.
+- `LylatDeviceLogin.cpp`: on POSIX the account file is owner read/write only;
+  `Cancel()` sets the flag under the mutex before notifying.

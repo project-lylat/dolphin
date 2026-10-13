@@ -7,6 +7,10 @@
 #include <cstdlib>
 #include <string_view>
 
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
+
 #include <picojson.h>
 
 #include "Common/FileUtil.h"
@@ -79,6 +83,10 @@ bool SaveAccountFile(const std::string& body)
   const std::string tmp = path + ".qr-login.tmp";
   if (!File::WriteStringToFile(tmp, body))
     return false;
+#ifndef _WIN32
+  // The file holds a play key: owner read/write only.
+  chmod(tmp.c_str(), S_IRUSR | S_IWUSR);
+#endif
   // Check it with the same parser as a dropped lylat.json before replacing the old one.
   LylatUser* check = LylatUser::GetUserFromDisk(tmp);
   if (!check)
@@ -104,7 +112,11 @@ DeviceLogin::~DeviceLogin()
 
 void DeviceLogin::Cancel()
 {
-  m_cancel = true;
+  {
+    // Set the flag under the lock so a waiting worker cannot miss the wake-up.
+    std::lock_guard lock(m_mutex);
+    m_cancel = true;
+  }
   m_cv.notify_all();
   if (m_thread.joinable())
     m_thread.join();

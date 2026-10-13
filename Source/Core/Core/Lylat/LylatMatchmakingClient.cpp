@@ -199,7 +199,7 @@ void LylatMatchmakingClient::startMatchmaking()
     }
 
     netEvent.peer->data = &m_user->displayName;
-    m_client->intercept = ENetUtil::InterceptCallback;
+    m_client->intercept = Common::ENet::InterceptCallback;
     isMmConnected = true;
     WARN_LOG_FMT(LYLAT, "[Matchmaking] Connected to mm server...");
   }

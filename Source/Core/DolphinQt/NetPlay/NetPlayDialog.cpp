@@ -175,8 +175,8 @@ void NetPlayDialog::CreateMainLayout()
   m_savedata_all_wii_saves_action->setCheckable(true);
   m_use_preloaded_saves_action = m_data_menu->addAction(tr("Load Preloaded Saves"));
   m_use_preloaded_saves_action->setToolTip(
-      tr("If enabled, dolphin will load preloaded save files instead of empty saves. 
-If you "
+      tr("If enabled, dolphin will load preloaded save files instead of empty saves. \n"
+         "If you "
          "desync on start, try turning this off and turning Load Host's Save Data + Use All Wii "
          "Save Data on instead."));
   m_use_preloaded_saves_action->setCheckable(true);
