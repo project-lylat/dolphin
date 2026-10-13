@@ -1291,11 +1291,10 @@ void NetPlayServer::OnTraversalStateChanged()
 
   if (state == Common::TraversalClient::State::Failure)
     m_dialog->OnTraversalError(m_traversal_client->GetFailureReason());
-  if (state == TraversalClient::State::Connected)
+  if (state == Common::TraversalClient::State::Connected && OnTraversalConnectCallback)
   {
-    const auto host_id = g_TraversalClient->GetHostID();
+    const auto host_id = Common::g_TraversalClient->GetHostID();
     OnTraversalConnectCallback(std::string(host_id.begin(), host_id.end()));
-
   }
 
   m_dialog->OnTraversalStateChanged(state);
@@ -2275,8 +2274,9 @@ bool NetPlayServer::PlayerHasControllerMapped(const PlayerId pid) const
 
 std::string NetPlayServer::GetServerID()
 {
-  if(!g_TraversalClient) return "";
-  const auto host_id = g_TraversalClient->GetHostID();
+  if (!Common::g_TraversalClient)
+    return "";
+  const auto host_id = Common::g_TraversalClient->GetHostID();
   return std::string(host_id.begin(), host_id.end());
 }
 
