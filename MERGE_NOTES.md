@@ -215,3 +215,30 @@ Follow-up from the solution removal:
   step). The CI change is not tested.
 
 Build status: not built yet (C: is full).
+
+## After the merge
+
+- `Core/NetPlayServer.cpp`: the fork's traversal callback and `GetServerID()`
+  now use `Common::g_TraversalClient` (upstream moved it into `Common`), and the
+  callback is skipped when empty.
+
+## QR sign-in (not part of the merge)
+
+- `Core/Lylat/LylatDeviceLogin.*`: the device-code client. It follows the
+  Lylat server contract (`docs/device-login.md` on lylat `facelift`):
+  `POST <LylatURL>/api/device/code`, then `POST /api/device/token` every
+  `interval` seconds on its own thread. `authorization_pending` keeps polling,
+  `slow_down` adds 5 s, `expired_token`/`invalid_grant` -> Expired,
+  `access_denied` -> Denied, six failed polls in a row -> Error, 404 -> the old
+  browser flow. On 200 the body is checked with `LylatUser::GetUserFromDisk`
+  and written to `User/lylat.json` (temp file, then rename), the file the
+  manual login writes. The device code never leaves the worker thread.
+- `DolphinQt/NetPlay/LylatQRLoginDialog.*`: the Qt dialog (QR, short code,
+  "Pick NN on your phone", address, countdown; Retry, Manual login, Cancel).
+- `NetPlaySetupDialog.cpp`: Sign In opens the dialog. Manual login and a 404
+  open `<LylatURL>/users/enable` as before.
+- New setting `[NetPlay] LylatURL` (default `https://lylat.gg`) so a local or
+  mock server can be used.
+- `Externals/qrcodegen`: Nayuki's QR Code generator (C, MIT, v1.8.0, copied
+  from doldecomp `native/source/vendor/qrcodegen`), listed in
+  `Externals/licenses.md`.
