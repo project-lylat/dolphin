@@ -21,6 +21,7 @@
 #include "Core/Core.h"
 #include "Core/HW/SystemTimers.h"
 #include "Core/PowerPC/PowerPC.h"
+#include "Core/System.h"
 
 #include "DolphinQt/Config/ConfigControls/ConfigBool.h"
 #include "DolphinQt/QtUtils/SignalBlocking.h"
@@ -99,7 +100,7 @@ void AdvancedPane::CreateLayout()
   clock_override_layout->addLayout(cpu_clock_override_slider_layout);
 
   m_cpu_clock_override_slider = new QSlider(Qt::Horizontal);
-  m_cpu_clock_override_slider->setRange(0, 150);
+  m_cpu_clock_override_slider->setRange(1, 400);
   cpu_clock_override_slider_layout->addWidget(m_cpu_clock_override_slider);
 
   m_cpu_clock_override_slider_label = new QLabel();
@@ -202,8 +203,7 @@ void AdvancedPane::ConnectLayout()
   });
 
   connect(m_cpu_clock_override_slider, &QSlider::valueChanged, [this](int oc_factor) {
-    // Vaguely exponential scaling?
-    const float factor = std::exp2f((m_cpu_clock_override_slider->value() - 100.f) / 25.f);
+    const float factor = m_cpu_clock_override_slider->value() / 100.f;
     Config::SetBaseOrCurrent(Config::MAIN_OVERCLOCK, factor);
     Update();
   });
@@ -239,7 +239,7 @@ void AdvancedPane::ConnectLayout()
 
 void AdvancedPane::Update()
 {
-  const bool running = Core::GetState() != Core::State::Uninitialized;
+  const bool running = Core::GetState(Core::System::GetInstance()) != Core::State::Uninitialized;
   const bool enable_cpu_clock_override_widgets = Config::Get(Config::MAIN_OVERCLOCK_ENABLE);
   const bool enable_ram_override_widgets = Config::Get(Config::MAIN_RAM_OVERRIDE_ENABLE);
   const bool enable_custom_rtc_widgets = Config::Get(Config::MAIN_CUSTOM_RTC_ENABLE) && !running;
@@ -270,12 +270,13 @@ void AdvancedPane::Update()
 
   {
     const QSignalBlocker blocker(m_cpu_clock_override_slider);
-    m_cpu_clock_override_slider->setValue(static_cast<int>(
-        std::round(std::log2f(Config::Get(Config::MAIN_OVERCLOCK)) * 25.f + 100.f)));
+    m_cpu_clock_override_slider->setValue(
+        static_cast<int>(std::round(Config::Get(Config::MAIN_OVERCLOCK) * 100.f)));
   }
 
   m_cpu_clock_override_slider_label->setText([] {
-    int core_clock = SystemTimers::GetTicksPerSecond() / std::pow(10, 6);
+    int core_clock =
+        Core::System::GetInstance().GetSystemTimers().GetTicksPerSecond() / std::pow(10, 6);
     int percent = static_cast<int>(std::round(Config::Get(Config::MAIN_OVERCLOCK) * 100.f));
     int clock = static_cast<int>(std::round(Config::Get(Config::MAIN_OVERCLOCK) * core_clock));
     return tr("%1% (%2 MHz)").arg(QString::number(percent), QString::number(clock));

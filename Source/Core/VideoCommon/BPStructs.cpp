@@ -14,7 +14,6 @@
 #include "Common/EnumMap.h"
 #include "Common/Logging/Log.h"
 
-#include "Core/ConfigManager.h"
 #include "Core/CoreTiming.h"
 #include "Core/DolphinAnalytics.h"
 #include "Core/FifoPlayer/FifoPlayer.h"
@@ -347,7 +346,7 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
       // render multiple sub-frames and arrange the XFB copies in next to each-other in main memory
       // so they form a single completed XFB.
       // See https://dolphin-emu.org/blog/2017/11/19/hybridxfb/ for examples and more detail.
-      AfterFrameEvent::Trigger();
+      AfterFrameEvent::Trigger(Core::System::GetInstance());
 
       // Note: Theoretically, in the future we could track the VI configuration and try to detect
       //       when an XFB is the last XFB copy of a frame. Not only would we get a clean "end of
@@ -355,17 +354,18 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
       //       Might also clean up some issues with games doing XFB copies they don't intend to
       //       display.
 
+      auto& system = Core::System::GetInstance();
       if (g_ActiveConfig.bImmediateXFB)
       {
         // below div two to convert from bytes to pixels - it expects width, not stride
-        u64 ticks = Core::System::GetInstance().GetCoreTiming().GetTicks();
+        u64 ticks = system.GetCoreTiming().GetTicks();
         g_presenter->ImmediateSwap(destAddr, destStride / 2, destStride, height, ticks);
       }
       else
       {
-        if (FifoPlayer::GetInstance().IsRunningWithFakeVideoInterfaceUpdates())
+        if (system.GetFifoPlayer().IsRunningWithFakeVideoInterfaceUpdates())
         {
-          auto& vi = Core::System::GetInstance().GetVideoInterface();
+          auto& vi = system.GetVideoInterface();
           vi.FakeVIUpdate(destAddr, srcRect.GetWidth(), destStride, height);
         }
       }
@@ -388,7 +388,8 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
     u32 addr = bpmem.tmem_config.tlut_src << 5;
 
     // The GameCube ignores the upper bits of this address. Some games (WW, MKDD) set them.
-    if (!SConfig::GetInstance().bWii)
+    auto& system = Core::System::GetInstance();
+    if (!system.IsWii())
       addr = addr & 0x01FFFFFF;
 
     // The copy below will always be in bounds as tmem is bigger than the maximum address a TLUT can
@@ -399,12 +400,11 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
         (1 << bpmem.tmem_config.tlut_dest.tmem_line_count.NumBits()) * TMEM_LINE_SIZE;
     static_assert(MAX_LOADABLE_TMEM_ADDR + MAX_TMEM_LINE_COUNT < TMEM_SIZE);
 
-    auto& system = Core::System::GetInstance();
     auto& memory = system.GetMemory();
-    memory.CopyFromEmu(texMem + tmem_addr, addr, tmem_transfer_count);
+    memory.CopyFromEmu(s_tex_mem.data() + tmem_addr, addr, tmem_transfer_count);
 
     if (OpcodeDecoder::g_record_fifo_data)
-      FifoRecorder::GetInstance().UseMemory(addr, tmem_transfer_count, MemoryUpdate::Type::TMEM);
+      system.GetFifoRecorder().UseMemory(addr, tmem_transfer_count, MemoryUpdate::Type::TMEM);
 
     TMEM::InvalidateAll();
 
@@ -590,19 +590,21 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
 
       if (tmem_cfg.preload_tile_info.type != 3)
       {
-        bytes_read = tmem_cfg.preload_tile_info.count * TMEM_LINE_SIZE;
-        if (tmem_addr_even + bytes_read > TMEM_SIZE)
-          bytes_read = TMEM_SIZE - tmem_addr_even;
+        if (tmem_addr_even < TMEM_SIZE)
+        {
+          bytes_read = tmem_cfg.preload_tile_info.count * TMEM_LINE_SIZE;
+          if (tmem_addr_even + bytes_read > TMEM_SIZE)
+            bytes_read = TMEM_SIZE - tmem_addr_even;
 
-        auto& system = Core::System::GetInstance();
-        auto& memory = system.GetMemory();
-        memory.CopyFromEmu(texMem + tmem_addr_even, src_addr, bytes_read);
+          auto& system = Core::System::GetInstance();
+          auto& memory = system.GetMemory();
+          memory.CopyFromEmu(s_tex_mem.data() + tmem_addr_even, src_addr, bytes_read);
+        }
       }
       else  // RGBA8 tiles (and CI14, but that might just be stupid libogc!)
       {
         auto& system = Core::System::GetInstance();
         auto& memory = system.GetMemory();
-        u8* src_ptr = memory.GetPointer(src_addr);
 
         // AR and GB tiles are stored in separate TMEM banks => can't use a single memcpy for
         // everything
@@ -612,10 +614,14 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
         {
           if (tmem_addr_even + TMEM_LINE_SIZE > TMEM_SIZE ||
               tmem_addr_odd + TMEM_LINE_SIZE > TMEM_SIZE)
+          {
             break;
+          }
 
-          memcpy(texMem + tmem_addr_even, src_ptr + bytes_read, TMEM_LINE_SIZE);
-          memcpy(texMem + tmem_addr_odd, src_ptr + bytes_read + TMEM_LINE_SIZE, TMEM_LINE_SIZE);
+          memory.CopyFromEmu(s_tex_mem.data() + tmem_addr_even, src_addr + bytes_read,
+                             TMEM_LINE_SIZE);
+          memory.CopyFromEmu(s_tex_mem.data() + tmem_addr_odd,
+                             src_addr + bytes_read + TMEM_LINE_SIZE, TMEM_LINE_SIZE);
           tmem_addr_even += TMEM_LINE_SIZE;
           tmem_addr_odd += TMEM_LINE_SIZE;
           bytes_read += TMEM_LINE_SIZE * 2;
@@ -623,7 +629,10 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
       }
 
       if (OpcodeDecoder::g_record_fifo_data)
-        FifoRecorder::GetInstance().UseMemory(src_addr, bytes_read, MemoryUpdate::Type::TMEM);
+      {
+        Core::System::GetInstance().GetFifoRecorder().UseMemory(src_addr, bytes_read,
+                                                                MemoryUpdate::Type::TMEM);
+      }
 
       TMEM::InvalidateAll();
     }

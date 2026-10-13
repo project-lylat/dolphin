@@ -32,7 +32,7 @@ namespace IOS::HLE::MIOS
 {
 static void ReinitHardware(Core::System& system)
 {
-  SConfig::GetInstance().bWii = false;
+  system.SetIsWii(false);
 
   // IOS clears mem2 and overwrites it with pseudo-random data (for security).
   auto& memory = system.GetMemory();
@@ -47,10 +47,9 @@ static void ReinitHardware(Core::System& system)
   // Note: this is specific to Dolphin and is required because we initialised it in Wii mode.
   auto& dsp = system.GetDSP();
   dsp.Reinit(Config::Get(Config::MAIN_DSP_HLE));
-  dsp.GetDSPEmulator()->Initialize(SConfig::GetInstance().bWii,
-                                   Config::Get(Config::MAIN_DSP_THREAD));
+  dsp.GetDSPEmulator()->Initialize(system.IsWii(), Config::Get(Config::MAIN_DSP_THREAD));
 
-  SystemTimers::ChangePPCClock(SystemTimers::Mode::GC);
+  system.GetSystemTimers().ChangePPCClock(SystemTimers::Mode::GC);
 }
 
 constexpr u32 ADDRESS_INIT_SEMAPHORE = 0x30f8;
@@ -68,20 +67,21 @@ bool Load(Core::System& system)
   ReinitHardware(system);
   NOTICE_LOG_FMT(IOS, "Reinitialised hardware.");
 
+  auto& power_pc = system.GetPowerPC();
+  auto& ppc_symbol_db = power_pc.GetSymbolDB();
+
   // Load symbols for the IPL if they exist.
-  if (!g_symbolDB.IsEmpty())
+  if (!ppc_symbol_db.IsEmpty())
   {
-    g_symbolDB.Clear();
-    Host_NotifyMapLoaded();
+    ppc_symbol_db.Clear();
+    Host_PPCSymbolsChanged();
   }
-  if (g_symbolDB.LoadMap(guard, File::GetUserPath(D_MAPS_IDX) + "mios-ipl.map"))
+  if (ppc_symbol_db.LoadMap(guard, File::GetUserPath(D_MAPS_IDX) + "mios-ipl.map"))
   {
     ::HLE::Clear();
     ::HLE::PatchFunctions(system);
-    Host_NotifyMapLoaded();
+    Host_PPCSymbolsChanged();
   }
-
-  auto& power_pc = system.GetPowerPC();
 
   const PowerPC::CoreMode core_mode = power_pc.GetMode();
   power_pc.SetMode(PowerPC::CoreMode::Interpreter);
@@ -101,7 +101,7 @@ bool Load(Core::System& system)
 
   memory.Write_U32(0x00000000, ADDRESS_INIT_SEMAPHORE);
   NOTICE_LOG_FMT(IOS, "IPL ready.");
-  SConfig::GetInstance().m_is_mios = true;
+  system.SetIsMIOS(true);
   system.GetDVDInterface().UpdateRunningGameMetadata();
   SConfig::OnNewTitleLoad(guard);
   return true;

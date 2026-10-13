@@ -46,7 +46,6 @@
 #include "Common/FileUtil.h"
 
 #include "Core/Config/MainSettings.h"
-#include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/HW/DVD/DVDInterface.h"
 #include "Core/HW/EXI/EXI.h"
@@ -300,16 +299,14 @@ void GameList::MakeEmptyView()
   size_policy.setRetainSizeWhenHidden(true);
   m_empty->setSizePolicy(size_policy);
 
-  connect(&Settings::Instance(), &Settings::GameListRefreshRequested, this,
-          [this, refreshing_msg = refreshing_msg] {
-            m_empty->setText(refreshing_msg);
-            m_empty->setEnabled(false);
-          });
-  connect(&Settings::Instance(), &Settings::GameListRefreshCompleted, this,
-          [this, empty_msg = empty_msg] {
-            m_empty->setText(empty_msg);
-            m_empty->setEnabled(true);
-          });
+  connect(&Settings::Instance(), &Settings::GameListRefreshRequested, this, [this, refreshing_msg] {
+    m_empty->setText(refreshing_msg);
+    m_empty->setEnabled(false);
+  });
+  connect(&Settings::Instance(), &Settings::GameListRefreshCompleted, this, [this, empty_msg] {
+    m_empty->setText(empty_msg);
+    m_empty->setEnabled(true);
+  });
 }
 
 void GameList::resizeEvent(QResizeEvent* event)
@@ -371,8 +368,10 @@ void GameList::ShowContextMenu(const QPoint&)
 {
   if (!GetSelectedGame())
     return;
+  auto& system = Core::System::GetInstance();
 
   QMenu* menu = new QMenu(this);
+  menu->setAttribute(Qt::WA_DeleteOnClose, true);
 
   if (HasMultipleSelected())
   {
@@ -422,8 +421,8 @@ void GameList::ShowContextMenu(const QPoint&)
       QAction* change_disc = menu->addAction(tr("Change &Disc"), this, &GameList::ChangeDisc);
 
       connect(&Settings::Instance(), &Settings::EmulationStateChanged, change_disc,
-              [change_disc] { change_disc->setEnabled(Core::IsRunning()); });
-      change_disc->setEnabled(Core::IsRunning());
+              [&system, change_disc] { change_disc->setEnabled(Core::IsRunning(system)); });
+      change_disc->setEnabled(Core::IsRunning(system));
 
       menu->addSeparator();
     }
@@ -437,7 +436,7 @@ void GameList::ShowContextMenu(const QPoint&)
                                                     // system menu, trigger a refresh.
                                                     Settings::Instance().NANDRefresh();
                                                   });
-      perform_disc_update->setEnabled(!Core::IsRunning() || !SConfig::GetInstance().bWii);
+      perform_disc_update->setEnabled(!Core::IsRunning(system) || !system.IsWii());
     }
 
     if (!is_mod_descriptor && platform == DiscIO::Platform::WiiWAD)
@@ -450,10 +449,10 @@ void GameList::ShowContextMenu(const QPoint&)
 
       for (QAction* a : {wad_install_action, wad_uninstall_action})
       {
-        a->setEnabled(!Core::IsRunning());
+        a->setEnabled(!Core::IsRunning(system));
         menu->addAction(a);
       }
-      if (!Core::IsRunning())
+      if (!Core::IsRunning(system))
         wad_uninstall_action->setEnabled(WiiUtils::IsTitleInstalled(game->GetTitleID()));
 
       connect(&Settings::Instance(), &Settings::EmulationStateChanged, menu,
@@ -474,8 +473,8 @@ void GameList::ShowContextMenu(const QPoint&)
       QAction* export_wii_save =
           menu->addAction(tr("Export Wii Save"), this, &GameList::ExportWiiSave);
 
-      open_wii_save_folder->setEnabled(!Core::IsRunning());
-      export_wii_save->setEnabled(!Core::IsRunning());
+      open_wii_save_folder->setEnabled(!Core::IsRunning(system));
+      export_wii_save->setEnabled(!Core::IsRunning(system));
 
       menu->addSeparator();
     }
@@ -526,7 +525,7 @@ void GameList::ShowContextMenu(const QPoint&)
     menu->addSeparator();
 
     QAction* netplay_search = new QAction(tr("Find Match with Lylat"), menu);
-    netplay_search->setEnabled(!Core::IsRunning());
+    netplay_search->setEnabled(!Core::IsRunning(Core::System::GetInstance()));
     connect(netplay_search, &QAction::triggered, [this, game] { emit NetPlaySearch(*game); });
     menu->addAction(netplay_search);
 
@@ -548,7 +547,8 @@ void GameList::ShowContextMenu(const QPoint&)
       netplay_host->setEnabled(state == Core::State::Uninitialized);
       netplay_search->setEnabled(state == Core::State::Uninitialized);
     });
-    netplay_host->setEnabled(!Core::IsRunning());
+    netplay_host->setEnabled(!Core::IsRunning(system));
+
     menu->addAction(netplay_host);
   }
 
@@ -899,9 +899,8 @@ void GameList::ChangeDisc()
   if (!game)
     return;
 
-  Core::RunAsCPUThread([file_path = game->GetFilePath()] {
-    Core::System::GetInstance().GetDVDInterface().ChangeDisc(file_path);
-  });
+  auto& system = Core::System::GetInstance();
+  system.GetDVDInterface().ChangeDisc(Core::CPUThreadGuard{system}, game->GetFilePath());
 }
 
 QAbstractItemView* GameList::GetActiveView() const

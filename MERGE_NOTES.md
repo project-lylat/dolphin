@@ -118,3 +118,18 @@ Conflicts:
   the label higher up.
 
 Build status: not built yet (C: is full).
+
+## Step 6: tag `2407` (5205 commits)
+
+Conflicts:
+
+- `VideoCommon/VideoBackendBase.cpp`: upstream now lists D3D11/D3D12 before
+  OpenGL on Windows, which is what the fork did. The file now matches upstream.
+- `DolphinQt/GameList/GameList.cpp`, `DolphinQt/MainWindow.cpp`:
+  `Core::IsRunning()` now takes a `Core::System&`. Kept the fork's
+  `NetPlayHost` -> `NetPlayHostWithCallback` split and passed
+  `Core::System::GetInstance()` in every fork call (GameList "Find Match with
+  Lylat", `NetPlaySearch`, `NetPlayHostWithCallback`, and the two auto-start
+  checks in `NetPlayDialog.cpp`).
+
+Build status: not built yet (C: is full).

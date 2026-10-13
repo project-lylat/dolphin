@@ -18,6 +18,7 @@
 #include "Common/FileUtil.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
+#include "Core/System.h"
 #include "DolphinQt/Config/GraphicsModWarningWidget.h"
 #include "DolphinQt/QtUtils/ClearLayoutRecursively.h"
 #include "DolphinQt/Settings.h"
@@ -28,7 +29,7 @@
 GraphicsModListWidget::GraphicsModListWidget(const UICommon::GameFile& game)
     : m_game_id(game.GetGameID()), m_mod_group(m_game_id)
 {
-  CalculateGameRunning(Core::GetState());
+  CalculateGameRunning(Core::GetState(Core::System::GetInstance()));
   if (m_loaded_game_is_running && g_Config.graphics_mod_config)
   {
     m_mod_group.SetChangeCount(g_Config.graphics_mod_config->GetChangeCount());
@@ -185,7 +186,7 @@ void GraphicsModListWidget::ModItemChanged(QListWidgetItem* item)
   m_needs_save = true;
 }
 
-void GraphicsModListWidget::OnModChanged(std::optional<std::string> absolute_path)
+void GraphicsModListWidget::OnModChanged(const std::optional<std::string>& absolute_path)
 {
   ClearLayoutRecursively(m_mod_meta_layout);
 
@@ -198,7 +199,7 @@ void GraphicsModListWidget::OnModChanged(std::optional<std::string> absolute_pat
     return;
   }
 
-  GraphicsModConfig* mod = m_mod_group.GetMod(*absolute_path);
+  const GraphicsModConfig* mod = m_mod_group.GetMod(*absolute_path);
   if (!mod)
     return;
 

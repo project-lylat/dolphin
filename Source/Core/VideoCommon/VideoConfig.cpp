@@ -47,8 +47,9 @@ static bool IsVSyncActive(bool enabled)
 
 void UpdateActiveConfig()
 {
-  if (Movie::IsPlayingInput() && Movie::IsConfigSaved())
-    Movie::SetGraphicsConfig();
+  auto& movie = Core::System::GetInstance().GetMovie();
+  if (movie.IsPlayingInput() && movie.IsConfigSaved())
+    movie.SetGraphicsConfig();
   g_ActiveConfig = g_Config;
   g_ActiveConfig.bVSyncActive = IsVSyncActive(g_ActiveConfig.bVSync);
 }
@@ -65,7 +66,7 @@ void VideoConfig::Refresh()
     CPUThreadConfigCallback::AddConfigChangedCallback([]() {
       auto& system = Core::System::GetInstance();
 
-      const bool lock_gpu_thread = Core::IsRunningAndStarted();
+      const bool lock_gpu_thread = Core::IsRunning(system);
       if (lock_gpu_thread)
         system.GetFifo().PauseAndLock(true, false);
 
@@ -127,7 +128,7 @@ void VideoConfig::Refresh()
   sDumpEncoder = Config::Get(Config::GFX_DUMP_ENCODER);
   sDumpPath = Config::Get(Config::GFX_DUMP_PATH);
   iBitrateKbps = Config::Get(Config::GFX_BITRATE_KBPS);
-  bInternalResolutionFrameDumps = Config::Get(Config::GFX_INTERNAL_RESOLUTION_FRAME_DUMPS);
+  frame_dumps_resolution_type = Config::Get(Config::GFX_FRAME_DUMPS_RESOLUTION_TYPE);
   bEnableGPUTextureDecoding = Config::Get(Config::GFX_ENABLE_GPU_TEXTURE_DECODING);
   bPreferVSForLinePointExpansion = Config::Get(Config::GFX_PREFER_VS_FOR_LINE_POINT_EXPANSION);
   bEnablePixelLighting = Config::Get(Config::GFX_ENABLE_PIXEL_LIGHTING);
@@ -394,5 +395,5 @@ void CheckForConfigChanges()
   // TODO: Move everything else to the ConfigChanged event
 }
 
-static Common::EventHook s_check_config_event =
-    AfterFrameEvent::Register([] { CheckForConfigChanges(); }, "CheckForConfigChanges");
+static Common::EventHook s_check_config_event = AfterFrameEvent::Register(
+    [](Core::System&) { CheckForConfigChanges(); }, "CheckForConfigChanges");

@@ -20,6 +20,8 @@ add_library(videocommon
   Assets/DirectFilesystemAssetLibrary.h
   Assets/MaterialAsset.cpp
   Assets/MaterialAsset.h
+  Assets/MeshAsset.cpp
+  Assets/MeshAsset.h
   Assets/ShaderAsset.cpp
   Assets/ShaderAsset.h
   Assets/TextureAsset.cpp
@@ -85,6 +87,8 @@ add_library(videocommon
   GraphicsModSystem/Runtime/Actions/ScaleAction.h
   GraphicsModSystem/Runtime/Actions/SkipAction.cpp
   GraphicsModSystem/Runtime/Actions/SkipAction.h
+  GraphicsModSystem/Runtime/CustomPipeline.cpp
+  GraphicsModSystem/Runtime/CustomPipeline.h
   GraphicsModSystem/Runtime/CustomShaderCache.cpp
   GraphicsModSystem/Runtime/CustomShaderCache.h
   GraphicsModSystem/Runtime/FBInfo.cpp
@@ -214,6 +218,7 @@ PRIVATE
   imgui
   implot
   glslang
+  tinygltf
 )
 
 if(_M_X86_64)

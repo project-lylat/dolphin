@@ -153,9 +153,10 @@ s32 NWC24MakeUserID(u64* nwc24_id, u32 hollywood_id, u16 id_ctr, HardwareModel h
 }
 }  // Anonymous namespace
 
-NetKDRequestDevice::NetKDRequestDevice(EmulationKernel& ios, const std::string& device_name)
+NetKDRequestDevice::NetKDRequestDevice(EmulationKernel& ios, const std::string& device_name,
+                                       const std::shared_ptr<NetKDTimeDevice>& time_device)
     : EmulationDevice(ios, device_name), m_config{ios.GetFS()}, m_dl_list{ios.GetFS()},
-      m_send_list{ios.GetFS()}, m_friend_list{ios.GetFS()}
+      m_send_list{ios.GetFS()}, m_friend_list{ios.GetFS()}, m_time_device{time_device}
 {
   // Enable all NWC24 permissions
   m_scheduler_buffer[1] = Common::swap32(-1);
@@ -190,6 +191,8 @@ NetKDRequestDevice::~NetKDRequestDevice()
   }
 
   m_scheduler_timer_thread.join();
+  m_scheduler_work_queue.Shutdown();
+  m_work_queue.Shutdown();
 }
 
 void NetKDRequestDevice::Update()
@@ -441,9 +444,7 @@ NWC24::ErrorCode NetKDRequestDevice::DetermineDownloadTask(u16* entry_index,
   // As the scheduler does not tell us which entry to download, we must determine that.
   // A correct entry is one that hasn't been downloaded the longest compared to other entries.
   // We first need current UTC.
-  const auto time_device =
-      std::static_pointer_cast<NetKDTimeDevice>(GetIOS()->GetDeviceByName("/dev/net/kd/time"));
-  const u64 current_utc = time_device->GetAdjustedUTC();
+  const u64 current_utc = m_time_device->GetAdjustedUTC();
   u64 lowest_timestamp = std::numeric_limits<u64>::max();
 
   for (u16 i = 0; i < static_cast<u16>(NWC24::NWC24Dl::MAX_ENTRIES); i++)
@@ -493,9 +494,7 @@ NWC24::ErrorCode NetKDRequestDevice::DetermineSubtask(u16 entry_index,
   if (m_dl_list.IsSubtaskDownloadDisabled(entry_index))
     return NWC24::WC24_ERR_DISABLED;
 
-  const auto time_device =
-      std::static_pointer_cast<NetKDTimeDevice>(GetIOS()->GetDeviceByName("/dev/net/kd/time"));
-  const u64 current_utc = time_device->GetAdjustedUTC();
+  const u64 current_utc = m_time_device->GetAdjustedUTC();
   for (u8 i = 0; i < 32; i++)
   {
     if (!m_dl_list.IsValidSubtask(entry_index, i))
@@ -645,9 +644,7 @@ NWC24::ErrorCode NetKDRequestDevice::KDDownload(const u16 entry_index,
 {
   bool success = false;
   Common::ScopeGuard state_guard([&] {
-    const auto time_device =
-        std::static_pointer_cast<NetKDTimeDevice>(GetIOS()->GetDeviceByName("/dev/net/kd/time"));
-    const u64 current_utc = time_device->GetAdjustedUTC();
+    const u64 current_utc = m_time_device->GetAdjustedUTC();
     if (success)
     {
       // Set the next download time to the dl_margin
@@ -887,6 +884,19 @@ IPCReply NetKDRequestDevice::HandleRequestRegisterUserId(const IOS::HLE::IOCtlRe
   // Always 0 for some reason, never modified anywhere else
   memory.Write_U32(0, request.buffer_out + 4);
 
+  if (m_ios.GetIOSC().IsUsingDefaultId())
+  {
+    // If the user is using the default console ID, the below will always throw an error if it needs
+    // to be registered. Due to the high likelihood of multiple users having the same Wii Number,
+    // Nintendo's register endpoint will most likely return a duplicate registration error.
+    m_config.SetCreationStage(NWC24::NWC24CreationStage::Registered);
+    m_config.WriteConfig();
+    m_config.WriteCBK();
+
+    WriteReturnValue(memory, NWC24::WC24_OK, request.buffer_out);
+    return IPCReply{IPC_SUCCESS};
+  }
+
   // First check if the message config file is in the correct state to handle this.
   if (m_config.IsRegistered())
   {
@@ -921,7 +931,7 @@ IPCReply NetKDRequestDevice::HandleRequestRegisterUserId(const IOS::HLE::IOCtlRe
     return IPCReply{IPC_SUCCESS};
   }
 
-  const Common::SettingsHandler gen{std::move(data)};
+  const Common::SettingsHandler gen{data};
   const std::string serno = gen.GetValue("SERNO");
   const std::string form_data =
       fmt::format("mlid=w{}&hdid={}&rgncd={}", m_config.Id(), m_ios.GetIOSC().GetDeviceId(), serno);
@@ -939,14 +949,23 @@ IPCReply NetKDRequestDevice::HandleRequestRegisterUserId(const IOS::HLE::IOCtlRe
 
   const std::string response_str = {response->begin(), response->end()};
   const std::string code = GetValueFromCGIResponse(response_str, "cd");
-  if (code != "100")
+  s32 cgi_code{};
+  const bool did_parse = TryParse(code, &cgi_code);
+  if (!did_parse)
+  {
+    ERROR_LOG_FMT(IOS_WC24, "NET_KD_REQ: IOCTL_NWC24_REQUEST_REGISTER_USER_ID: Mail server "
+                            "returned invalid CGI response code.");
+    LogError(ErrorType::Account, NWC24::WC24_ERR_SERVER);
+  }
+
+  if (cgi_code != 100)
   {
     ERROR_LOG_FMT(IOS_WC24,
                   "NET_KD_REQ: IOCTL_NWC24_REQUEST_REGISTER_USER_ID: Mail server returned "
                   "non-success code: {}",
-                  code);
+                  cgi_code);
     WriteReturnValue(memory, NWC24::WC24_ERR_SERVER, request.buffer_out);
-    LogError(ErrorType::Account, NWC24::WC24_ERR_SERVER);
+    LogError(ErrorType::CGI, cgi_code);
     return IPCReply{IPC_SUCCESS};
   }
 
@@ -1060,7 +1079,7 @@ std::optional<IPCReply> NetKDRequestDevice::IOCtl(const IOCtlRequest& request)
         Common::SettingsHandler::Buffer data;
         if (file->Read(data.data(), data.size()))
         {
-          const Common::SettingsHandler gen{std::move(data)};
+          const Common::SettingsHandler gen{data};
           area = gen.GetValue("AREA");
           model = gen.GetValue("MODEL");
         }

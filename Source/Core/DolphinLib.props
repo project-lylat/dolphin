@@ -125,6 +125,7 @@
     <ClInclude Include="Common\Intrinsics.h" />
     <ClInclude Include="Common\IOFile.h" />
     <ClInclude Include="Common\JitRegister.h" />
+    <ClInclude Include="Common\JsonUtil.h" />
     <ClInclude Include="Common\Lazy.h" />
     <ClInclude Include="Common\LdrWatcher.h" />
     <ClInclude Include="Common\LinearDiskCache.h" />
@@ -140,7 +141,6 @@
     <ClInclude Include="Common\NandPaths.h" />
     <ClInclude Include="Common\Network.h" />
     <ClInclude Include="Common\PcapFile.h" />
-    <ClInclude Include="Common\PerformanceCounter.h" />
     <ClInclude Include="Common\Profiler.h" />
     <ClInclude Include="Common\QoSSession.h" />
     <ClInclude Include="Common\Random.h" />
@@ -153,6 +153,7 @@
     <ClInclude Include="Common\SFMLHelper.h" />
     <ClInclude Include="Common\SmallVector.h" />
     <ClInclude Include="Common\SocketContext.h" />
+    <ClInclude Include="Common\SpanUtils.h" />
     <ClInclude Include="Common\SPSCQueue.h" />
     <ClInclude Include="Common\StringLiteral.h" />
     <ClInclude Include="Common\StringUtil.h" />
@@ -160,9 +161,11 @@
     <ClInclude Include="Common\SymbolDB.h" />
     <ClInclude Include="Common\Thread.h" />
     <ClInclude Include="Common\Timer.h" />
+    <ClInclude Include="Common\TimeUtil.h" />
     <ClInclude Include="Common\TraversalClient.h" />
     <ClInclude Include="Common\TraversalProto.h" />
     <ClInclude Include="Common\TypeUtils.h" />
+    <ClInclude Include="Common\Unreachable.h" />
     <ClInclude Include="Common\UPnP.h" />
     <ClInclude Include="Common\VariantUtil.h" />
     <ClInclude Include="Common\Version.h" />
@@ -200,6 +203,7 @@
     <ClInclude Include="Core\Core.h" />
     <ClInclude Include="Core\CoreTiming.h" />
     <ClInclude Include="Core\CPUThreadConfigCallback.h" />
+    <ClInclude Include="Core\Debugger\BranchWatch.h" />
     <ClInclude Include="Core\Debugger\CodeTrace.h" />
     <ClInclude Include="Core\Debugger\DebugInterface.h" />
     <ClInclude Include="Core\Debugger\Debugger_SymbolMap.h" />
@@ -281,6 +285,7 @@
     <ClInclude Include="Core\HW\EXI\EXI_DeviceIPL.h" />
     <ClInclude Include="Core\HW\EXI\EXI_DeviceMemoryCard.h" />
     <ClInclude Include="Core\HW\EXI\EXI_DeviceMic.h" />
+    <ClInclude Include="Core\HW\EXI\EXI_DeviceModem.h" />
     <ClInclude Include="Core\HW\EXI\EXI.h" />
     <ClInclude Include="Core\HW\GBACore.h" />
     <ClInclude Include="Core\HW\GBAPad.h" />
@@ -445,7 +450,6 @@
     <ClInclude Include="Core\PowerPC\PPCCache.h" />
     <ClInclude Include="Core\PowerPC\PPCSymbolDB.h" />
     <ClInclude Include="Core\PowerPC\PPCTables.h" />
-    <ClInclude Include="Core\PowerPC\Profiler.h" />
     <ClInclude Include="Core\PowerPC\SignatureDB\CSVSignatureDB.h" />
     <ClInclude Include="Core\PowerPC\SignatureDB\DSYSignatureDB.h" />
     <ClInclude Include="Core\PowerPC\SignatureDB\MEGASignatureDB.h" />
@@ -503,6 +507,7 @@
     <ClInclude Include="InputCommon\ControllerEmu\ControlGroup\IMUAccelerometer.h" />
     <ClInclude Include="InputCommon\ControllerEmu\ControlGroup\IMUCursor.h" />
     <ClInclude Include="InputCommon\ControllerEmu\ControlGroup\IMUGyroscope.h" />
+    <ClInclude Include="InputCommon\ControllerEmu\ControlGroup\IRPassthrough.h" />
     <ClInclude Include="InputCommon\ControllerEmu\ControlGroup\MixedTriggers.h" />
     <ClInclude Include="InputCommon\ControllerEmu\ControlGroup\ModifySettingsButton.h" />
     <ClInclude Include="InputCommon\ControllerEmu\ControlGroup\Slider.h" />
@@ -657,6 +662,7 @@
     <ClInclude Include="VideoCommon\Assets\CustomTextureData.h" />
     <ClInclude Include="VideoCommon\Assets\DirectFilesystemAssetLibrary.h" />
     <ClInclude Include="VideoCommon\Assets\MaterialAsset.h" />
+    <ClInclude Include="VideoCommon\Assets\MeshAsset.h" />
     <ClInclude Include="VideoCommon\Assets\ShaderAsset.h" />
     <ClInclude Include="VideoCommon\Assets\TextureAsset.h" />
     <ClInclude Include="VideoCommon\AsyncRequests.h" />
@@ -693,6 +699,7 @@
     <ClInclude Include="VideoCommon\GraphicsModSystem\Runtime\Actions\PrintAction.h" />
     <ClInclude Include="VideoCommon\GraphicsModSystem\Runtime\Actions\ScaleAction.h" />
     <ClInclude Include="VideoCommon\GraphicsModSystem\Runtime\Actions\SkipAction.h" />
+    <ClInclude Include="VideoCommon\GraphicsModSystem\Runtime\CustomPipeline.h" />
     <ClInclude Include="VideoCommon\GraphicsModSystem\Runtime\CustomShaderCache.h" />
     <ClInclude Include="VideoCommon\GraphicsModSystem\Runtime\FBInfo.h" />
     <ClInclude Include="VideoCommon\GraphicsModSystem\Runtime\GraphicsModAction.h" />
@@ -809,6 +816,7 @@
     <ClCompile Include="Common\IniFile.cpp" />
     <ClCompile Include="Common\IOFile.cpp" />
     <ClCompile Include="Common\JitRegister.cpp" />
+    <ClCompile Include="Common\JsonUtil.cpp" />
     <ClCompile Include="Common\LdrWatcher.cpp" />
     <ClCompile Include="Common\Logging\ConsoleListenerWin.cpp" />
     <ClCompile Include="Common\Logging\LogManager.cpp" />
@@ -819,7 +827,6 @@
     <ClCompile Include="Common\NandPaths.cpp" />
     <ClCompile Include="Common\Network.cpp" />
     <ClCompile Include="Common\PcapFile.cpp" />
-    <ClCompile Include="Common\PerformanceCounter.cpp" />
     <ClCompile Include="Common\Profiler.cpp" />
     <ClCompile Include="Common\QoSSession.cpp" />
     <ClCompile Include="Common\Random.cpp" />
@@ -831,6 +838,7 @@
     <ClCompile Include="Common\SymbolDB.cpp" />
     <ClCompile Include="Common\Thread.cpp" />
     <ClCompile Include="Common\Timer.cpp" />
+    <ClCompile Include="Common\TimeUtil.cpp" />
     <ClCompile Include="Common\TraversalClient.cpp" />
     <ClCompile Include="Common\UPnP.cpp" />
     <ClCompile Include="Common\WindowsRegistry.cpp" />
@@ -865,6 +873,7 @@
     <ClCompile Include="Core\Core.cpp" />
     <ClCompile Include="Core\CoreTiming.cpp" />
     <ClCompile Include="Core\CPUThreadConfigCallback.cpp" />
+    <ClCompile Include="Core\Debugger\BranchWatch.cpp" />
     <ClCompile Include="Core\Debugger\CodeTrace.cpp" />
     <ClCompile Include="Core\Debugger\Debugger_SymbolMap.cpp" />
     <ClCompile Include="Core\Debugger\Dump.cpp" />
@@ -931,7 +940,10 @@
     <ClCompile Include="Core\HW\DVD\FileMonitor.cpp" />
     <ClCompile Include="Core\HW\EXI\BBA\BuiltIn.cpp" />
     <ClCompile Include="Core\HW\EXI\BBA\TAP_Win32.cpp" />
+    <ClCompile Include="Core\HW\EXI\BBA\TAPServerConnection.cpp" />
+    <ClCompile Include="Core\HW\EXI\BBA\TAPServerBBA.cpp" />
     <ClCompile Include="Core\HW\EXI\BBA\XLINK_KAI_BBA.cpp" />
+    <ClCompile Include="Core\HW\EXI\Modem\TAPServerModem.cpp" />
     <ClCompile Include="Core\HW\EXI\EXI_Channel.cpp" />
     <ClCompile Include="Core\HW\EXI\EXI_Device.cpp" />
     <ClCompile Include="Core\HW\EXI\EXI_DeviceAD16.cpp" />
@@ -942,6 +954,7 @@
     <ClCompile Include="Core\HW\EXI\EXI_DeviceIPL.cpp" />
     <ClCompile Include="Core\HW\EXI\EXI_DeviceMemoryCard.cpp" />
     <ClCompile Include="Core\HW\EXI\EXI_DeviceMic.cpp" />
+    <ClCompile Include="Core\HW\EXI\EXI_DeviceModem.cpp" />
     <ClCompile Include="Core\HW\EXI\EXI.cpp" />
     <ClCompile Include="Core\HW\GBACore.cpp" />
     <ClCompile Include="Core\HW\GBAPad.cpp" />
@@ -1159,6 +1172,7 @@
     <ClCompile Include="InputCommon\ControllerEmu\ControlGroup\IMUAccelerometer.cpp" />
     <ClCompile Include="InputCommon\ControllerEmu\ControlGroup\IMUCursor.cpp" />
     <ClCompile Include="InputCommon\ControllerEmu\ControlGroup\IMUGyroscope.cpp" />
+    <ClCompile Include="InputCommon\ControllerEmu\ControlGroup\IRPassthrough.cpp" />
     <ClCompile Include="InputCommon\ControllerEmu\ControlGroup\MixedTriggers.cpp" />
     <ClCompile Include="InputCommon\ControllerEmu\ControlGroup\ModifySettingsButton.cpp" />
     <ClCompile Include="InputCommon\ControllerEmu\ControlGroup\Slider.cpp" />
@@ -1295,6 +1309,7 @@
     <ClCompile Include="VideoCommon\Assets\CustomTextureData.cpp" />
     <ClCompile Include="VideoCommon\Assets\DirectFilesystemAssetLibrary.cpp" />
     <ClCompile Include="VideoCommon\Assets\MaterialAsset.cpp" />
+    <ClCompile Include="VideoCommon\Assets\MeshAsset.cpp" />
     <ClCompile Include="VideoCommon\Assets\ShaderAsset.cpp" />
     <ClCompile Include="VideoCommon\Assets\TextureAsset.cpp" />
     <ClCompile Include="VideoCommon\AsyncRequests.cpp" />
@@ -1326,6 +1341,7 @@
     <ClCompile Include="VideoCommon\GraphicsModSystem\Runtime\Actions\PrintAction.cpp" />
     <ClCompile Include="VideoCommon\GraphicsModSystem\Runtime\Actions\ScaleAction.cpp" />
     <ClCompile Include="VideoCommon\GraphicsModSystem\Runtime\Actions\SkipAction.cpp" />
+    <ClCompile Include="VideoCommon\GraphicsModSystem\Runtime\CustomPipeline.cpp" />
     <ClCompile Include="VideoCommon\GraphicsModSystem\Runtime\CustomShaderCache.cpp" />
     <ClCompile Include="VideoCommon\GraphicsModSystem\Runtime\FBInfo.cpp" />
     <ClCompile Include="VideoCommon\GraphicsModSystem\Runtime\GraphicsModActionFactory.cpp" />

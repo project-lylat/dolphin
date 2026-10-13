@@ -441,7 +441,7 @@ void EmuCodeBlock::SafeLoadToRegImmediate(X64Reg reg_value, u32 address, int acc
                                           BitSet32 registersInUse, bool signExtend)
 {
   // If the address is known to be RAM, just load it directly.
-  if (m_jit.jo.fastmem_arena && m_jit.m_mmu.IsOptimizableRAMAddress(address))
+  if (m_jit.jo.fastmem_arena && m_jit.m_mmu.IsOptimizableRAMAddress(address, accessSize))
   {
     UnsafeLoadToReg(reg_value, Imm32(address), accessSize, 0, signExtend);
     return;
@@ -656,7 +656,7 @@ bool EmuCodeBlock::WriteToConstAddress(int accessSize, OpArg arg, u32 address,
     m_jit.js.fifoBytesSinceCheck += accessSize >> 3;
     return false;
   }
-  else if (m_jit.jo.fastmem_arena && m_jit.m_mmu.IsOptimizableRAMAddress(address))
+  else if (m_jit.jo.fastmem_arena && m_jit.m_mmu.IsOptimizableRAMAddress(address, accessSize))
   {
     WriteToConstRamAddress(accessSize, arg, address);
     return false;
@@ -748,42 +748,51 @@ void EmuCodeBlock::avx_op(void (XEmitter::*avxOp)(X64Reg, X64Reg, const OpArg&),
   {
     (this->*sseOp)(regOp, arg2);
   }
-  else if (arg1.IsSimpleReg() && cpu_info.bAVX)
+  else if (reversible && arg2.IsSimpleReg(regOp))
+  {
+    (this->*sseOp)(regOp, arg1);
+  }
+  else if (cpu_info.bAVX && arg1.IsSimpleReg())
   {
     (this->*avxOp)(regOp, arg1.GetSimpleReg(), arg2);
   }
-  else if (arg2.IsSimpleReg(regOp))
+  else if (cpu_info.bAVX && reversible && arg2.IsSimpleReg())
   {
-    if (reversible)
-    {
-      (this->*sseOp)(regOp, arg1);
-    }
-    else
-    {
-      // The ugly case: regOp == arg2 without AVX, or with arg1 == memory
-      if (!arg1.IsSimpleReg(XMM0))
-        MOVAPD(XMM0, arg1);
-      if (cpu_info.bAVX)
-      {
-        (this->*avxOp)(regOp, XMM0, arg2);
-      }
-      else
-      {
-        (this->*sseOp)(XMM0, arg2);
-        if (packed)
-          MOVAPD(regOp, R(XMM0));
-        else
-          MOVSD(regOp, R(XMM0));
-      }
-    }
+    (this->*avxOp)(regOp, arg2.GetSimpleReg(), arg1);
   }
-  else
+  else if (!arg2.IsSimpleReg(regOp))
   {
     if (packed)
       MOVAPD(regOp, arg1);
     else
       MOVSD(regOp, arg1);
     (this->*sseOp)(regOp, arg1 == arg2 ? R(regOp) : arg2);
+  }
+  else if (reversible && !arg1.IsSimpleReg(regOp))
+  {
+    if (packed)
+      MOVAPD(regOp, arg2);
+    else
+      MOVSD(regOp, arg2);
+    (this->*sseOp)(regOp, arg1 == arg2 ? R(regOp) : arg1);
+  }
+  else
+  {
+    // The ugly case: Not reversible, and we have regOp == arg2 without AVX or with arg1 == memory
+    if (!arg1.IsSimpleReg(XMM0))
+      MOVAPD(XMM0, arg1);
+    if (cpu_info.bAVX)
+    {
+      (this->*avxOp)(regOp, XMM0, arg2);
+    }
+    else
+    {
+      (this->*sseOp)(XMM0, arg2);
+      if (packed)
+        MOVAPD(regOp, R(XMM0));
+      else
+        MOVSD(regOp, R(XMM0));
+    }
   }
 }
 
@@ -796,11 +805,16 @@ void EmuCodeBlock::avx_op(void (XEmitter::*avxOp)(X64Reg, X64Reg, const OpArg&, 
   {
     (this->*sseOp)(regOp, arg2, imm);
   }
-  else if (arg1.IsSimpleReg() && cpu_info.bAVX)
+  else if (cpu_info.bAVX && arg1.IsSimpleReg())
   {
     (this->*avxOp)(regOp, arg1.GetSimpleReg(), arg2, imm);
   }
-  else if (arg2.IsSimpleReg(regOp))
+  else if (!arg2.IsSimpleReg(regOp))
+  {
+    MOVAPD(regOp, arg1);
+    (this->*sseOp)(regOp, arg1 == arg2 ? R(regOp) : arg2, imm);
+  }
+  else
   {
     // The ugly case: regOp == arg2 without AVX, or with arg1 == memory
     if (!arg1.IsSimpleReg(XMM0))
@@ -815,11 +829,6 @@ void EmuCodeBlock::avx_op(void (XEmitter::*avxOp)(X64Reg, X64Reg, const OpArg&, 
       if (regOp != XMM0)
         MOVAPD(regOp, R(XMM0));
     }
-  }
-  else
-  {
-    MOVAPD(regOp, arg1);
-    (this->*sseOp)(regOp, arg1 == arg2 ? R(regOp) : arg2, imm);
   }
 }
 

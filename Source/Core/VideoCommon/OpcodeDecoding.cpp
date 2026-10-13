@@ -158,7 +158,7 @@ public:
       if constexpr (is_preprocess)
       {
         auto& memory = system.GetMemory();
-        const u8* const start_address = memory.GetPointer(address);
+        const u8* const start_address = memory.GetPointerForRange(address, size);
 
         system.GetFifo().PushFifoAuxBuffer(start_address, size);
 
@@ -179,10 +179,10 @@ public:
         else
         {
           auto& memory = system.GetMemory();
-          start_address = memory.GetPointer(address);
+          start_address = memory.GetPointerForRange(address, size);
         }
 
-        // Avoid the crash if memory.GetPointer failed ..
+        // Avoid the crash if memory.GetPointerForRange failed ..
         if (start_address != nullptr)
         {
           // temporarily swap dl and non-dl (small "hack" for the stats)
@@ -234,7 +234,7 @@ public:
       // process them.
       if (g_record_fifo_data && static_cast<Opcode>(data[0]) != Opcode::GX_CMD_CALL_DL)
       {
-        FifoRecorder::GetInstance().WriteGPCommand(data, size);
+        Core::System::GetInstance().GetFifoRecorder().WriteGPCommand(data, size);
       }
     }
   }

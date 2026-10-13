@@ -34,6 +34,7 @@
 #include "Core/HW/GCPad.h"
 #include "Core/Movie.h"
 #include "Core/NetPlayProto.h"
+#include "Core/System.h"
 #include "InputCommon/GCAdapter.h"
 #include "InputCommon/InputConfig.h"
 #include "VideoCommon/VideoBackendBase.h"
@@ -136,7 +137,7 @@ void DolphinAnalytics::ReportGameStart()
 }
 
 // Keep in sync with enum class GameQuirk definition.
-constexpr std::array<const char*, 28> GAME_QUIRKS_NAMES{
+constexpr std::array<const char*, 32> GAME_QUIRKS_NAMES{
     "directly-reads-wiimote-input",
     "uses-DVDLowStopLaser",
     "uses-DVDLowOffset",
@@ -165,6 +166,10 @@ constexpr std::array<const char*, 28> GAME_QUIRKS_NAMES{
     "mismatched-gpu-tex-coords-between-cp-and-xf",
     "mismatched-gpu-matrix-indices-between-cp-and-xf",
     "reads-bounding-box",
+    "invalid-position-component-format",
+    "invalid-normal-component-format",
+    "invalid-texture-coordinate-component-format",
+    "invalid-color-component-format",
 };
 static_assert(GAME_QUIRKS_NAMES.size() == static_cast<u32>(GameQuirk::COUNT),
               "Game quirks names and enum definition are out of sync.");
@@ -292,7 +297,7 @@ void DolphinAnalytics::MakeBaseBuilder()
     };
     // Under arm64, we need to call objc_msgSend to recieve a struct.
     // On x86_64, we need to explicitly call objc_msgSend_stret for a struct.
-#if _M_ARM_64
+#ifdef _M_ARM_64
 #define msgSend objc_msgSend
 #else
 #define msgSend objc_msgSend_stret
@@ -417,7 +422,7 @@ void DolphinAnalytics::MakePerGameBuilder()
 
   // NetPlay / recording.
   builder.AddData("netplay", NetPlay::IsNetPlayRunning());
-  builder.AddData("movie", Movie::IsMovieActive());
+  builder.AddData("movie", Core::System::GetInstance().GetMovie().IsMovieActive());
 
   // Controller information
   // We grab enough to tell what percentage of our users are playing with keyboard/mouse, some kind
