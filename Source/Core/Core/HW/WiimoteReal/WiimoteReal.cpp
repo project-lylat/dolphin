@@ -613,8 +613,7 @@ void WiimoteScanner::SetScanMode(WiimoteScanMode scan_mode)
 bool WiimoteScanner::IsReady() const
 {
   std::lock_guard lg(m_backends_mutex);
-  return std::any_of(m_backends.begin(), m_backends.end(),
-                     [](const auto& backend) { return backend->IsReady(); });
+  return std::ranges::any_of(m_backends, &WiimoteScannerBackend::IsReady);
 }
 
 static void CheckForDisconnectedWiimotes()
@@ -1000,7 +999,7 @@ bool IsBalanceBoardName(const std::string& name)
 bool IsNewWiimote(const std::string& identifier)
 {
   std::lock_guard lk(s_known_ids_mutex);
-  return s_known_ids.count(identifier) == 0;
+  return !s_known_ids.contains(identifier);
 }
 
 void HandleWiimoteSourceChange(unsigned int index)

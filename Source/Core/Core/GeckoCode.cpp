@@ -15,8 +15,10 @@
 #include "Common/Config/Config.h"
 #include "Common/FileUtil.h"
 
+#include "Core/AchievementManager.h"
 #include "Core/Config/MainSettings.h"
 #include "Core/Core.h"
+#include "Core/Host.h"
 #include "Core/PowerPC/MMU.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/System.h"
@@ -30,27 +32,9 @@ bool operator==(const GeckoCode& lhs, const GeckoCode& rhs)
   return lhs.codes == rhs.codes;
 }
 
-bool operator!=(const GeckoCode& lhs, const GeckoCode& rhs)
-{
-  return !operator==(lhs, rhs);
-}
-
 bool operator==(const GeckoCode::Code& lhs, const GeckoCode::Code& rhs)
 {
   return std::tie(lhs.address, lhs.data) == std::tie(rhs.address, rhs.data);
-}
-
-bool operator!=(const GeckoCode::Code& lhs, const GeckoCode::Code& rhs)
-{
-  return !operator==(lhs, rhs);
-}
-
-// return true if a code exists
-bool GeckoCode::Exist(u32 address, u32 data) const
-{
-  return std::find_if(codes.begin(), codes.end(), [&](const Code& code) {
-           return code.address == address && code.data == data;
-         }) != codes.end();
 }
 
 enum class Installation
@@ -66,7 +50,7 @@ static std::vector<GeckoCode> s_active_codes;
 static std::vector<GeckoCode> s_synced_codes;
 static std::mutex s_active_codes_lock;
 
-void SetActiveCodes(std::span<const GeckoCode> gcodes)
+void SetActiveCodes(std::span<const GeckoCode> gcodes, const std::string& game_id)
 {
   std::lock_guard lk(s_active_codes_lock);
 
@@ -74,8 +58,12 @@ void SetActiveCodes(std::span<const GeckoCode> gcodes)
   if (Config::AreCheatsEnabled())
   {
     s_active_codes.reserve(gcodes.size());
+
     std::copy_if(gcodes.begin(), gcodes.end(), std::back_inserter(s_active_codes),
-                 [](const GeckoCode& code) { return code.enabled; });
+                 [&game_id](const GeckoCode& code) {
+                   return code.enabled &&
+                          AchievementManager::GetInstance().CheckApprovedGeckoCode(code, game_id);
+                 });
   }
   s_active_codes.shrink_to_fit();
 
@@ -214,6 +202,7 @@ static Installation InstallCodeHandlerLocked(const Core::CPUThreadGuard& guard)
   {
     ppc_state.iCache.Invalidate(memory, jit_interface, INSTALLER_BASE_ADDRESS + j);
   }
+  Host_JitCacheInvalidation();
   return Installation::Installed;
 }
 

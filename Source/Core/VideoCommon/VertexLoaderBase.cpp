@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 
 #include "Common/Assert.h"
 #include "Common/BitUtils.h"
@@ -24,6 +25,7 @@
 #include "VideoCommon/VertexLoader_Normal.h"
 #include "VideoCommon/VertexLoader_Position.h"
 #include "VideoCommon/VertexLoader_TextCoord.h"
+#include "VideoCommon/VideoConfig.h"
 
 #ifdef _M_X86_64
 #include "VideoCommon/VertexLoaderX64.h"
@@ -67,6 +69,7 @@ public:
         VertexLoaderManager::position_matrix_index_cache;
     const std::array<std::array<float, 4>, 3> old_position_cache =
         VertexLoaderManager::position_cache;
+    const std::array<float, 4> old_normal_cache = VertexLoaderManager::normal_cache;
     const std::array<float, 4> old_tangent_cache = VertexLoaderManager::tangent_cache;
     const std::array<float, 4> old_binormal_cache = VertexLoaderManager::binormal_cache;
 
@@ -76,12 +79,14 @@ public:
         VertexLoaderManager::position_matrix_index_cache;
     const std::array<std::array<float, 4>, 3> a_position_cache =
         VertexLoaderManager::position_cache;
+    const std::array<float, 4> a_normal_cache = VertexLoaderManager::normal_cache;
     const std::array<float, 4> a_tangent_cache = VertexLoaderManager::tangent_cache;
     const std::array<float, 4> a_binormal_cache = VertexLoaderManager::binormal_cache;
 
     // Reset state before running b
     VertexLoaderManager::position_matrix_index_cache = old_position_matrix_index_cache;
     VertexLoaderManager::position_cache = old_position_cache;
+    VertexLoaderManager::normal_cache = old_normal_cache;
     VertexLoaderManager::tangent_cache = old_tangent_cache;
     VertexLoaderManager::binormal_cache = old_binormal_cache;
 
@@ -91,6 +96,7 @@ public:
         VertexLoaderManager::position_matrix_index_cache;
     const std::array<std::array<float, 4>, 3> b_position_cache =
         VertexLoaderManager::position_cache;
+    const std::array<float, 4> b_normal_cache = VertexLoaderManager::normal_cache;
     const std::array<float, 4> b_tangent_cache = VertexLoaderManager::tangent_cache;
     const std::array<float, 4> b_binormal_cache = VertexLoaderManager::binormal_cache;
 
@@ -139,6 +145,12 @@ public:
                fmt::join(b_position_cache[1], ", "), fmt::join(b_position_cache[2], ", "));
 
     // The last element is allowed to be garbage for SIMD overwrites
+    ASSERT_MSG(VIDEO,
+               std::equal(a_normal_cache.begin(), a_normal_cache.begin() + 3,
+                          b_normal_cache.begin(), b_normal_cache.begin() + 3, bit_equal),
+               "Expected matching normal caches after loading (a: {}; b: {})",
+               fmt::join(a_normal_cache, ", "), fmt::join(b_normal_cache, ", "));
+
     ASSERT_MSG(VIDEO,
                std::equal(a_tangent_cache.begin(), a_tangent_cache.begin() + 3,
                           b_tangent_cache.begin(), b_tangent_cache.begin() + 3, bit_equal),
@@ -227,29 +239,37 @@ u32 VertexLoaderBase::GetVertexComponents(const TVtxDesc& vtx_desc, const VAT& v
 std::unique_ptr<VertexLoaderBase> VertexLoaderBase::CreateVertexLoader(const TVtxDesc& vtx_desc,
                                                                        const VAT& vtx_attr)
 {
-  std::unique_ptr<VertexLoaderBase> loader = nullptr;
+  const VertexLoaderType loader_type = g_ActiveConfig.vertex_loader_type;
 
-  // #define COMPARE_VERTEXLOADERS
+  if (loader_type == VertexLoaderType::Software)
+  {
+    return std::make_unique<VertexLoader>(vtx_desc, vtx_attr);
+  }
+
+  std::unique_ptr<VertexLoaderBase> native_loader = nullptr;
 
 #if defined(_M_X86_64)
-  loader = std::make_unique<VertexLoaderX64>(vtx_desc, vtx_attr);
+  native_loader = std::make_unique<VertexLoaderX64>(vtx_desc, vtx_attr);
 #elif defined(_M_ARM_64)
-  loader = std::make_unique<VertexLoaderARM64>(vtx_desc, vtx_attr);
+  native_loader = std::make_unique<VertexLoaderARM64>(vtx_desc, vtx_attr);
 #endif
 
   // Use the software loader as a fallback
   // (not currently applicable, as both VertexLoaderX64 and VertexLoaderARM64
   // are always usable, but if a loader that only works on some CPUs is created
   // then this fallback would be used)
-  if (!loader)
-    loader = std::make_unique<VertexLoader>(vtx_desc, vtx_attr);
+  if (!native_loader)
+  {
+    return std::make_unique<VertexLoader>(vtx_desc, vtx_attr);
+  }
 
-#if defined(COMPARE_VERTEXLOADERS)
-  return std::make_unique<VertexLoaderTester>(
-      std::make_unique<VertexLoader>(vtx_desc, vtx_attr),  // the software one
-      std::move(loader),                                   // the new one to compare
-      vtx_desc, vtx_attr);
-#else
-  return loader;
-#endif
+  if (loader_type == VertexLoaderType::Compare)
+  {
+    return std::make_unique<VertexLoaderTester>(
+        std::make_unique<VertexLoader>(vtx_desc, vtx_attr),  // the software one
+        std::move(native_loader),                            // the new one to compare
+        vtx_desc, vtx_attr);
+  }
+
+  return native_loader;
 }

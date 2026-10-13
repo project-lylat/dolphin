@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "DolphinQt/CheatSearchFactoryWidget.h"
-#include "DolphinQt/QtUtils/WrapInScrollArea.h"
 
 #include <string>
 #include <vector>
@@ -26,6 +25,7 @@
 #include "Core/System.h"
 #include "DolphinQt/QtUtils/ModalMessageBox.h"
 #include "DolphinQt/QtUtils/NonDefaultQPushButton.h"
+#include "DolphinQt/QtUtils/WrapInScrollArea.h"
 
 CheatSearchFactoryWidget::CheatSearchFactoryWidget()
 {
@@ -159,8 +159,7 @@ void CheatSearchFactoryWidget::OnNewSearchClicked()
   if (m_standard_address_space->isChecked())
   {
     auto& system = Core::System::GetInstance();
-    const Core::State core_state = Core::GetState(system);
-    if (core_state != Core::State::Running && core_state != Core::State::Paused)
+    if (!Core::IsRunning(system))
     {
       ModalMessageBox::warning(
           this, tr("No game running."),

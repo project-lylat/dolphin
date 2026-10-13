@@ -5,6 +5,7 @@
 
 #ifdef USE_RETRO_ACHIEVEMENTS
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <ctime>
 #include <functional>
@@ -27,6 +28,8 @@
 #include "Common/CommonTypes.h"
 #include "Common/Event.h"
 #include "Common/HttpRequest.h"
+#include "Common/JsonUtil.h"
+#include "Common/Lazy.h"
 #include "Common/WorkQueueThread.h"
 #include "DiscIO/Volume.h"
 #include "VideoCommon/Assets/CustomTextureData.h"
@@ -36,6 +39,21 @@ namespace Core
 class CPUThreadGuard;
 class System;
 }  // namespace Core
+
+namespace PatchEngine
+{
+struct Patch;
+}  // namespace PatchEngine
+
+namespace Gecko
+{
+class GeckoCode;
+}  // namespace Gecko
+
+namespace ActionReplay
+{
+struct ARCode;
+}  // namespace ActionReplay
 
 class AchievementManager
 {
@@ -60,6 +78,10 @@ public:
   static constexpr std::string_view GRAY = "transparent";
   static constexpr std::string_view GOLD = "#FFD700";
   static constexpr std::string_view BLUE = "#0B71C1";
+  static constexpr std::string_view APPROVED_LIST_FILENAME = "ApprovedInis.json";
+  static const inline Common::SHA1::Digest APPROVED_LIST_HASH = {
+      0x4F, 0x45, 0xB7, 0xA3, 0xC4, 0x6E, 0xAF, 0x80, 0x58, 0xA5,
+      0x53, 0x99, 0xF8, 0x05, 0xC3, 0x83, 0x22, 0xA4, 0x5F, 0x65};
 
   struct LeaderboardEntry
   {
@@ -86,6 +108,7 @@ public:
     bool all_leaderboards = false;
     std::set<AchievementId> leaderboards{};
     bool rich_presence = false;
+    int failed_login_code = 0;
   };
   using UpdateCallback = std::function<void(const UpdatedItems&)>;
 
@@ -96,15 +119,31 @@ public:
   bool HasAPIToken() const;
   void LoadGame(const std::string& file_path, const DiscIO::Volume* volume);
   bool IsGameLoaded() const;
+  void SetBackgroundExecutionAllowed(bool allowed);
+
+  static std::string CalculateHash(const std::string& file_path);
 
   void FetchPlayerBadge();
   void FetchGameBadges();
 
   void DoFrame();
 
+  bool CanPause();
+  void DoIdle();
+
   std::recursive_mutex& GetLock();
-  void SetHardcoreMode();
   bool IsHardcoreModeActive() const;
+  void SetGameIniId(const std::string& game_ini_id) { m_game_ini_id = game_ini_id; }
+
+  void FilterApprovedPatches(std::vector<PatchEngine::Patch>& patches,
+                             const std::string& game_ini_id) const;
+  void FilterApprovedGeckoCodes(std::vector<Gecko::GeckoCode>& codes,
+                                const std::string& game_ini_id) const;
+  void FilterApprovedARCodes(std::vector<ActionReplay::ARCode>& codes,
+                             const std::string& game_ini_id) const;
+  bool CheckApprovedGeckoCode(const Gecko::GeckoCode& code, const std::string& game_ini_id) const;
+  bool CheckApprovedARCode(const ActionReplay::ARCode& code, const std::string& game_ini_id) const;
+
   void SetSpectatorMode();
   std::string_view GetPlayerDisplayName() const;
   u32 GetPlayerScore() const;
@@ -136,6 +175,8 @@ private:
     std::unique_ptr<DiscIO::Volume> volume;
   };
 
+  static picojson::value LoadApprovedList();
+
   static void* FilereaderOpenByFilepath(const char* path_utf8);
   static void* FilereaderOpenByVolume(const char* path_utf8);
   static void FilereaderSeek(void* file_handle, int64_t offset, int origin);
@@ -149,13 +190,23 @@ private:
 
   void FetchBoardInfo(AchievementId leaderboard_id);
 
-  std::unique_ptr<DiscIO::Volume>& GetLoadingVolume() { return m_loading_volume; };
+  std::unique_ptr<DiscIO::Volume>& GetLoadingVolume() { return m_loading_volume; }
 
   static void LoadGameCallback(int result, const char* error_message, rc_client_t* client,
                                void* userdata);
   static void ChangeMediaCallback(int result, const char* error_message, rc_client_t* client,
                                   void* userdata);
   void DisplayWelcomeMessage();
+
+  void SetHardcoreMode();
+
+  template <typename T>
+  void FilterApprovedIni(std::vector<T>& codes, const std::string& game_ini_id) const;
+  template <typename T>
+  bool CheckApprovedCode(const T& code, const std::string& game_ini_id) const;
+  Common::SHA1::Digest GetCodeHash(const PatchEngine::Patch& patch) const;
+  Common::SHA1::Digest GetCodeHash(const Gecko::GeckoCode& code) const;
+  Common::SHA1::Digest GetCodeHash(const ActionReplay::ARCode& code) const;
 
   static void LeaderboardEntriesCallback(int result, const char* error_message,
                                          rc_client_leaderboard_entry_list_t* list,
@@ -185,7 +236,7 @@ private:
 
   rc_runtime_t m_runtime{};
   rc_client_t* m_client{};
-  Core::System* m_system{};
+  std::atomic<Core::System*> m_system{};
   bool m_is_runtime_initialized = false;
   UpdateCallback m_update_callback = [](const UpdatedItems&) {};
   std::unique_ptr<DiscIO::Volume> m_loading_volume;
@@ -193,6 +244,7 @@ private:
   Badge m_default_game_badge;
   Badge m_default_unlocked_badge;
   Badge m_default_locked_badge;
+  std::atomic_bool m_background_execution_allowed = true;
   Badge m_player_badge;
   Hash m_game_hash{};
   u32 m_game_id = 0;
@@ -205,6 +257,9 @@ private:
   RichPresence m_rich_presence;
   std::chrono::steady_clock::time_point m_last_rp_time = std::chrono::steady_clock::now();
   std::chrono::steady_clock::time_point m_last_progress_message = std::chrono::steady_clock::now();
+
+  Common::Lazy<picojson::value> m_ini_root{LoadApprovedList};
+  std::string m_game_ini_id;
 
   std::unordered_map<AchievementId, LeaderboardStatus> m_leaderboard_map;
   bool m_challenges_updated = false;
@@ -221,9 +276,19 @@ private:
 
 #include <string>
 
+namespace ActionReplay
+{
+struct ARCode;
+}
+
 namespace DiscIO
 {
 class Volume;
+}
+
+namespace Gecko
+{
+class GeckoCode;
 }
 
 class AchievementManager
@@ -237,7 +302,21 @@ public:
 
   constexpr bool IsHardcoreModeActive() { return false; }
 
+  constexpr bool CheckApprovedGeckoCode(const Gecko::GeckoCode& code,
+                                        const std::string& game_ini_id)
+  {
+    return true;
+  };
+
+  constexpr bool CheckApprovedARCode(const ActionReplay::ARCode& code,
+                                     const std::string& game_ini_id)
+  {
+    return true;
+  };
+
   constexpr void LoadGame(const std::string&, const DiscIO::Volume*) {}
+
+  constexpr void SetBackgroundExecutionAllowed(bool allowed) {}
 
   constexpr void DoFrame() {}
 

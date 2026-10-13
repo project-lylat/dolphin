@@ -20,6 +20,8 @@
 #include "Core/PowerPC/JitCommon/JitBase.h"
 #include "Core/PowerPC/PPCAnalyst.h"
 
+class HostDisassembler;
+
 class JitArm64 : public JitBase, public Arm64Gen::ARM64CodeBlock, public CommonAsmRoutinesBase
 {
 public:
@@ -47,6 +49,12 @@ public:
 
   void Jit(u32 em_address) override;
   void Jit(u32 em_address, bool clear_cache_and_retry_on_failure);
+
+  void EraseSingleBlock(const JitBlock& block) override;
+  std::vector<MemoryStats> GetMemoryStats() const override;
+
+  std::size_t DisassembleNearCode(const JitBlock& block, std::ostream& stream) const override;
+  std::size_t DisassembleFarCode(const JitBlock& block, std::ostream& stream) const override;
 
   const char* GetName() const override { return "JITARM64"; }
 
@@ -294,10 +302,13 @@ protected:
   void Cleanup();
   void ResetStack();
 
+  void FreeRanges();
   void GenerateAsmAndResetFreeMemoryRanges();
   void ResetFreeMemoryRanges(size_t routines_near_size, size_t routines_far_size);
 
   void IntializeSpeculativeConstants();
+
+  void LogGeneratedCode() const;
 
   // AsmRoutines
   void GenerateAsm();
@@ -344,8 +355,16 @@ protected:
              Arm64Gen::ARM64Reg exit_address_after_return_reg = Arm64Gen::ARM64Reg::INVALID_REG);
   void WriteBLRExit(Arm64Gen::ARM64Reg dest);
 
-  Arm64Gen::FixupBranch JumpIfCRFieldBit(int field, int bit, bool jump_if_set);
+  void GetCRFieldBit(int field, int bit, Arm64Gen::ARM64Reg out);
+  // This assumes that all bits except for bit 0 (LSB) are set to 0. But if bits_1_to_31_are_set
+  // equals true, it instead assumes that all of bits 1 to 31 are set.
+  void SetCRFieldBit(int field, int bit, Arm64Gen::ARM64Reg in, bool negate = false,
+                     bool bits_1_to_31_are_set = false);
+  void ClearCRFieldBit(int field, int bit);
+  void SetCRFieldBit(int field, int bit);
   void FixGTBeforeSettingCRFieldBit(Arm64Gen::ARM64Reg reg);
+  Arm64Gen::FixupBranch JumpIfCRFieldBit(int field, int bit, bool jump_if_set);
+
   void UpdateFPExceptionSummary(Arm64Gen::ARM64Reg fpscr);
   void UpdateRoundingMode();
 
@@ -409,4 +428,6 @@ protected:
   HyoutaUtilities::RangeSizeSet<u8*> m_free_ranges_near_1;
   HyoutaUtilities::RangeSizeSet<u8*> m_free_ranges_far_0;
   HyoutaUtilities::RangeSizeSet<u8*> m_free_ranges_far_1;
+
+  std::unique_ptr<HostDisassembler> m_disassembler;
 };

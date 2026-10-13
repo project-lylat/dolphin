@@ -923,7 +923,7 @@ IPCReply NetKDRequestDevice::HandleRequestRegisterUserId(const IOS::HLE::IOCtlRe
     return IPCReply{IPC_SUCCESS};
   }
 
-  Common::SettingsHandler::Buffer data;
+  Common::SettingsBuffer data;
   if (!file->Read(data.data(), data.size()))
   {
     WriteReturnValue(memory, NWC24::WC24_ERR_FILE_READ, request.buffer_out);
@@ -931,8 +931,8 @@ IPCReply NetKDRequestDevice::HandleRequestRegisterUserId(const IOS::HLE::IOCtlRe
     return IPCReply{IPC_SUCCESS};
   }
 
-  const Common::SettingsHandler gen{data};
-  const std::string serno = gen.GetValue("SERNO");
+  const Common::SettingsReader settings_reader{data};
+  const std::string serno = settings_reader.GetValue("SERNO");
   const std::string form_data =
       fmt::format("mlid=w{}&hdid={}&rgncd={}", m_config.Id(), m_ios.GetIOSC().GetDeviceId(), serno);
   const Common::HttpRequest::Response response = m_http.Post(m_config.GetAccountURL(), form_data);
@@ -1076,12 +1076,12 @@ std::optional<IPCReply> NetKDRequestDevice::IOCtl(const IOCtlRequest& request)
       const auto fs = m_ios.GetFS();
       if (const auto file = fs->OpenFile(PID_KD, PID_KD, settings_file_path, FS::Mode::Read))
       {
-        Common::SettingsHandler::Buffer data;
+        Common::SettingsBuffer data;
         if (file->Read(data.data(), data.size()))
         {
-          const Common::SettingsHandler gen{data};
-          area = gen.GetValue("AREA");
-          model = gen.GetValue("MODEL");
+          const Common::SettingsReader settings_reader{data};
+          area = settings_reader.GetValue("AREA");
+          model = settings_reader.GetValue("MODEL");
         }
       }
 
@@ -1176,6 +1176,25 @@ std::optional<IPCReply> NetKDRequestDevice::IOCtl(const IOCtlRequest& request)
     // SOGetInterfaceOpt(0xfffe,0x1003);  // Error
     // Call /dev/net/ip/top 0x1b (SOCleanup), it closes all sockets
     GetEmulationKernel().GetSocketManager()->Clean();
+    return_value = IPC_SUCCESS;
+    break;
+  }
+  case IOCTL_NWC24_KD_GET_TIME_TRIGGERS:
+  {
+    if (request.buffer_out == 0 || request.buffer_out % 4 != 0 || request.buffer_out_size < 12)
+    {
+      return_value = IPC_EINVAL;
+      ERROR_LOG_FMT(IOS_WC24, "NET_KD_REQ: IOCTL_NWC24_KD_GET_TIME_TRIGGERS = IPC_EINVAL");
+      break;
+    }
+
+    INFO_LOG_FMT(IOS_WC24, "NET_KD_REQ: IOCTL_NWC24_KD_GET_TIME_TRIGGERS");
+
+    std::lock_guard lg(m_scheduler_buffer_lock);
+    memory.Write_U32(m_mail_span, request.buffer_out + 4);
+    memory.Write_U32(m_download_span, request.buffer_out + 8);
+    WriteReturnValue(memory, NWC24::WC24_OK, request.buffer_out);
+
     return_value = IPC_SUCCESS;
     break;
   }

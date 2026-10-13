@@ -133,3 +133,20 @@ Conflicts:
   checks in `NetPlayDialog.cpp`).
 
 Build status: not built yet (C: is full).
+
+## Step 7: tag `2503` (6151 commits)
+
+Conflicts:
+
+- `DolphinQt/MainWindow.h/.cpp`, `DolphinQt/Main.cpp`: upstream's
+  `MainWindow` now takes a `Core::System&` and `MainWindow::Show()` is gone
+  (the constructor shows the window and starts a pending boot). The constructor
+  now takes the system, the boot parameters, the movie path and the fork's
+  `-M` matchmaking game path. The fork's `-M` handling moved from `Show()` to
+  the end of the constructor, right after upstream's pending-boot start.
+  `NetPlaySearch`/`NetPlayHostWithCallback` use `!Core::IsUninitialized(m_system)`
+  like upstream's `NetPlayJoin`. `Common::Timer::GetTimeMs()` -> `NowMs()`.
+- `DolphinQt/GameList/GameListModel.cpp`: kept the fork's
+  `AddOrGetFromCache` and upstream's `OnEmulationStateChanged` plus includes.
+
+Build status: not built yet (C: is full).

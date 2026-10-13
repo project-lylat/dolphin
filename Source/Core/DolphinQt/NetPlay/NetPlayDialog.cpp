@@ -25,6 +25,8 @@
 #include <algorithm>
 #include <sstream>
 
+#include <fmt/ranges.h>
+
 #include "Common/CommonPaths.h"
 #include "Common/Config/Config.h"
 #include "Common/HttpRequest.h"
@@ -707,7 +709,7 @@ void NetPlayDialog::UpdateGUI()
 
     auto* name_item = new QTableWidgetItem(QString::fromStdString(p->name));
     name_item->setToolTip(name_item->text());
-    const auto& status_info = player_status.count(p->game_status) ?
+    const auto& status_info = player_status.contains(p->game_status) ?
                                   player_status.at(p->game_status) :
                                   std::make_pair(QStringLiteral("?"), QStringLiteral("?"));
     auto* status_item = new QTableWidgetItem(status_info.first);
@@ -873,9 +875,11 @@ void NetPlayDialog::DisplayMessage(const QString& msg, const std::string& color,
   QColor c(color.empty() ? QStringLiteral("white") : QString::fromStdString(color));
 
   if (g_ActiveConfig.bShowNetPlayMessages && Core::IsRunning(Core::System::GetInstance()))
+  {
     g_netplay_chat_ui->AppendChat(msg.toStdString(),
                                   {static_cast<float>(c.redF()), static_cast<float>(c.greenF()),
                                    static_cast<float>(c.blueF())});
+  }
 }
 
 void NetPlayDialog::AppendChat(const std::string& msg)

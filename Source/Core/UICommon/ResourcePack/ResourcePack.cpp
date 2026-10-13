@@ -6,10 +6,12 @@
 #include <algorithm>
 #include <memory>
 
-#include <mz_compat.h>
+#include <mz.h>
 #include <mz_os.h>
+#include <unzip.h>
 
 #include "Common/CommonPaths.h"
+#include "Common/Contains.h"
 #include "Common/FileSearch.h"
 #include "Common/FileUtil.h"
 #include "Common/IOFile.h"
@@ -170,10 +172,9 @@ bool ResourcePack::Install(const std::string& path)
       continue;
     const std::string texture_name = texture_zip_path.substr(texture_zip_path_prefix.size());
 
-    auto texture_it = std::find_if(
-        m_textures.cbegin(), m_textures.cend(), [&texture_name](const std::string& texture) {
-          return mz_path_compare_wc(texture.c_str(), texture_name.c_str(), 1) == MZ_OK;
-        });
+    auto texture_it = std::ranges::find_if(m_textures, [&texture_name](const std::string& texture) {
+      return mz_path_compare_wc(texture.c_str(), texture_name.c_str(), 1) == MZ_OK;
+    });
     if (texture_it == m_textures.cend())
       continue;
     const auto texture = *texture_it;
@@ -182,8 +183,7 @@ bool ResourcePack::Install(const std::string& path)
     bool provided_by_other_pack = false;
     for (const auto& pack : GetHigherPriorityPacks(*this))
     {
-      if (std::find(pack->GetTextures().begin(), pack->GetTextures().end(), texture) !=
-          pack->GetTextures().end())
+      if (Common::Contains(pack->GetTextures(), texture))
       {
         provided_by_other_pack = true;
         break;
@@ -247,9 +247,7 @@ bool ResourcePack::Uninstall(const std::string& path)
     // Check if a higher priority pack already provides a given texture, don't delete it
     for (const auto& pack : GetHigherPriorityPacks(*this))
     {
-      if (::ResourcePack::IsInstalled(*pack) &&
-          std::find(pack->GetTextures().begin(), pack->GetTextures().end(), texture) !=
-              pack->GetTextures().end())
+      if (::ResourcePack::IsInstalled(*pack) && Common::Contains(pack->GetTextures(), texture))
       {
         provided_by_other_pack = true;
         break;
@@ -262,9 +260,7 @@ bool ResourcePack::Uninstall(const std::string& path)
     // Check if a lower priority pack provides a given texture - if so, install it.
     for (auto& pack : lower)
     {
-      if (::ResourcePack::IsInstalled(*pack) &&
-          std::find(pack->GetTextures().rbegin(), pack->GetTextures().rend(), texture) !=
-              pack->GetTextures().rend())
+      if (::ResourcePack::IsInstalled(*pack) && Common::Contains(pack->GetTextures(), texture))
       {
         pack->Install(path);
 
@@ -305,11 +301,6 @@ bool ResourcePack::Uninstall(const std::string& path)
 bool ResourcePack::operator==(const ResourcePack& pack) const
 {
   return pack.GetPath() == m_path;
-}
-
-bool ResourcePack::operator!=(const ResourcePack& pack) const
-{
-  return !operator==(pack);
 }
 
 }  // namespace ResourcePack

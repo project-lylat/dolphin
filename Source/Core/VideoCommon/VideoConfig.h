@@ -90,6 +90,13 @@ enum class FrameDumpResolutionType : int
   XFBRawResolution,
 };
 
+enum class VertexLoaderType : int
+{
+  Native,
+  Software,
+  Compare
+};
+
 // Bitmask containing information about which configuration has changed for the backend.
 enum ConfigChangeBits : u32
 {
@@ -193,7 +200,7 @@ struct VideoConfig final
   bool bDumpEFBTarget = false;
   bool bDumpXFBTarget = false;
   bool bDumpFramesAsImages = false;
-  bool bUseFFV1 = false;
+  bool bUseLossless = false;
   std::string sDumpCodec;
   std::string sDumpPixelFormat;
   std::string sDumpEncoder;
@@ -241,6 +248,7 @@ struct VideoConfig final
 
   // Stereoscopy
   StereoMode stereo_mode{};
+  bool stereo_per_eye_resolution_full = false;
   int iStereoDepth = 0;
   int iStereoConvergence = 0;
   int iStereoConvergencePercentage = 0;
@@ -277,6 +285,9 @@ struct VideoConfig final
 
   // Loading custom drivers on Android
   std::string customDriverLibraryName;
+
+  // Vertex loader
+  VertexLoaderType vertex_loader_type;
 
   // Static config per API
   // TODO: Move this out of VideoConfig

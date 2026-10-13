@@ -11,8 +11,6 @@
 #include "Common/Assert.h"
 #include "Common/Logging/Log.h"
 #include "Common/MsgHandler.h"
-#include "Common/NandPaths.h"
-#include "Common/StringUtil.h"
 #include "Core/Core.h"
 #include "Core/CoreTiming.h"
 #include "Core/Debugger/Debugger_SymbolMap.h"
@@ -22,6 +20,7 @@
 #include "Core/HW/WiimoteEmu/DesiredWiimoteState.h"
 #include "Core/IOS/Device.h"
 #include "Core/IOS/IOS.h"
+#include "Core/Movie.h"
 #include "Core/NetPlayClient.h"
 #include "Core/NetPlayProto.h"
 #include "Core/SysConf.h"
@@ -51,8 +50,8 @@ BluetoothEmuDevice::BluetoothEmuDevice(EmulationKernel& ios, const std::string& 
     const bdaddr_t tmp_bd = {0x11, 0x02, 0x19, 0x79, 0, i};
 
     // Previous records can be safely overwritten, since they are backed up
-    std::copy(tmp_bd.begin(), tmp_bd.end(), std::rbegin(bt_dinf.active[i].bdaddr));
-    std::copy(tmp_bd.begin(), tmp_bd.end(), std::rbegin(bt_dinf.registered[i].bdaddr));
+    std::ranges::copy(tmp_bd, std::rbegin(bt_dinf.active[i].bdaddr));
+    std::ranges::copy(tmp_bd, std::rbegin(bt_dinf.registered[i].bdaddr));
 
     const auto& wm_name =
         (i == WIIMOTE_BALANCE_BOARD) ? "Nintendo RVL-WBC-01" : "Nintendo RVL-CNT-01";
@@ -390,6 +389,16 @@ void BluetoothEmuDevice::Update()
       }
     }
 
+    auto& movie = Core::System::GetInstance().GetMovie();
+    for (int i = 0; i != MAX_WIIMOTES; ++i)
+    {
+      if (next_call[i] == WiimoteDevice::NextUpdateInputCall::None)
+        continue;
+
+      movie.PlayWiimote(i, &wiimote_states[i]);
+      movie.CheckWiimoteStatus(i, wiimote_states[i]);
+    }
+
     for (size_t i = 0; i < m_wiimotes.size(); ++i)
       m_wiimotes[i]->UpdateInput(next_call[i], wiimote_states[i]);
 
@@ -413,7 +422,7 @@ void BluetoothEmuDevice::ACLPool::Store(const u8* data, const u16 size, const u1
   m_queue.push_back(Packet());
   auto& packet = m_queue.back();
 
-  std::copy(data, data + size, packet.data);
+  std::copy_n(data, size, packet.data);
   packet.size = size;
   packet.conn_handle = conn_handle;
 }
@@ -438,7 +447,7 @@ void BluetoothEmuDevice::ACLPool::WriteToEndpoint(const USB::V0BulkMessage& endp
   header->length = size;
 
   // Write the packet to the buffer
-  std::copy(data, data + size, (u8*)header + sizeof(hci_acldata_hdr_t));
+  std::copy_n(data, size, (u8*)header + sizeof(hci_acldata_hdr_t));
 
   m_queue.pop_front();
 
@@ -473,8 +482,7 @@ bool BluetoothEmuDevice::SendEventInquiryResponse()
   static_assert(
       sizeof(SHCIEventInquiryResult) - 2 + (num_responses * sizeof(hci_inquiry_response)) < 256);
 
-  const auto iter = std::find_if(m_wiimotes.begin(), m_wiimotes.end(),
-                                 std::mem_fn(&WiimoteDevice::IsInquiryScanEnabled));
+  const auto iter = std::ranges::find_if(m_wiimotes, &WiimoteDevice::IsInquiryScanEnabled);
   if (iter == m_wiimotes.end())
   {
     // No remotes are discoverable.
@@ -890,7 +898,7 @@ bool BluetoothEmuDevice::SendEventLinkKeyNotification(const u8 num_to_send)
   AddEventToQueue(event);
 
   return true;
-};
+}
 
 bool BluetoothEmuDevice::SendEventRequestLinkKey(const bdaddr_t& bd)
 {
@@ -911,7 +919,7 @@ bool BluetoothEmuDevice::SendEventRequestLinkKey(const bdaddr_t& bd)
   AddEventToQueue(event);
 
   return true;
-};
+}
 
 bool BluetoothEmuDevice::SendEventReadClockOffsetComplete(u16 connection_handle)
 {

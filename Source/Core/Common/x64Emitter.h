@@ -122,7 +122,6 @@ struct OpArg
     return std::tie(scale, offsetOrBaseReg, indexReg, offset, operandReg) ==
            std::tie(b.scale, b.offsetOrBaseReg, b.indexReg, b.offset, b.operandReg);
   }
-  constexpr bool operator!=(const OpArg& b) const { return !operator==(b); }
   u64 Imm64() const
   {
     DEBUG_ASSERT(scale == SCALE_IMM64);
@@ -394,10 +393,10 @@ public:
   u8* AlignCode4();
   u8* AlignCode16();
   u8* AlignCodePage();
-  const u8* GetCodePtr() const;
-  u8* GetWritableCodePtr();
-  const u8* GetCodeEnd() const;
-  u8* GetWritableCodeEnd();
+  const u8* GetCodePtr() const { return code; }
+  u8* GetWritableCodePtr() { return code; }
+  const u8* GetCodeEnd() const { return m_code_end; }
+  u8* GetWritableCodeEnd() { return m_code_end; }
 
   void LockFlags() { flags_locked = true; }
   void UnlockFlags() { flags_locked = false; }

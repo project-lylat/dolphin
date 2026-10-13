@@ -102,7 +102,7 @@ protected:
 
       for (auto remove_prefix : {"BTN_", "KEY_"})
       {
-        if (name.find(remove_prefix) == 0)
+        if (name.starts_with(remove_prefix))
           return std::string(name.substr(std::strlen(remove_prefix)));
       }
 
@@ -572,7 +572,8 @@ bool evdevDevice::AddNode(std::string devnode, int fd, libevdev* dev)
   {
     if (libevdev_has_event_code(dev, EV_ABS, axis))
     {
-      AddAnalogInputs(new Axis(num_axis, axis, false, dev), new Axis(num_axis, axis, true, dev));
+      AddFullAnalogSurfaceInputs(new Axis(num_axis, axis, false, dev),
+                                 new Axis(num_axis, axis, true, dev));
       ++num_axis;
     }
   }

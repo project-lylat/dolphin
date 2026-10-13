@@ -213,8 +213,6 @@ add_library(core
   HW/EXI/EXI_DeviceIPL.h
   HW/EXI/EXI_DeviceMemoryCard.cpp
   HW/EXI/EXI_DeviceMemoryCard.h
-  HW/EXI/EXI_DeviceMic.cpp
-  HW/EXI/EXI_DeviceMic.h
   HW/EXI/EXI_DeviceModem.cpp
   HW/EXI/EXI_DeviceModem.h
   HW/EXI/EXI.cpp
@@ -483,10 +481,13 @@ add_library(core
   PatchEngine.h
   PowerPC/BreakPoints.cpp
   PowerPC/BreakPoints.h
+  PowerPC/CachedInterpreter/CachedInterpreter_Disassembler.cpp
   PowerPC/CachedInterpreter/CachedInterpreter.cpp
   PowerPC/CachedInterpreter/CachedInterpreter.h
-  PowerPC/CachedInterpreter/InterpreterBlockCache.cpp
-  PowerPC/CachedInterpreter/InterpreterBlockCache.h
+  PowerPC/CachedInterpreter/CachedInterpreterBlockCache.cpp
+  PowerPC/CachedInterpreter/CachedInterpreterBlockCache.h
+  PowerPC/CachedInterpreter/CachedInterpreterEmitter.cpp
+  PowerPC/CachedInterpreter/CachedInterpreterEmitter.h
   PowerPC/ConditionRegister.cpp
   PowerPC/ConditionRegister.h
   PowerPC/Expression.cpp
@@ -542,6 +543,8 @@ add_library(core
   SysConf.h
   System.cpp
   System.h
+  TimePlayed.cpp
+  TimePlayed.h
   TitleDatabase.cpp
   TitleDatabase.h
   WC24PatchEngine.cpp
@@ -646,18 +649,12 @@ PUBLIC
   videosoftware
 
 PRIVATE
-  cubeb::cubeb
   FatFs
   fmt::fmt
   LZO::LZO
   LZ4::LZ4
   ZLIB::ZLIB
 )
-
-if ((DEFINED CMAKE_ANDROID_ARCH_ABI AND CMAKE_ANDROID_ARCH_ABI MATCHES "x86|x86_64") OR
-    (NOT DEFINED CMAKE_ANDROID_ARCH_ABI AND _M_X86_64))
-  target_link_libraries(core PRIVATE bdisasm)
-endif()
 
 if (APPLE)
   target_link_libraries(core
@@ -671,6 +668,14 @@ elseif (ANDROID)
   target_link_libraries(core
   PRIVATE
     androidcommon
+  )
+endif()
+
+if(ENABLE_CUBEB)
+  target_link_libraries(core PUBLIC cubeb)
+  target_sources(core PRIVATE
+    HW/EXI/EXI_DeviceMic.cpp
+    HW/EXI/EXI_DeviceMic.h
   )
 endif()
 

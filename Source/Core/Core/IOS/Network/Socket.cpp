@@ -770,7 +770,7 @@ WiiSocket::ConnectingState WiiSocket::GetConnectingState() const
     fd_set read_fds;
     fd_set write_fds;
     fd_set except_fds;
-    struct timeval t = {0, 0};
+    timeval t = {0, 0};
     FD_ZERO(&read_fds);
     FD_ZERO(&write_fds);
     FD_ZERO(&except_fds);
@@ -876,7 +876,7 @@ s32 WiiSockMan::AddSocket(s32 fd, bool is_rw)
   for (wii_fd = 0; wii_fd < WII_SOCKET_FD_MAX; ++wii_fd)
   {
     // Find an available socket fd
-    if (WiiSockets.count(wii_fd) == 0)
+    if (!WiiSockets.contains(wii_fd))
       break;
   }
 
@@ -964,7 +964,7 @@ s32 WiiSockMan::NewSocket(s32 af, s32 type, s32 protocol)
 
 s32 WiiSockMan::GetHostSocket(s32 wii_fd) const
 {
-  if (WiiSockets.count(wii_fd) > 0)
+  if (WiiSockets.contains(wii_fd))
     return WiiSockets.at(wii_fd).fd;
   return -EBADF;
 }
@@ -998,7 +998,7 @@ void WiiSockMan::Update()
 {
   s32 nfds = 0;
   fd_set read_fds, write_fds, except_fds;
-  struct timeval t = {0, 0};
+  timeval t = {0, 0};
   FD_ZERO(&read_fds);
   FD_ZERO(&write_fds);
   FD_ZERO(&except_fds);
@@ -1085,10 +1085,10 @@ void WiiSockMan::UpdatePollCommands()
       std::vector<int> original_order(pfds.size());
       std::iota(original_order.begin(), original_order.end(), 0);
       // Select indices with valid fds
-      auto mid = std::partition(original_order.begin(), original_order.end(), [&](auto i) {
+      const auto partition_result = std::ranges::partition(original_order, [&](auto i) {
         return GetHostSocket(memory.Read_U32(pcmd.buffer_out + 0xc * i)) >= 0;
       });
-      const auto n_valid = std::distance(original_order.begin(), mid);
+      const auto n_valid = std::distance(original_order.begin(), partition_result.begin());
 
       // Move all the valid pollfds to the front of the vector
       for (auto i = 0; i < n_valid; ++i)

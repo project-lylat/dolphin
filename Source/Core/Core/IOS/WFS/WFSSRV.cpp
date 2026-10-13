@@ -7,6 +7,9 @@
 #include <string>
 #include <vector>
 
+#include <fmt/format.h>
+#include <fmt/ranges.h>
+
 #include "Common/CommonTypes.h"
 #include "Common/FileUtil.h"
 #include "Common/IOFile.h"
@@ -372,8 +375,8 @@ s32 WFSSRVDevice::Rename(std::string source, std::string dest) const
 
   INFO_LOG_FMT(IOS_WFS, "IOCTL_WFS_RENAME: {} to {}", source, dest);
 
-  const bool opened = std::any_of(m_fds.begin(), m_fds.end(),
-                                  [&](const auto& fd) { return fd.in_use && fd.path == source; });
+  const bool opened =
+      std::ranges::any_of(m_fds, [&](const auto& fd) { return fd.in_use && fd.path == source; });
 
   if (opened)
     return WFS_FILE_IS_OPENED;
@@ -423,7 +426,7 @@ std::string WFSSRVDevice::NormalizePath(const std::string& path) const
       normalized_components.push_back(component);
     }
   }
-  return "/" + JoinStrings(normalized_components, "/");
+  return fmt::format("/{}", fmt::join(normalized_components, "/"));
 }
 
 WFSSRVDevice::FileDescriptor* WFSSRVDevice::FindFileDescriptor(u16 fd)

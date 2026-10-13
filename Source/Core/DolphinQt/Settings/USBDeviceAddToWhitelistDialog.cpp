@@ -30,8 +30,7 @@ static bool IsValidUSBIDString(const std::string& string)
 {
   if (string.empty() || string.length() > 4)
     return false;
-  return std::all_of(string.begin(), string.end(),
-                     [](const auto character) { return std::isxdigit(character) != 0; });
+  return std::ranges::all_of(string, Common::IsXDigit);
 }
 
 USBDeviceAddToWhitelistDialog::USBDeviceAddToWhitelistDialog(QWidget* parent) : QDialog(parent)
@@ -113,7 +112,7 @@ void USBDeviceAddToWhitelistDialog::RefreshDeviceList()
   auto whitelist = Config::GetUSBDeviceWhitelist();
   for (const auto& device : current_devices)
   {
-    if (whitelist.count({device.first.first, device.first.second}) != 0)
+    if (whitelist.contains({device.first.first, device.first.second}))
       continue;
     usb_inserted_devices_list->addItem(QString::fromStdString(device.second));
   }

@@ -188,7 +188,7 @@ u16 WiimoteDevice::GenerateChannelID() const
 
   u16 cid = starting_id;
 
-  while (m_channels.count(cid) != 0)
+  while (m_channels.contains(cid))
     ++cid;
 
   return cid;
@@ -292,9 +292,8 @@ void WiimoteDevice::SetSource(WiimoteCommon::HIDWiimote* hid_source)
 
   if (m_hid_source)
   {
-    m_hid_source->SetInterruptCallback(std::bind(&WiimoteDevice::InterruptDataInputCallback, this,
-                                                 std::placeholders::_1, std::placeholders::_2,
-                                                 std::placeholders::_3));
+    m_hid_source->SetInterruptCallback(
+        std::bind_front(&WiimoteDevice::InterruptDataInputCallback, this));
     Activate(true);
   }
 }

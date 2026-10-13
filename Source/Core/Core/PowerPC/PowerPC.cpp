@@ -57,6 +57,7 @@ static void InvalidateCacheThreadSafe(Core::System& system, u64 userdata, s64 cy
 {
   system.GetPPCState().iCache.Invalidate(system.GetMemory(), system.GetJitInterface(),
                                          static_cast<u32>(userdata));
+  Host_JitCacheInvalidation();
 }
 
 PowerPCManager::PowerPCManager(Core::System& system)
@@ -128,10 +129,10 @@ void PowerPCManager::DoState(PointerWrap& p)
 
 void PowerPCManager::ResetRegisters()
 {
-  std::fill(std::begin(m_ppc_state.ps), std::end(m_ppc_state.ps), PairedSingle{});
-  std::fill(std::begin(m_ppc_state.sr), std::end(m_ppc_state.sr), 0U);
-  std::fill(std::begin(m_ppc_state.gpr), std::end(m_ppc_state.gpr), 0U);
-  std::fill(std::begin(m_ppc_state.spr), std::end(m_ppc_state.spr), 0U);
+  std::ranges::fill(m_ppc_state.ps, PairedSingle{});
+  std::ranges::fill(m_ppc_state.sr, 0U);
+  std::ranges::fill(m_ppc_state.gpr, 0U);
+  std::ranges::fill(m_ppc_state.spr, 0U);
 
   // Gamecube:
   // 0x00080200 = lonestar 2.0
@@ -270,9 +271,6 @@ void PowerPCManager::Init(CPUCore cpu_core)
   auto& memory = m_system.GetMemory();
   m_ppc_state.iCache.Init(memory);
   m_ppc_state.dCache.Init(memory);
-
-  if (Config::Get(Config::MAIN_ENABLE_DEBUGGING))
-    m_breakpoints.ClearAllTemporary();
 }
 
 void PowerPCManager::Reset()
@@ -299,6 +297,7 @@ void PowerPCManager::ScheduleInvalidateCacheThreadSafe(u32 address)
   {
     m_ppc_state.iCache.Invalidate(m_system.GetMemory(), m_system.GetJitInterface(),
                                   static_cast<u32>(address));
+    Host_JitCacheInvalidation();
   }
 }
 
@@ -629,19 +628,13 @@ void PowerPCManager::CheckExternalExceptions()
   m_system.GetJitInterface().UpdateMembase();
 }
 
-void PowerPCManager::CheckBreakPoints()
+bool PowerPCManager::CheckBreakPoints()
 {
   const TBreakPoint* bp = m_breakpoints.GetBreakpoint(m_ppc_state.pc);
 
   if (!bp || !bp->is_enabled || !EvaluateCondition(m_system, bp->condition))
-    return;
+    return false;
 
-  if (bp->break_on_hit)
-  {
-    m_system.GetCPU().Break();
-    if (GDBStub::IsActive())
-      GDBStub::TakeControl();
-  }
   if (bp->log_on_hit)
   {
     NOTICE_LOG_FMT(MEMMAP,
@@ -652,8 +645,21 @@ void PowerPCManager::CheckBreakPoints()
                    m_ppc_state.gpr[8], m_ppc_state.gpr[9], m_ppc_state.gpr[10], m_ppc_state.gpr[11],
                    m_ppc_state.gpr[12], LR(m_ppc_state));
   }
-  if (m_breakpoints.IsTempBreakPoint(m_ppc_state.pc))
-    m_breakpoints.Remove(m_ppc_state.pc);
+  if (bp->break_on_hit)
+    return true;
+  return false;
+}
+
+bool PowerPCManager::CheckAndHandleBreakPoints()
+{
+  if (CheckBreakPoints())
+  {
+    m_system.GetCPU().Break();
+    if (GDBStub::IsActive())
+      GDBStub::TakeControl();
+    return true;
+  }
+  return false;
 }
 
 void PowerPCState::SetSR(u32 index, u32 value)
@@ -722,8 +728,8 @@ void CheckExternalExceptionsFromJIT(PowerPCManager& power_pc)
   power_pc.CheckExternalExceptions();
 }
 
-void CheckBreakPointsFromJIT(PowerPCManager& power_pc)
+void CheckAndHandleBreakPointsFromJIT(PowerPCManager& power_pc)
 {
-  power_pc.CheckBreakPoints();
+  power_pc.CheckAndHandleBreakPoints();
 }
 }  // namespace PowerPC

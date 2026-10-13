@@ -110,9 +110,9 @@ JitBase::~JitBase()
   CPUThreadConfigCallback::RemoveConfigChangedCallback(m_registered_config_callback_id);
 }
 
-bool JitBase::DoesConfigNeedRefresh()
+bool JitBase::DoesConfigNeedRefresh() const
 {
-  return std::any_of(JIT_SETTINGS.begin(), JIT_SETTINGS.end(), [this](const auto& pair) {
+  return std::ranges::any_of(JIT_SETTINGS, [this](const auto& pair) {
     return this->*pair.first != Config::Get(*pair.second);
   });
 }
@@ -151,7 +151,7 @@ void JitBase::InitFastmemArena()
 void JitBase::InitBLROptimization()
 {
   m_enable_blr_optimization =
-      jo.enableBlocklink && !m_enable_debugging && EMM::IsExceptionHandlerSupported();
+      jo.enableBlocklink && !IsDebuggingEnabled() && EMM::IsExceptionHandlerSupported();
   m_cleanup_after_stackfault = false;
 }
 
@@ -267,7 +267,7 @@ bool JitBase::CanMergeNextInstructions(int count) const
   // Be careful: a breakpoint kills flags in between instructions
   for (int i = 1; i <= count; i++)
   {
-    if (m_enable_debugging &&
+    if (IsDebuggingEnabled() &&
         m_system.GetPowerPC().GetBreakPoints().IsAddressBreakPoint(js.op[i].address))
     {
       return false;
@@ -276,7 +276,7 @@ bool JitBase::CanMergeNextInstructions(int count) const
   return true;
 }
 
-bool JitBase::ShouldHandleFPExceptionForInstruction(const PPCAnalyst::CodeOp* op)
+bool JitBase::ShouldHandleFPExceptionForInstruction(const PPCAnalyst::CodeOp* op) const
 {
   if (jo.fp_exceptions)
     return (op->opinfo->flags & FL_FLOAT_EXCEPTION) != 0;

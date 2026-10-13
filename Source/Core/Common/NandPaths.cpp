@@ -8,8 +8,10 @@
 #include <vector>
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 
 #include "Common/CommonTypes.h"
+#include "Common/Contains.h"
 #include "Common/FileUtil.h"
 #include "Common/StringUtil.h"
 
@@ -104,15 +106,14 @@ bool IsTitlePath(const std::string& path, std::optional<FromWhichRoot> from, u64
 
 static bool IsIllegalCharacter(char c)
 {
-  static constexpr auto illegal_chars = {'\"', '*', '/', ':', '<', '>', '?', '\\', '|', '\x7f'};
-  return static_cast<unsigned char>(c) <= 0x1F ||
-         std::find(illegal_chars.begin(), illegal_chars.end(), c) != illegal_chars.end();
+  static constexpr char illegal_chars[] = {'\"', '*', '/', ':', '<', '>', '?', '\\', '|', '\x7f'};
+  return static_cast<unsigned char>(c) <= 0x1F || Common::Contains(illegal_chars, c);
 }
 
 std::string EscapeFileName(const std::string& filename)
 {
   // Prevent paths from containing special names like ., .., ..., ...., and so on
-  if (std::all_of(filename.begin(), filename.end(), [](char c) { return c == '.'; }))
+  if (std::ranges::all_of(filename, [](char c) { return c == '.'; }))
     return ReplaceAll(filename, ".", "__2e__");
 
   // Escape all double underscores since we will use double underscores for our escape sequences
@@ -141,7 +142,7 @@ std::string EscapePath(const std::string& path)
   for (const std::string& split_string : split_strings)
     escaped_split_strings.push_back(EscapeFileName(split_string));
 
-  return JoinStrings(escaped_split_strings, "/");
+  return fmt::to_string(fmt::join(escaped_split_strings, "/"));
 }
 
 std::string UnescapeFileName(const std::string& filename)
@@ -169,8 +170,7 @@ std::string UnescapeFileName(const std::string& filename)
 
 bool IsFileNameSafe(const std::string_view filename)
 {
-  return !filename.empty() &&
-         !std::all_of(filename.begin(), filename.end(), [](char c) { return c == '.'; }) &&
-         std::none_of(filename.begin(), filename.end(), IsIllegalCharacter);
+  return !filename.empty() && !std::ranges::all_of(filename, [](char c) { return c == '.'; }) &&
+         std::ranges::none_of(filename, IsIllegalCharacter);
 }
 }  // namespace Common

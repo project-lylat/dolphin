@@ -113,6 +113,8 @@ static void HandleFrameStepHotkeys()
 
     if ((frame_step_count == 0 || frame_step_count == FRAME_STEP_DELAY) && !frame_step_hold)
     {
+      if (frame_step_count > 0)
+        Settings::Instance().SetIsContinuouslyFrameStepping(true);
       Core::QueueHostJob([](auto& system) { Core::DoFrameStep(system); });
       frame_step_hold = true;
     }
@@ -138,6 +140,8 @@ static void HandleFrameStepHotkeys()
     frame_step_count = 0;
     frame_step_hold = false;
     frame_step_delay_count = 0;
+    Settings::Instance().SetIsContinuouslyFrameStepping(false);
+    emit Settings::Instance().EmulationStateChanged(Core::GetState(Core::System::GetInstance()));
   }
 }
 
@@ -188,7 +192,12 @@ void HotkeyScheduler::Run()
       if (IsHotkey(HK_EXIT))
         emit ExitHotkey();
 
-      if (!Core::IsRunning(system))
+#ifdef USE_RETRO_ACHIEVEMENTS
+      if (IsHotkey(HK_OPEN_ACHIEVEMENTS))
+        emit OpenAchievements();
+#endif  // USE_RETRO_ACHIEVEMENTS
+
+      if (Core::IsUninitialized(system))
       {
         // Only check for Play Recording hotkey when no game is running
         if (IsHotkey(HK_PLAY_RECORDING))
@@ -268,20 +277,16 @@ void HotkeyScheduler::Run()
 
       if (Core::System::GetInstance().IsWii())
       {
-        int wiimote_id = -1;
         if (IsHotkey(HK_WIIMOTE1_CONNECT))
-          wiimote_id = 0;
+          emit ConnectWiiRemote(0);
         if (IsHotkey(HK_WIIMOTE2_CONNECT))
-          wiimote_id = 1;
+          emit ConnectWiiRemote(1);
         if (IsHotkey(HK_WIIMOTE3_CONNECT))
-          wiimote_id = 2;
+          emit ConnectWiiRemote(2);
         if (IsHotkey(HK_WIIMOTE4_CONNECT))
-          wiimote_id = 3;
+          emit ConnectWiiRemote(3);
         if (IsHotkey(HK_BALANCEBOARD_CONNECT))
-          wiimote_id = 4;
-
-        if (wiimote_id > -1)
-          emit ConnectWiiRemote(wiimote_id);
+          emit ConnectWiiRemote(4);
 
         if (IsHotkey(HK_TOGGLE_SD_CARD))
           Settings::Instance().SetSDCardInserted(!Settings::Instance().IsSDCardInserted());
@@ -355,7 +360,7 @@ void HotkeyScheduler::Run()
 
       if (IsHotkey(HK_VOLUME_TOGGLE_MUTE))
       {
-        AudioCommon::ToggleMuteVolume(Core::System::GetInstance());
+        AudioCommon::ToggleMuteVolume(system);
         ShowVolume();
       }
 
@@ -464,12 +469,33 @@ void HotkeyScheduler::Run()
       }
 
       if (IsHotkey(HK_TOGGLE_DUMPTEXTURES))
-        Config::SetCurrent(Config::GFX_DUMP_TEXTURES, !Config::Get(Config::GFX_DUMP_TEXTURES));
+      {
+        const bool enable_dumping = !Config::Get(Config::GFX_DUMP_TEXTURES);
+        Config::SetCurrent(Config::GFX_DUMP_TEXTURES, enable_dumping);
+        OSD::AddMessage(
+            fmt::format("Texture Dumping {}",
+                        enable_dumping ? "enabled. This will reduce performance." : "disabled."),
+            OSD::Duration::NORMAL);
+      }
 
       if (IsHotkey(HK_TOGGLE_TEXTURES))
         Config::SetCurrent(Config::GFX_HIRES_TEXTURES, !Config::Get(Config::GFX_HIRES_TEXTURES));
 
       Core::SetIsThrottlerTempDisabled(IsHotkey(HK_TOGGLE_THROTTLE, true));
+
+      if (IsHotkey(HK_TOGGLE_THROTTLE, true) && !Config::Get(Config::MAIN_AUDIO_MUTED) &&
+          Config::Get(Config::MAIN_AUDIO_MUTE_ON_DISABLED_SPEED_LIMIT))
+      {
+        Config::SetCurrent(Config::MAIN_AUDIO_MUTED, true);
+        AudioCommon::UpdateSoundStream(system);
+      }
+      else if (!IsHotkey(HK_TOGGLE_THROTTLE, true) && Config::Get(Config::MAIN_AUDIO_MUTED) &&
+               Config::GetActiveLayerForConfig(Config::MAIN_AUDIO_MUTED) ==
+                   Config::LayerType::CurrentRun)
+      {
+        Config::DeleteKey(Config::LayerType::CurrentRun, Config::MAIN_AUDIO_MUTED);
+        AudioCommon::UpdateSoundStream(system);
+      }
 
       auto ShowEmulationSpeed = []() {
         const float emulation_speed = Config::Get(Config::MAIN_EMULATION_SPEED);

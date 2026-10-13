@@ -28,13 +28,13 @@ TEST(VertexLoaderUID, UniqueEnough)
 
   vtx_desc.low.Hex = 0x76543210;
   vtx_desc.high.Hex = 0xFEDCBA98;
-  EXPECT_EQ(uids.end(), uids.find(VertexLoaderUID(vtx_desc, vat)));
+  EXPECT_FALSE(uids.contains(VertexLoaderUID(vtx_desc, vat)));
   uids.insert(VertexLoaderUID(vtx_desc, vat));
 
   vat.g0.Hex = 0xFFFFFFFF;
   vat.g1.Hex = 0xFFFFFFFF;
   vat.g2.Hex = 0xFFFFFFFF;
-  EXPECT_EQ(uids.end(), uids.find(VertexLoaderUID(vtx_desc, vat)));
+  EXPECT_FALSE(uids.contains(VertexLoaderUID(vtx_desc, vat)));
   uids.insert(VertexLoaderUID(vtx_desc, vat));
 }
 
@@ -80,7 +80,7 @@ protected:
     // Read unswapped.
     const float actual = m_dst.Read<float, false>();
 
-    if (!actual || actual != actual)
+    if (!actual || std::isnan(actual))
       EXPECT_EQ(std::bit_cast<u32>(expected), std::bit_cast<u32>(actual));
     else
       EXPECT_EQ(expected, actual);
@@ -316,15 +316,15 @@ TEST_P(VertexLoaderSpeedTest, TexCoordSingleElement)
 TEST_F(VertexLoaderTest, LargeFloatVertexSpeed)
 {
   // Enables most attributes in floating point indexed mode to test speed.
-  m_vtx_desc.low.PosMatIdx = 1;
-  m_vtx_desc.low.Tex0MatIdx = 1;
-  m_vtx_desc.low.Tex1MatIdx = 1;
-  m_vtx_desc.low.Tex2MatIdx = 1;
-  m_vtx_desc.low.Tex3MatIdx = 1;
-  m_vtx_desc.low.Tex4MatIdx = 1;
-  m_vtx_desc.low.Tex5MatIdx = 1;
-  m_vtx_desc.low.Tex6MatIdx = 1;
-  m_vtx_desc.low.Tex7MatIdx = 1;
+  m_vtx_desc.low.PosMatIdx = true;
+  m_vtx_desc.low.Tex0MatIdx = true;
+  m_vtx_desc.low.Tex1MatIdx = true;
+  m_vtx_desc.low.Tex2MatIdx = true;
+  m_vtx_desc.low.Tex3MatIdx = true;
+  m_vtx_desc.low.Tex4MatIdx = true;
+  m_vtx_desc.low.Tex5MatIdx = true;
+  m_vtx_desc.low.Tex6MatIdx = true;
+  m_vtx_desc.low.Tex7MatIdx = true;
   m_vtx_desc.low.Position = VertexComponentFormat::Index16;
   m_vtx_desc.low.Normal = VertexComponentFormat::Index16;
   m_vtx_desc.low.Color0 = VertexComponentFormat::Index16;
@@ -379,15 +379,15 @@ TEST_F(VertexLoaderTest, LargeFloatVertexSpeed)
 
 TEST_F(VertexLoaderTest, DirectAllComponents)
 {
-  m_vtx_desc.low.PosMatIdx = 1;
-  m_vtx_desc.low.Tex0MatIdx = 1;
-  m_vtx_desc.low.Tex1MatIdx = 1;
-  m_vtx_desc.low.Tex2MatIdx = 1;
-  m_vtx_desc.low.Tex3MatIdx = 1;
-  m_vtx_desc.low.Tex4MatIdx = 1;
-  m_vtx_desc.low.Tex5MatIdx = 1;
-  m_vtx_desc.low.Tex6MatIdx = 1;
-  m_vtx_desc.low.Tex7MatIdx = 1;
+  m_vtx_desc.low.PosMatIdx = true;
+  m_vtx_desc.low.Tex0MatIdx = true;
+  m_vtx_desc.low.Tex1MatIdx = true;
+  m_vtx_desc.low.Tex2MatIdx = true;
+  m_vtx_desc.low.Tex3MatIdx = true;
+  m_vtx_desc.low.Tex4MatIdx = true;
+  m_vtx_desc.low.Tex5MatIdx = true;
+  m_vtx_desc.low.Tex6MatIdx = true;
+  m_vtx_desc.low.Tex7MatIdx = true;
   m_vtx_desc.low.Position = VertexComponentFormat::Direct;
   m_vtx_desc.low.Normal = VertexComponentFormat::Direct;
   m_vtx_desc.low.Color0 = VertexComponentFormat::Direct;
@@ -702,6 +702,7 @@ TEST_P(VertexLoaderNormalTest, NormalAll)
     input_with_expected_type(i / 32.f);
 
   // Pre-fill these values to detect if they're modified
+  VertexLoaderManager::normal_cache = {-42.f, -43.f, -44.f, -45.f};
   VertexLoaderManager::binormal_cache = {42.f, 43.f, 44.f, 45.f};
   VertexLoaderManager::tangent_cache = {46.f, 47.f, 48.f, 49.f};
 
@@ -738,6 +739,9 @@ TEST_P(VertexLoaderNormalTest, NormalAll)
     ExpectOut(10 / 32.f);
     ExpectOut(11 / 32.f);
     ExpectOut(12 / 32.f);
+    EXPECT_EQ(VertexLoaderManager::normal_cache[0], 10 / 32.f);
+    EXPECT_EQ(VertexLoaderManager::normal_cache[1], 11 / 32.f);
+    EXPECT_EQ(VertexLoaderManager::normal_cache[2], 12 / 32.f);
     if (elements == NormalComponentCount::NTB)
     {
       // Tangent
@@ -759,6 +763,14 @@ TEST_P(VertexLoaderNormalTest, NormalAll)
     }
   }
 
+  if (addr == VertexComponentFormat::NotPresent)
+  {
+    // Expect these to not be written
+    EXPECT_EQ(VertexLoaderManager::normal_cache[0], -42.f);
+    EXPECT_EQ(VertexLoaderManager::normal_cache[1], -43.f);
+    EXPECT_EQ(VertexLoaderManager::normal_cache[2], -44.f);
+    EXPECT_EQ(VertexLoaderManager::normal_cache[3], -45.f);
+  }
   if (addr == VertexComponentFormat::NotPresent || elements == NormalComponentCount::N)
   {
     // Expect these to not be written

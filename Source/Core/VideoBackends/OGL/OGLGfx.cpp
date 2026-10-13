@@ -304,8 +304,8 @@ void OGLGfx::DispatchComputeShader(const AbstractShader* shader, u32 groupsize_x
     static_cast<const OGLPipeline*>(m_current_pipeline)->GetProgram()->shader.Bind();
 
   // Barrier to texture can be used for reads.
-  if (std::any_of(m_bound_image_textures.begin(), m_bound_image_textures.end(),
-                  [](auto image) { return image != nullptr; }))
+  if (std::ranges::any_of(m_bound_image_textures,
+                          [](const auto* image) { return image != nullptr; }))
   {
     glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
   }
@@ -407,11 +407,12 @@ void OGLGfx::ClearRegion(const MathUtil::Rectangle<int>& target_rc, bool colorEn
     glDepthMask(m_current_depth_state.updateenable);
 }
 
-void OGLGfx::BindBackbuffer(const ClearColor& clear_color)
+bool OGLGfx::BindBackbuffer(const ClearColor& clear_color)
 {
   CheckForSurfaceChange();
   CheckForSurfaceResize();
   SetAndClearFramebuffer(m_system_framebuffer.get(), clear_color);
+  return true;
 }
 
 void OGLGfx::PresentBackbuffer()

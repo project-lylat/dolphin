@@ -1,6 +1,8 @@
 // Copyright 2022 Dolphin Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "Core/HW/WiimoteEmu/DesiredWiimoteState.h"
+
 #include <cstring>
 #include <optional>
 #include <type_traits>
@@ -9,7 +11,6 @@
 #include "Common/BitUtils.h"
 #include "Common/CommonTypes.h"
 
-#include "Core/HW/WiimoteEmu/DesiredWiimoteState.h"
 #include "Core/HW/WiimoteEmu/Extension/Classic.h"
 #include "Core/HW/WiimoteEmu/Extension/DrawsomeTablet.h"
 #include "Core/HW/WiimoteEmu/Extension/Drums.h"
@@ -82,14 +83,13 @@ SerializedWiimoteState SerializeDesiredState(const DesiredWiimoteState& state)
 
   if (has_camera)
   {
-    for (size_t i = 0; i < state.camera_points.size(); ++i)
+    for (auto& camera_point : state.camera_points)
     {
-      const u16 camera_x = state.camera_points[i].position.x;  // 10 bits
-      const u16 camera_y = state.camera_points[i].position.y;  // 10 bits
-      const u8 camera_size = state.camera_points[i].size;      // 4 bits
-      s.data[s.length++] = u8((camera_x & 0b11) | ((camera_y & 0b11) << 2) | (camera_size << 4));
-      s.data[s.length++] = u8(camera_x >> 2);
-      s.data[s.length++] = u8(camera_y >> 2);
+      IRExtended irext;
+      irext.SetPosition(camera_point.position);
+      irext.size = camera_point.size;
+      Common::BitCastPtr<IRExtended>(&s.data[s.length]) = irext;
+      s.length += sizeof(irext);
     }
   }
 
@@ -260,24 +260,11 @@ bool DeserializeDesiredState(DesiredWiimoteState* state, const SerializedWiimote
 
   if (has_camera)
   {
-    for (size_t i = 0; i < state->camera_points.size(); ++i)
+    for (auto& camera_point : state->camera_points)
     {
-      const u8 camera_misc = d[pos];
-      const u8 camera_x_high = d[pos + 1];
-      const u8 camera_y_high = d[pos + 2];
-      const u16 camera_x = (camera_x_high << 2) | (camera_misc & 0b11);
-      const u16 camera_y = (camera_y_high << 2) | ((camera_misc >> 2) & 0b11);
-      const u8 camera_size = camera_misc >> 4;
-      if (camera_y < CameraLogic::CAMERA_RES_Y)
-      {
-        state->camera_points[i] = CameraPoint({camera_x, camera_y}, camera_size);
-      }
-      else
-      {
-        // indicates an invalid camera point
-        state->camera_points[i] = CameraPoint();
-      }
-      pos += 3;
+      const IRExtended irext = Common::BitCastPtr<IRExtended>(&d[pos]);
+      camera_point = CameraPoint(irext.GetPosition(), irext.size);
+      pos += sizeof(irext);
     }
   }
 

@@ -5,9 +5,12 @@
 
 #include <array>
 #include <cstddef>
+#include <iosfwd>
 #include <map>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include "Common/BitSet.h"
 #include "Common/CommonTypes.h"
@@ -164,7 +167,7 @@ protected:
 
   static const std::array<std::pair<bool JitBase::*, const Config::Info<bool>*>, 23> JIT_SETTINGS;
 
-  bool DoesConfigNeedRefresh();
+  bool DoesConfigNeedRefresh() const;
   void RefreshConfig();
 
   void InitFastmemArena();
@@ -175,8 +178,16 @@ protected:
   void CleanUpAfterStackFault();
 
   bool CanMergeNextInstructions(int count) const;
+  bool HasConstantCarry() const
+  {
+#ifdef _M_ARM_64
+    return js.carryFlag == CarryFlag::ConstantTrue || js.carryFlag == CarryFlag::ConstantFalse;
+#else
+    return false;
+#endif
+  }
 
-  bool ShouldHandleFPExceptionForInstruction(const PPCAnalyst::CodeOp* op);
+  bool ShouldHandleFPExceptionForInstruction(const PPCAnalyst::CodeOp* op) const;
 
 public:
   explicit JitBase(Core::System& system);
@@ -193,6 +204,15 @@ public:
   virtual JitBaseBlockCache* GetBlockCache() = 0;
 
   virtual void Jit(u32 em_address) = 0;
+
+  virtual void EraseSingleBlock(const JitBlock& block) = 0;
+
+  // Memory region name, free size, and fragmentation ratio
+  using MemoryStats = std::pair<std::string_view, std::pair<std::size_t, double>>;
+  virtual std::vector<MemoryStats> GetMemoryStats() const = 0;
+
+  virtual std::size_t DisassembleNearCode(const JitBlock& block, std::ostream& stream) const = 0;
+  virtual std::size_t DisassembleFarCode(const JitBlock& block, std::ostream& stream) const = 0;
 
   virtual const CommonAsmRoutinesBase* GetAsmRoutines() = 0;
 

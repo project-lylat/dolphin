@@ -44,7 +44,7 @@ void InitJoystick(IDirectInput8* const idi8, HWND hwnd)
   for (DIDEVICEINSTANCE& joystick : joysticks)
   {
     // Skip XInput Devices
-    if (xinput_guids.count(joystick.guidProduct.Data1))
+    if (xinput_guids.contains(joystick.guidProduct.Data1))
     {
       continue;
     }
@@ -52,7 +52,7 @@ void InitJoystick(IDirectInput8* const idi8, HWND hwnd)
     // Skip devices we are already using.
     {
       std::lock_guard lk(s_guids_mutex);
-      if (s_guids_in_use.count(joystick.guidInstance))
+      if (s_guids_in_use.contains(joystick.guidInstance))
       {
         continue;
       }
@@ -167,8 +167,8 @@ Joystick::Joystick(const LPDIRECTINPUTDEVICE8 device) : m_device(device)
       const LONG& ax = (&m_state_in.lX)[offset];
 
       // each axis gets a negative and a positive input instance associated with it
-      AddAnalogInputs(new Axis(offset, ax, base, range.lMin - base),
-                      new Axis(offset, ax, base, range.lMax - base));
+      AddFullAnalogSurfaceInputs(new Axis(offset, ax, base, range.lMin - base),
+                                 new Axis(offset, ax, base, range.lMax - base));
     }
   }
 
@@ -176,15 +176,14 @@ Joystick::Joystick(const LPDIRECTINPUTDEVICE8 device) : m_device(device)
   std::list<DIDEVICEOBJECTINSTANCE> objects;
   if (SUCCEEDED(m_device->EnumObjects(DIEnumDeviceObjectsCallback, (LPVOID)&objects, DIDFT_AXIS)))
   {
-    const int num_ff_axes =
-        std::count_if(std::begin(objects), std::end(objects),
-                      [](const auto& pdidoi) { return (pdidoi.dwFlags & DIDOI_FFACTUATOR) != 0; });
+    const int num_ff_axes = std::ranges::count_if(
+        objects, [](const auto& pdidoi) { return (pdidoi.dwFlags & DIDOI_FFACTUATOR) != 0; });
     InitForceFeedback(m_device, num_ff_axes);
   }
 
   // Set hats to center:
   // "The center position is normally reported as -1" -MSDN
-  std::fill(std::begin(m_state_in.rgdwPOV), std::end(m_state_in.rgdwPOV), -1);
+  std::ranges::fill(m_state_in.rgdwPOV, -1);
 }
 
 Joystick::~Joystick()

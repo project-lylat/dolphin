@@ -13,6 +13,7 @@
 #include <QFontDialog>
 #include <QInputDialog>
 #include <QMap>
+#include <QSignalBlocker>
 #include <QUrl>
 
 #include <fmt/format.h>
@@ -95,6 +96,7 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent)
 
   connect(&Settings::Instance(), &Settings::EmulationStateChanged, this,
           [=, this](Core::State state) { OnEmulationStateChanged(state); });
+  connect(&Settings::Instance(), &Settings::ConfigChanged, this, &MenuBar::OnConfigChanged);
   connect(Host::GetInstance(), &Host::UpdateDisasmDialog, this,
           [this] { OnEmulationStateChanged(Core::GetState(Core::System::GetInstance())); });
 
@@ -138,9 +140,11 @@ void MenuBar::OnEmulationStateChanged(Core::State state)
     m_recording_stop->setEnabled(false);
     m_recording_export->setEnabled(false);
   }
-  m_recording_play->setEnabled(m_game_selected && !running);
-  m_recording_play->setEnabled(m_game_selected && !running && !hardcore);
-  m_recording_start->setEnabled((m_game_selected || running) &&
+  const bool can_start_from_boot = m_game_selected && state == Core::State::Uninitialized;
+  const bool can_start_from_savestate =
+      state == Core::State::Running || state == Core::State::Paused;
+  m_recording_play->setEnabled(can_start_from_boot && !hardcore);
+  m_recording_start->setEnabled((can_start_from_boot || can_start_from_savestate) &&
                                 !Core::System::GetInstance().GetMovie().IsPlayingInput());
 
   // JIT
@@ -153,15 +157,22 @@ void MenuBar::OnEmulationStateChanged(Core::State state)
   m_jit_clear_cache->setEnabled(running);
   m_jit_log_coverage->setEnabled(!running);
   m_jit_search_instruction->setEnabled(running);
-  m_jit_write_cache_log_dump->setEnabled(running && jit_exists);
+  m_jit_wipe_profiling_data->setEnabled(jit_exists);
+  m_jit_write_cache_log_dump->setEnabled(jit_exists);
 
   // Symbols
   m_symbols->setEnabled(running);
 
   UpdateStateSlotMenu();
-  UpdateToolsMenu(running);
+  UpdateToolsMenu(state);
 
   OnDebugModeToggled(Settings::Instance().IsDebugModeEnabled());
+}
+
+void MenuBar::OnConfigChanged()
+{
+  const QSignalBlocker blocker(m_jit_profile_blocks);
+  m_jit_profile_blocks->setChecked(Config::Get(Config::MAIN_DEBUG_JIT_ENABLE_PROFILING));
 }
 
 void MenuBar::OnDebugModeToggled(bool enabled)
@@ -192,6 +203,12 @@ void MenuBar::OnDebugModeToggled(bool enabled)
     removeAction(m_jit->menuAction());
     removeAction(m_symbols->menuAction());
   }
+}
+
+void MenuBar::OnWipeJitBlockProfilingData()
+{
+  auto& system = Core::System::GetInstance();
+  system.GetJitInterface().WipeBlockProfilingData(Core::CPUThreadGuard{system});
 }
 
 void MenuBar::OnWriteJitBlockLogDump()
@@ -267,12 +284,9 @@ void MenuBar::AddToolsMenu()
   tools_menu->addSeparator();
 
 #ifdef USE_RETRO_ACHIEVEMENTS
-  if (Config::Get(Config::RA_ENABLED))
-  {
-    tools_menu->addAction(tr("Achievements"), this, [this] { emit ShowAchievementsWindow(); });
+  tools_menu->addAction(tr("Achievements"), this, [this] { emit ShowAchievementsWindow(); });
 
-    tools_menu->addSeparator();
-  }
+  tools_menu->addSeparator();
 #endif  // USE_RETRO_ACHIEVEMENTS
 
   QMenu* gc_ipl = tools_menu->addMenu(tr("Load GameCube Main Menu"));
@@ -300,7 +314,8 @@ void MenuBar::AddToolsMenu()
 
   m_boot_sysmenu->setEnabled(false);
 
-  connect(&Settings::Instance(), &Settings::NANDRefresh, this, [this] { UpdateToolsMenu(false); });
+  connect(&Settings::Instance(), &Settings::NANDRefresh, this,
+          [this] { UpdateToolsMenu(Core::State::Uninitialized); });
 
   m_perform_online_update_menu = tools_menu->addMenu(tr("Perform Online System Update"));
   m_perform_online_update_for_current_region = m_perform_online_update_menu->addAction(
@@ -411,6 +426,10 @@ void MenuBar::AddStateSlotMenu(QMenu* emu_menu)
       action->setChecked(true);
 
     connect(action, &QAction::triggered, this, [=, this]() { emit SetStateSlot(i); });
+    connect(this, &MenuBar::SetStateSlot, [action, i](const int slot) {
+      if (slot == i)
+        action->setChecked(true);
+    });
   }
 }
 
@@ -682,6 +701,7 @@ void MenuBar::AddListColumnsMenu(QMenu* view_menu)
       {tr("File Format"), &Config::MAIN_GAMELIST_COLUMN_FILE_FORMAT},
       {tr("Block Size"), &Config::MAIN_GAMELIST_COLUMN_BLOCK_SIZE},
       {tr("Compression"), &Config::MAIN_GAMELIST_COLUMN_COMPRESSION},
+      {tr("Time Played"), &Config::MAIN_GAMELIST_COLUMN_TIME_PLAYED},
       {tr("Tags"), &Config::MAIN_GAMELIST_COLUMN_TAGS}};
 
   QActionGroup* column_group = new QActionGroup(this);
@@ -918,6 +938,8 @@ void MenuBar::AddJITMenu()
   connect(m_jit_profile_blocks, &QAction::toggled, [](bool enabled) {
     Config::SetBaseOrCurrent(Config::MAIN_DEBUG_JIT_ENABLE_PROFILING, enabled);
   });
+  m_jit_wipe_profiling_data = m_jit->addAction(tr("Wipe JIT Block Profiling Data"), this,
+                                               &MenuBar::OnWipeJitBlockProfilingData);
   m_jit_write_cache_log_dump =
       m_jit->addAction(tr("Write JIT Block Log Dump"), this, &MenuBar::OnWriteJitBlockLogDump);
 
@@ -1050,20 +1072,23 @@ void MenuBar::AddSymbolsMenu()
   m_symbols->addAction(tr("&Patch HLE Functions"), this, &MenuBar::PatchHLEFunctions);
 }
 
-void MenuBar::UpdateToolsMenu(bool emulation_started)
+void MenuBar::UpdateToolsMenu(const Core::State state)
 {
-  m_boot_sysmenu->setEnabled(!emulation_started);
-  m_perform_online_update_menu->setEnabled(!emulation_started);
-  m_ntscj_ipl->setEnabled(!emulation_started && File::Exists(Config::GetBootROMPath(JAP_DIR)));
-  m_ntscu_ipl->setEnabled(!emulation_started && File::Exists(Config::GetBootROMPath(USA_DIR)));
-  m_pal_ipl->setEnabled(!emulation_started && File::Exists(Config::GetBootROMPath(EUR_DIR)));
-  m_wad_install_action->setEnabled(!emulation_started);
-  m_import_backup->setEnabled(!emulation_started);
-  m_check_nand->setEnabled(!emulation_started);
-  m_import_wii_save->setEnabled(!emulation_started);
-  m_export_wii_saves->setEnabled(!emulation_started);
+  const bool is_uninitialized = state == Core::State::Uninitialized;
+  const bool is_running = state == Core::State::Running || state == Core::State::Paused;
 
-  if (!emulation_started)
+  m_boot_sysmenu->setEnabled(is_uninitialized);
+  m_perform_online_update_menu->setEnabled(is_uninitialized);
+  m_ntscj_ipl->setEnabled(is_uninitialized && File::Exists(Config::GetBootROMPath(JAP_DIR)));
+  m_ntscu_ipl->setEnabled(is_uninitialized && File::Exists(Config::GetBootROMPath(USA_DIR)));
+  m_pal_ipl->setEnabled(is_uninitialized && File::Exists(Config::GetBootROMPath(EUR_DIR)));
+  m_wad_install_action->setEnabled(is_uninitialized);
+  m_import_backup->setEnabled(is_uninitialized);
+  m_check_nand->setEnabled(is_uninitialized);
+  m_import_wii_save->setEnabled(is_uninitialized);
+  m_export_wii_saves->setEnabled(is_uninitialized);
+
+  if (is_uninitialized)
   {
     IOS::HLE::Kernel ios;
     const auto tmd = ios.GetESCore().FindInstalledTMD(Titles::SYSTEM_MENU);
@@ -1086,7 +1111,7 @@ void MenuBar::UpdateToolsMenu(bool emulation_started)
   }
 
   const auto bt = WiiUtils::GetBluetoothEmuDevice();
-  const bool enable_wiimotes = emulation_started && bt != nullptr;
+  const bool enable_wiimotes = is_running && bt != nullptr;
 
   for (std::size_t i = 0; i < m_wii_remotes.size(); i++)
   {
@@ -1100,8 +1125,8 @@ void MenuBar::UpdateToolsMenu(bool emulation_started)
 
 void MenuBar::InstallWAD()
 {
-  QString wad_file = DolphinFileDialog::getOpenFileName(
-      this, tr("Select a title to install to NAND"), QString(), tr("WAD files (*.wad)"));
+  QString wad_file = DolphinFileDialog::getOpenFileName(this, tr("Select Title to Install to NAND"),
+                                                        QString(), tr("WAD files (*.wad)"));
 
   if (wad_file.isEmpty())
     return;
@@ -1121,7 +1146,7 @@ void MenuBar::InstallWAD()
 void MenuBar::ImportWiiSave()
 {
   QString file =
-      DolphinFileDialog::getOpenFileName(this, tr("Select the save file"), QDir::currentPath(),
+      DolphinFileDialog::getOpenFileName(this, tr("Select Save File"), QDir::currentPath(),
                                          tr("Wii save files (*.bin);;"
                                             "All Files (*)"));
 
@@ -1257,16 +1282,20 @@ void MenuBar::OnSelectionChanged(std::shared_ptr<const UICommon::GameFile> game_
   m_game_selected = !!game_file;
 
   auto& system = Core::System::GetInstance();
-  const bool core_is_running = Core::IsRunning(system);
-  m_recording_play->setEnabled(m_game_selected && !core_is_running);
-  m_recording_start->setEnabled((m_game_selected || core_is_running) &&
+  const bool can_start_from_boot = m_game_selected && Core::IsUninitialized(system);
+  const bool can_start_from_savestate = Core::IsRunning(system);
+  m_recording_play->setEnabled(can_start_from_boot);
+  m_recording_start->setEnabled((can_start_from_boot || can_start_from_savestate) &&
                                 !system.GetMovie().IsPlayingInput());
 }
 
 void MenuBar::OnRecordingStatusChanged(bool recording)
 {
   auto& system = Core::System::GetInstance();
-  m_recording_start->setEnabled(!recording && (m_game_selected || Core::IsRunning(system)));
+  const bool can_start_from_boot = m_game_selected && Core::IsUninitialized(system);
+  const bool can_start_from_savestate = Core::IsRunning(system);
+
+  m_recording_start->setEnabled(!recording && (can_start_from_boot || can_start_from_savestate));
   m_recording_stop->setEnabled(recording);
   m_recording_export->setEnabled(recording);
 }
@@ -1589,7 +1618,7 @@ void MenuBar::SaveSymbolMap()
 void MenuBar::LoadOtherSymbolMap()
 {
   const QString file = DolphinFileDialog::getOpenFileName(
-      this, tr("Load map file"), QString::fromStdString(File::GetUserPath(D_MAPS_IDX)),
+      this, tr("Load Map File"), QString::fromStdString(File::GetUserPath(D_MAPS_IDX)),
       tr("Dolphin Map File (*.map)"));
 
   if (file.isEmpty())
@@ -1606,7 +1635,7 @@ void MenuBar::LoadOtherSymbolMap()
 void MenuBar::LoadBadSymbolMap()
 {
   const QString file = DolphinFileDialog::getOpenFileName(
-      this, tr("Load map file"), QString::fromStdString(File::GetUserPath(D_MAPS_IDX)),
+      this, tr("Load Map File"), QString::fromStdString(File::GetUserPath(D_MAPS_IDX)),
       tr("Dolphin Map File (*.map)"));
 
   if (file.isEmpty())
@@ -1624,7 +1653,7 @@ void MenuBar::SaveSymbolMapAs()
 {
   const std::string& title_id_str = SConfig::GetInstance().m_debugger_game_id;
   const QString file = DolphinFileDialog::getSaveFileName(
-      this, tr("Save map file"),
+      this, tr("Save Map File"),
       QString::fromStdString(File::GetUserPath(D_MAPS_IDX) + "/" + title_id_str + ".map"),
       tr("Dolphin Map File (*.map)"));
 
@@ -1680,7 +1709,7 @@ void MenuBar::CreateSignatureFile()
       this, tr("Input"), tr("Only export symbols with prefix:\n(Blank for all symbols)"),
       QLineEdit::Normal, QString{}, nullptr, Qt::WindowCloseButtonHint);
 
-  const QString file = DolphinFileDialog::getSaveFileName(this, tr("Save signature file"),
+  const QString file = DolphinFileDialog::getSaveFileName(this, tr("Save Signature File"),
                                                           QDir::homePath(), GetSignatureSelector());
   if (file.isEmpty())
     return;
@@ -1705,7 +1734,7 @@ void MenuBar::AppendSignatureFile()
       this, tr("Input"), tr("Only append symbols with prefix:\n(Blank for all symbols)"),
       QLineEdit::Normal, QString{}, nullptr, Qt::WindowCloseButtonHint);
 
-  const QString file = DolphinFileDialog::getSaveFileName(this, tr("Append signature to"),
+  const QString file = DolphinFileDialog::getSaveFileName(this, tr("Append Signature To"),
                                                           QDir::homePath(), GetSignatureSelector());
   if (file.isEmpty())
     return;
@@ -1728,7 +1757,7 @@ void MenuBar::AppendSignatureFile()
 
 void MenuBar::ApplySignatureFile()
 {
-  const QString file = DolphinFileDialog::getOpenFileName(this, tr("Apply signature file"),
+  const QString file = DolphinFileDialog::getOpenFileName(this, tr("Apply Signature File"),
                                                           QDir::homePath(), GetSignatureSelector());
 
   if (file.isEmpty())
@@ -1748,17 +1777,17 @@ void MenuBar::ApplySignatureFile()
 void MenuBar::CombineSignatureFiles()
 {
   const QString priorityFile = DolphinFileDialog::getOpenFileName(
-      this, tr("Choose priority input file"), QDir::homePath(), GetSignatureSelector());
+      this, tr("Choose Priority Input File"), QDir::homePath(), GetSignatureSelector());
   if (priorityFile.isEmpty())
     return;
 
   const QString secondaryFile = DolphinFileDialog::getOpenFileName(
-      this, tr("Choose secondary input file"), QDir::homePath(), GetSignatureSelector());
+      this, tr("Choose Secondary Input File"), QDir::homePath(), GetSignatureSelector());
   if (secondaryFile.isEmpty())
     return;
 
   const QString saveFile = DolphinFileDialog::getSaveFileName(
-      this, tr("Save combined output file as"), QDir::homePath(), GetSignatureSelector());
+      this, tr("Save Combined Output File As"), QDir::homePath(), GetSignatureSelector());
   if (saveFile.isEmpty())
     return;
 

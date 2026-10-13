@@ -35,11 +35,11 @@ Summary:
 
 ## <a name="intro-aims"></a>Aims
 
-This guide is for developers who wish to contribute to the Dolphin codebase. It will detail how to properly style and format code to fit this project. This guide also offers suggestions on specific functions and other varia that may be used in code.
+This guide is for developers who wish to contribute to the Dolphin codebase. It details how to properly style and format code for this project. This guide also offers suggestions on specific functions and other elements that may be used in code.
 
-Following this guide and formatting your code as detailed will likely get your pull request merged much faster than if you don't (assuming the written code has no mistakes in itself).
+Following this guide and formatting your code as detailed will likely get your pull request merged much faster than if you don't (assuming the code itself has no mistakes).
 
-This project uses clang-format (stable branch) to check for common style issues. In case of conflicts between this guide and clang-format rules, the latter should be followed instead of this guide.
+This project uses clang-format 13.0 to check for common style issues. In case of conflicts between this guide and clang-format rules, the latter should be followed instead of this guide.
 
 ## <a name="intro-formatting-issues"></a>Checking and fixing formatting issues
 
@@ -189,7 +189,7 @@ Summary:
 
 ## <a name="cpp-code-general"></a>General
 - The codebase currently uses C++20, though not all compilers support all C++20 features.
-  - See CMakeLists.txt "Enforce minimium compiler versions" for the currently supported compilers.
+  - See CMakeLists.txt "Enforce minimum compiler versions" for the currently supported compilers.
 - Use the [nullptr](https://en.cppreference.com/w/cpp/language/nullptr) type over the macro `NULL`.
 - If a [range-based for loop](https://en.cppreference.com/w/cpp/language/range-for) can be used instead of container iterators, use it.
 - Obviously, try not to use `goto` unless you have a *really* good reason for it.
@@ -227,7 +227,7 @@ Summary:
 
 ## <a name="cpp-code-functions"></a>Functions
 - If a function parameter is a pointer or reference and its value or data isn't intended to be changed, please mark that parameter as `const`.
-- Functions that specifically modify their parameters should have the respective parameter(s) marked as a pointer so that the variables being modified are syntaxically obvious.
+- Functions that specifically modify their parameters should have the respective parameter(s) marked as a pointer so that the variables being modified are syntactically obvious.
   - What not to do:
 
     ```c++

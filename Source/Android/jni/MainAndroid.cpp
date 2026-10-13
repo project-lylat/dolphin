@@ -1,19 +1,21 @@
 // Copyright 2003 Dolphin Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include <EGL/egl.h>
-#include <android/log.h>
-#include <android/native_window_jni.h>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
-#include <fmt/format.h>
-#include <jni.h>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
 #include <utility>
+
+#include <EGL/egl.h>
+#include <android/log.h>
+#include <android/native_window_jni.h>
+#include <fmt/format.h>
+#include <jni.h>
 
 #include "Common/AndroidAnalytics.h"
 #include "Common/Assert.h"
@@ -77,6 +79,8 @@ Common::Event s_update_main_frame_event;
 // This exists to prevent surfaces from being destroyed during the boot process,
 // as that can lead to the boot process dereferencing nullptr.
 std::mutex s_surface_lock;
+std::condition_variable s_surface_cv;
+
 bool s_need_nonblocking_alert_msg;
 
 Common::Flag s_is_booting;
@@ -101,6 +105,10 @@ void Host_PPCSymbolsChanged()
 {
 }
 
+void Host_PPCBreakpointsChanged()
+{
+}
+
 void Host_RefreshDSPDebuggerWindow()
 {
 }
@@ -118,8 +126,7 @@ void Host_Message(HostMessageID id)
   }
   else if (id == HostMessageID::WMUserStop)
   {
-    if (Core::IsRunning(Core::System::GetInstance()))
-      Core::QueueHostJob(&Core::Stop);
+    Core::QueueHostJob(&Core::Stop);
   }
 }
 
@@ -144,6 +151,14 @@ bool Host_UpdateDiscordPresenceRaw(const std::string& details, const std::string
 }
 
 void Host_UpdateDisasmDialog()
+{
+}
+
+void Host_JitCacheInvalidation()
+{
+}
+
+void Host_JitProfileDataWiped()
 {
 }
 
@@ -277,13 +292,6 @@ JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_SetIsBooting
 
 JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_IsRunning(JNIEnv*, jclass)
 {
-  return s_is_booting.IsSet() ||
-         static_cast<jboolean>(Core::IsRunning(Core::System::GetInstance()));
-}
-
-JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_IsRunningAndStarted(JNIEnv*,
-                                                                                            jclass)
-{
   return static_cast<jboolean>(Core::IsRunning(Core::System::GetInstance()));
 }
 
@@ -291,6 +299,13 @@ JNIEXPORT jboolean JNICALL
 Java_org_dolphinemu_dolphinemu_NativeLibrary_IsRunningAndUnpaused(JNIEnv*, jclass)
 {
   return static_cast<jboolean>(Core::GetState(Core::System::GetInstance()) == Core::State::Running);
+}
+
+JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_IsUninitialized(JNIEnv*,
+                                                                                        jclass)
+{
+  return static_cast<jboolean>(Core::IsUninitialized(Core::System::GetInstance()) &&
+                               !s_is_booting.IsSet());
 }
 
 JNIEXPORT jstring JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_GetVersionString(JNIEnv* env,
@@ -401,14 +416,31 @@ JNIEXPORT jint JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_DefaultCPUCo
 }
 
 JNIEXPORT jstring JNICALL
-Java_org_dolphinemu_dolphinemu_NativeLibrary_GetDefaultGraphicsBackendName(JNIEnv* env, jclass)
+Java_org_dolphinemu_dolphinemu_NativeLibrary_GetDefaultGraphicsBackendConfigName(JNIEnv* env,
+                                                                                 jclass)
 {
-  return ToJString(env, VideoBackendBase::GetDefaultBackendName());
+  return ToJString(env, VideoBackendBase::GetDefaultBackendConfigName());
 }
 
 JNIEXPORT jint JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_GetMaxLogLevel(JNIEnv*, jclass)
 {
   return static_cast<jint>(Common::Log::MAX_LOGLEVEL);
+}
+
+JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_WipeJitBlockProfilingData(
+    JNIEnv* env, jclass native_library_class)
+{
+  HostThreadLock guard;
+  auto& system = Core::System::GetInstance();
+  auto& jit_interface = system.GetJitInterface();
+  const Core::CPUThreadGuard cpu_guard(system);
+  if (jit_interface.GetCore() == nullptr)
+  {
+    env->CallStaticVoidMethod(native_library_class, IDCache::GetDisplayToastMsg(),
+                              ToJString(env, Common::GetStringT("JIT is not active")), JNI_FALSE);
+    return;
+  }
+  jit_interface.WipeBlockProfilingData(cpu_guard);
 }
 
 JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_WriteJitBlockLogDump(
@@ -417,11 +449,11 @@ JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_WriteJitBloc
   HostThreadLock guard;
   auto& system = Core::System::GetInstance();
   auto& jit_interface = system.GetJitInterface();
+  const Core::CPUThreadGuard cpu_guard(system);
   if (jit_interface.GetCore() == nullptr)
   {
     env->CallStaticVoidMethod(native_library_class, IDCache::GetDisplayToastMsg(),
-                              ToJString(env, Common::GetStringT("JIT is not active")),
-                              static_cast<jboolean>(false));
+                              ToJString(env, Common::GetStringT("JIT is not active")), JNI_FALSE);
     return;
   }
   const std::string filename = fmt::format("{}{}.txt", File::GetUserPath(D_DUMPDEBUG_JITBLOCKS_IDX),
@@ -432,13 +464,13 @@ JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_WriteJitBloc
     env->CallStaticVoidMethod(
         native_library_class, IDCache::GetDisplayToastMsg(),
         ToJString(env, Common::FmtFormatT("Failed to open \"{0}\" for writing.", filename)),
-        static_cast<jboolean>(false));
+        JNI_FALSE);
     return;
   }
-  jit_interface.JitBlockLogDump(Core::CPUThreadGuard{system}, f.GetHandle());
+  jit_interface.JitBlockLogDump(cpu_guard, f.GetHandle());
   env->CallStaticVoidMethod(native_library_class, IDCache::GetDisplayToastMsg(),
                             ToJString(env, Common::FmtFormatT("Wrote to \"{0}\".", filename)),
-                            static_cast<jboolean>(false));
+                            JNI_FALSE);
 }
 
 // Surface Handling
@@ -454,6 +486,8 @@ JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_SurfaceChang
 
   if (g_presenter)
     g_presenter->ChangeSurface(s_surf);
+
+  s_surface_cv.notify_all();
 }
 
 JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_SurfaceDestroyed(JNIEnv*,
@@ -487,6 +521,8 @@ JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_SurfaceDestr
     ANativeWindow_release(s_surf);
     s_surf = nullptr;
   }
+
+  s_surface_cv.notify_all();
 }
 
 JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_HasSurface(JNIEnv*, jclass)
@@ -578,11 +614,13 @@ static void Run(JNIEnv* env, std::unique_ptr<BootParameters>&& boot, bool riivol
                                           volume.GetDiscNumber()));
   }
 
-  WindowSystemInfo wsi(WindowSystemType::Android, nullptr, s_surf, s_surf);
-  wsi.render_surface_scale = GetRenderSurfaceScale(env);
-
   s_need_nonblocking_alert_msg = true;
   std::unique_lock<std::mutex> surface_guard(s_surface_lock);
+
+  s_surface_cv.wait(surface_guard, []() { return s_surf != nullptr; });
+
+  WindowSystemInfo wsi(WindowSystemType::Android, nullptr, s_surf, s_surf);
+  wsi.render_surface_scale = GetRenderSurfaceScale(env);
 
   if (BootManager::BootCore(Core::System::GetInstance(), std::move(boot), wsi))
   {
@@ -701,7 +739,7 @@ JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_NativeLibrary_ConvertD
     blob_reader = DiscIO::CreateBlobReader(in_path);
 
   if (!blob_reader)
-    return static_cast<jboolean>(false);
+    return JNI_FALSE;
 
   jobject jCallbackGlobal = env->NewGlobalRef(jCallback);
   Common::ScopeGuard scope_guard([jCallbackGlobal, env] { env->DeleteGlobalRef(jCallbackGlobal); });

@@ -10,12 +10,16 @@
 #include "AudioCommon/AudioCommon.h"
 #include "Common/CommonTypes.h"
 #include "Common/Event.h"
+#include "Common/Timer.h"
 #include "Core/CPUThreadConfigCallback.h"
+#include "Core/Config/MainSettings.h"
+#include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/Host.h"
 #include "Core/PowerPC/GDBStub.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/System.h"
+#include "Core/TimePlayed.h"
 #include "VideoCommon/Fifo.h"
 
 namespace CPU
@@ -63,6 +67,41 @@ void CPUManager::ExecutePendingJobs(std::unique_lock<std::mutex>& state_lock)
   }
 }
 
+void CPUManager::StartTimePlayedTimer()
+{
+  // Steady clock for greater accuracy of timing
+  std::chrono::steady_clock timer;
+  auto prev_time = timer.now();
+
+  while (true)
+  {
+    const std::string game_id = SConfig::GetInstance().GetGameID();
+    TimePlayed time_played(game_id);
+    auto curr_time = timer.now();
+
+    // Check that emulation is not paused
+    // If the emulation is paused, wait for SetStepping() to reactivate
+    if (m_state == State::Running)
+    {
+      const auto diff_time =
+          std::chrono::duration_cast<std::chrono::milliseconds>(curr_time - prev_time);
+      time_played.AddTime(diff_time);
+    }
+    else if (m_state == State::Stepping)
+    {
+      m_time_played_finish_sync.Wait();
+      curr_time = timer.now();
+    }
+
+    prev_time = curr_time;
+
+    if (m_state == State::PowerDown)
+      return;
+
+    m_time_played_finish_sync.WaitFor(std::chrono::seconds(30));
+  }
+}
+
 void CPUManager::Run()
 {
   auto& power_pc = m_system.GetPowerPC();
@@ -70,6 +109,13 @@ void CPUManager::Run()
   // Updating the host CPU's rounding mode must be done on the CPU thread.
   // We can't rely on PowerPC::Init doing it, since it's called from EmuThread.
   PowerPC::RoundingModeUpdated(power_pc.GetPPCState());
+
+  // Start a separate time tracker thread
+  std::thread timing;
+  if (Config::Get(Config::MAIN_TIME_TRACKING))
+  {
+    timing = std::thread(&CPUManager::StartTimePlayedTimer, this);
+  }
 
   std::unique_lock state_lock(m_state_change_lock);
   while (m_state != State::PowerDown)
@@ -85,22 +131,20 @@ void CPUManager::Run()
       m_state_cpu_thread_active = true;
       state_lock.unlock();
 
-      // Adjust PC for JIT when debugging
+      // Adjust PC when debugging
       // SingleStep so that the "continue", "step over" and "step out" debugger functions
       // work when the PC is at a breakpoint at the beginning of the block
+      // Don't use PowerPCManager::CheckBreakPoints, otherwise you get double logging
       // If watchpoints are enabled, any instruction could be a breakpoint.
-      if (power_pc.GetMode() != PowerPC::CoreMode::Interpreter)
+      if (power_pc.GetBreakPoints().IsAddressBreakPoint(power_pc.GetPPCState().pc) ||
+          power_pc.GetMemChecks().HasAny())
       {
-        if (power_pc.GetBreakPoints().IsAddressBreakPoint(power_pc.GetPPCState().pc) ||
-            power_pc.GetMemChecks().HasAny())
-        {
-          m_state = State::Stepping;
-          PowerPC::CoreMode old_mode = power_pc.GetMode();
-          power_pc.SetMode(PowerPC::CoreMode::Interpreter);
-          power_pc.SingleStep();
-          power_pc.SetMode(old_mode);
-          m_state = State::Running;
-        }
+        m_state = State::Stepping;
+        PowerPC::CoreMode old_mode = power_pc.GetMode();
+        power_pc.SetMode(PowerPC::CoreMode::Interpreter);
+        power_pc.SingleStep();
+        power_pc.SetMode(old_mode);
+        m_state = State::Running;
       }
 
       // Enter a fast runloop
@@ -167,6 +211,13 @@ void CPUManager::Run()
       break;
     }
   }
+
+  if (timing.joinable())
+  {
+    m_time_played_finish_sync.Set();
+    timing.join();
+  }
+
   state_lock.unlock();
   Host_UpdateDisasmDialog();
 }
@@ -174,7 +225,7 @@ void CPUManager::Run()
 // Requires holding m_state_change_lock
 void CPUManager::RunAdjacentSystems(bool running)
 {
-  // NOTE: We're assuming these will not try to call Break or EnableStepping.
+  // NOTE: We're assuming these will not try to call Break or SetStepping.
   m_system.GetFifo().EmulatorState(running);
   // Core is responsible for shutting down the sound stream.
   if (m_state != State::PowerDown)
@@ -243,11 +294,13 @@ bool CPUManager::SetStateLocked(State s)
 {
   if (m_state == State::PowerDown)
     return false;
+  if (s == State::Stepping)
+    m_system.GetPowerPC().GetBreakPoints().ClearTemporary();
   m_state = s;
   return true;
 }
 
-void CPUManager::EnableStepping(bool stepping)
+void CPUManager::SetStepping(bool stepping)
 {
   std::lock_guard stepping_lock(m_stepping_lock);
   std::unique_lock state_lock(m_state_change_lock);
@@ -266,6 +319,7 @@ void CPUManager::EnableStepping(bool stepping)
   else if (SetStateLocked(State::Running))
   {
     m_state_cpu_cvar.notify_one();
+    m_time_played_finish_sync.Set();
     RunAdjacentSystems(true);
   }
 }
@@ -290,7 +344,7 @@ void CPUManager::Break()
 
 void CPUManager::Continue()
 {
-  EnableStepping(false);
+  SetStepping(false);
   Core::CallOnStateChangedCallbacks(Core::State::Running);
 }
 

@@ -10,12 +10,11 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.view.View
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
-import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
-import com.google.android.material.color.MaterialColors
 import org.dolphinemu.dolphinemu.R
 import org.dolphinemu.dolphinemu.databinding.ActivityUserDataBinding
 import org.dolphinemu.dolphinemu.dialogs.NotificationDialog
@@ -25,7 +24,6 @@ import org.dolphinemu.dolphinemu.features.DocumentProvider
 import org.dolphinemu.dolphinemu.model.TaskViewModel
 import org.dolphinemu.dolphinemu.utils.*
 import org.dolphinemu.dolphinemu.utils.ThemeHelper.enableScrollTint
-import org.dolphinemu.dolphinemu.utils.ThemeHelper.setNavigationBarColor
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -33,6 +31,7 @@ import java.io.IOException
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import kotlin.system.exitProcess
 
 class UserDataActivity : AppCompatActivity() {
     private lateinit var taskViewModel: TaskViewModel
@@ -43,13 +42,12 @@ class UserDataActivity : AppCompatActivity() {
         taskViewModel = ViewModelProvider(this)[TaskViewModel::class.java]
 
         ThemeHelper.setTheme(this)
+        enableEdgeToEdge()
 
         super.onCreate(savedInstanceState)
 
         mBinding = ActivityUserDataBinding.inflate(layoutInflater)
         setContentView(mBinding.root)
-
-        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         val android7 = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
         val android10 = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
@@ -183,7 +181,10 @@ class UserDataActivity : AppCompatActivity() {
             if (!isDolphinUserDataBackup(source))
                 return R.string.user_data_import_invalid_file
 
-            taskViewModel.mustRestartApp = true
+            taskViewModel.onResultDismiss = {
+                // Restart the app to apply the imported user data.
+                exitProcess(0)
+            }
 
             contentResolver.openInputStream(source).use { `is` ->
                 ZipInputStream(`is`).use { zis ->
@@ -334,10 +335,6 @@ class UserDataActivity : AppCompatActivity() {
             mBinding.scrollViewUserData.setPadding(insets.left, 0, insets.right, insets.bottom)
 
             InsetsHelper.applyNavbarWorkaround(insets.bottom, mBinding.workaroundView)
-            setNavigationBarColor(
-                this,
-                MaterialColors.getColor(mBinding.appbarUserData, R.attr.colorSurface)
-            )
             windowInsets
         }
     }

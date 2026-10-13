@@ -167,6 +167,7 @@ extern const Info<bool> MAIN_DUMP_UCODE;
 extern const Info<std::string> MAIN_AUDIO_BACKEND;
 extern const Info<int> MAIN_AUDIO_VOLUME;
 extern const Info<bool> MAIN_AUDIO_MUTED;
+extern const Info<bool> MAIN_AUDIO_MUTE_ON_DISABLED_SPEED_LIMIT;
 #ifdef _WIN32
 extern const Info<std::string> MAIN_WASAPI_DEVICE;
 #endif
@@ -185,6 +186,7 @@ extern const Info<int> MAIN_RENDER_WINDOW_HEIGHT;
 extern const Info<bool> MAIN_RENDER_WINDOW_AUTOSIZE;
 extern const Info<bool> MAIN_KEEP_WINDOW_ON_TOP;
 extern const Info<bool> MAIN_DISABLE_SCREENSAVER;
+extern const Info<bool> MAIN_TIME_TRACKING;
 
 // Main.General
 
@@ -294,6 +296,7 @@ extern const Info<bool> MAIN_GAMELIST_COLUMN_FILE_SIZE;
 extern const Info<bool> MAIN_GAMELIST_COLUMN_FILE_FORMAT;
 extern const Info<bool> MAIN_GAMELIST_COLUMN_BLOCK_SIZE;
 extern const Info<bool> MAIN_GAMELIST_COLUMN_COMPRESSION;
+extern const Info<bool> MAIN_GAMELIST_COLUMN_TIME_PLAYED;
 extern const Info<bool> MAIN_GAMELIST_COLUMN_TAGS;
 
 // Main.FifoPlayer
