@@ -76,6 +76,11 @@ static std::vector<std::string> ReadM3UFile(const std::string& m3u_path,
     // This is the UTF-8 representation of U+FEFF.
     constexpr std::string_view utf8_bom = "\xEF\xBB\xBF";
 
+#ifndef _WIN32
+    if (line.ends_with('\r'))
+      line.pop_back();
+#endif
+
     if (line.starts_with(utf8_bom))
     {
       WARN_LOG_FMT(BOOT, "UTF-8 BOM in file: {}", m3u_path);
@@ -270,7 +275,7 @@ std::unique_ptr<BootParameters> BootParameters::GenerateFromFile(std::vector<std
 
   if (extension == ".wad")
   {
-    std::unique_ptr<DiscIO::VolumeWAD> wad = DiscIO::CreateWAD(std::move(path));
+    std::unique_ptr<DiscIO::VolumeWAD> wad = DiscIO::CreateWAD(path);
     if (wad)
       return std::make_unique<BootParameters>(std::move(*wad), std::move(boot_session_data_));
   }
@@ -524,6 +529,7 @@ bool CBoot::BootUp(Core::System& system, const Core::CPUThreadGuard& guard,
       NOTICE_LOG_FMT(BOOT, "Booting from disc: {}", disc.path);
       const DiscIO::VolumeDisc* volume =
           SetDisc(system.GetDVDInterface(), std::move(disc.volume), disc.auto_disc_change_paths);
+      AchievementManager::GetInstance().LoadGame(volume);
 
       if (!volume)
         return false;
@@ -642,16 +648,16 @@ bool CBoot::BootUp(Core::System& system, const Core::CPUThreadGuard& guard,
       if (!Load_BS2(system, ipl.path))
         return false;
 
+      const DiscIO::VolumeDisc* volume = nullptr;
       if (ipl.disc)
       {
         NOTICE_LOG_FMT(BOOT, "Inserting disc: {}", ipl.disc->path);
-        SetDisc(system.GetDVDInterface(), DiscIO::CreateDiscForCore(ipl.disc->path),
-                ipl.disc->auto_disc_change_paths);
+
+        volume = SetDisc(system.GetDVDInterface(), DiscIO::CreateDiscForCore(ipl.disc->path),
+                         ipl.disc->auto_disc_change_paths);
       }
-      else
-      {
-        AchievementManager::GetInstance().LoadGame(nullptr);
-      }
+
+      AchievementManager::GetInstance().LoadGame(volume);
 
       SConfig::OnTitleDirectlyBooted(guard);
       return true;
@@ -706,7 +712,7 @@ void StateFlags::UpdateChecksum()
   checksum = std::accumulate(flag_data.cbegin(), flag_data.cend(), 0U);
 }
 
-void UpdateStateFlags(std::function<void(StateFlags*)> update_function)
+void UpdateStateFlags(const std::function<void(StateFlags*)>& update_function)
 {
   CreateSystemMenuTitleDirs();
   const std::string file_path = Common::GetTitleDataPath(Titles::SYSTEM_MENU) + "/" WII_STATE;

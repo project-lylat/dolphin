@@ -194,3 +194,24 @@ Conflicts:
   name from `m_host_games` instead of `m_lylat_games`.
 
 Build status: not built yet (C: is full).
+
+## Step 10: `upstream/master` (`8d2ad1a662`, all 9185 commits)
+
+Conflicts:
+
+- `Source/Core/DolphinLib.props`: upstream removed the Visual Studio projects
+  and builds Windows with CMake only. Removed the file; the Lylat sources are
+  already in `Source/Core/Core/CMakeLists.txt`.
+- `DolphinQt/GameList/GameList.h`: upstream changed the `SelectionChanged`
+  signal to take a const reference. Kept the fork's `NetPlaySearch` signal.
+- Android `BooleanSetting.kt`: took upstream's crop settings and kept
+  `ShowFPS` on.
+
+Follow-up from the solution removal:
+
+- `build-windows.bat` and the Windows job in `.github/workflows/main.yml` now
+  run CMake + Ninja instead of `msbuild dolphin-emu.sln` (the output is in
+  `Build\x64\Binaries`; CI copies it to `Binary\x64` for the old packaging
+  step). The CI change is not tested.
+
+Build status: not built yet (C: is full).

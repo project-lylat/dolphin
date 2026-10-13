@@ -35,6 +35,7 @@ class CodeWidget;
 class DiscordHandler;
 class DragEnterEvent;
 class FreeLookWindow;
+class GameCount;
 class GameList;
 class GBATASInputWindow;
 class GCTASInputWindow;
@@ -258,6 +259,7 @@ private:
   MenuBar* m_menu_bar;
   SearchBar* m_search_bar;
   GameList* m_game_list;
+  GameCount* m_game_count;
   RenderWidget* m_render_widget = nullptr;
   bool m_should_show_lylat_connected_notification = false;
   bool m_rendering_to_main;

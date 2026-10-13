@@ -3,8 +3,6 @@
 
 #pragma once
 
-#include <optional>
-#include <span>
 #include <string_view>
 #include <vector>
 
@@ -12,7 +10,7 @@
 #include "Common/Matrix.h"
 #include "Common/SmallVector.h"
 #include "VideoCommon/Assets/TextureAsset.h"
-#include "VideoCommon/ShaderGenCommon.h"
+#include "VideoCommon/Resources/MaterialResource.h"
 
 namespace GraphicsModActionData
 {
@@ -20,17 +18,20 @@ struct DrawStarted
 {
   const Common::SmallVector<u32, 8>& texture_units;
   bool* skip;
-  std::optional<CustomPixelShader>* custom_pixel_shader;
-  std::span<u8>* material_uniform_buffer;
 };
 
-struct EFB
+struct PreEFB
 {
   u32 texture_width;
   u32 texture_height;
   bool* skip;
   u32* scaled_width;
   u32* scaled_height;
+};
+
+struct PostEFB
+{
+  VideoCommon::MaterialResource* material = nullptr;
 };
 
 struct Projection

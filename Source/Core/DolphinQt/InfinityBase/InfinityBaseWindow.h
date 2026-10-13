@@ -11,8 +11,8 @@
 #include "Common/CommonTypes.h"
 
 class QCheckBox;
-class QGroupBox;
 class QLineEdit;
+class QStackedWidget;
 class QVBoxLayout;
 
 namespace Core
@@ -37,7 +37,8 @@ protected:
 
 private:
   void CreateMainWindow();
-  void AddFigureSlot(QVBoxLayout* vbox_group, QString name, IOS::HLE::USB::FigureUIPosition slot);
+  void AddFigureSlot(QVBoxLayout* vbox_group, const QString& name,
+                     IOS::HLE::USB::FigureUIPosition slot);
   void OnEmulationStateChanged(Core::State state);
   void EmulateBase(bool emulate);
   void ClearFigure(IOS::HLE::USB::FigureUIPosition slot);
@@ -46,7 +47,7 @@ private:
   void LoadFigurePath(IOS::HLE::USB::FigureUIPosition slot, const QString& path);
 
   QCheckBox* m_checkbox;
-  QGroupBox* m_group_figures;
+  QStackedWidget* m_stacked_groupboxes;
 };
 
 class CreateFigureDialog : public QDialog

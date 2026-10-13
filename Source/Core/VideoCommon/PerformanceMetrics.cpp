@@ -8,10 +8,19 @@
 #include <imgui.h>
 #include <implot.h>
 
+#include "Common/HookableEvent.h"
 #include "Core/Config/GraphicsSettings.h"
+#include "Core/Core.h"
 #include "VideoCommon/VideoConfig.h"
 
-PerformanceMetrics g_perf_metrics;
+PerformanceMetrics::PerformanceMetrics()
+{
+  const auto invalidate_counters_last_time = [this](Core::State) {
+    m_fps_counter.InvalidateLastTime();
+    m_vps_counter.InvalidateLastTime();
+  };
+  m_state_change_hook = Core::AddOnStateChangedCallback(invalidate_counters_last_time);
+}
 
 void PerformanceMetrics::Reset()
 {
@@ -35,12 +44,6 @@ void PerformanceMetrics::CountFrame()
 void PerformanceMetrics::CountVBlank()
 {
   m_vps_counter.Count();
-}
-
-void PerformanceMetrics::OnEmulationStateChanged([[maybe_unused]] Core::State state)
-{
-  m_fps_counter.InvalidateLastTime();
-  m_vps_counter.InvalidateLastTime();
 }
 
 void PerformanceMetrics::CountThrottleSleep(DT sleep)
@@ -103,6 +106,11 @@ double PerformanceMetrics::GetMaxSpeed() const
 void PerformanceMetrics::SetLatestFramePresentationOffset(DT offset)
 {
   m_frame_presentation_offset.store(offset, std::memory_order_relaxed);
+}
+
+void PerformanceMetrics::SetLatestFrameBufferSize(u32 width, u32 height)
+{
+  m_frame_buffer_size.store(FrameBufferSize{width, height}, std::memory_order_relaxed);
 }
 
 void PerformanceMetrics::DrawImGuiStats(const float backbuffer_scale)
@@ -183,7 +191,7 @@ void PerformanceMetrics::DrawImGuiStats(const float backbuffer_scale)
   if (g_ActiveConfig.bShowGraphs)
   {
     // A font size of 13 is small enough to keep the tick numbers from overlapping too much.
-    ImGui::PushFont(NULL, 13.0f);
+    ImGui::PushFont(nullptr, 13.0f);
     ImGui::PushStyleColor(ImGuiCol_ResizeGrip, 0);
     const auto graph_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings |
                              ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoNav | movable_flag |
@@ -338,6 +346,27 @@ void PerformanceMetrics::DrawImGuiStats(const float backbuffer_scale)
         ImGui::TextColored(ImVec4(r, g, b, 1.0f), " ±:%6.2lfms",
                            DT_ms(m_vps_counter.GetDtStd()).count());
       }
+    }
+    ImGui::End();
+  }
+
+  if (g_ActiveConfig.bShowInternalResolution)
+  {
+    ImGui::SetNextWindowPos(ImVec2(window_x, window_y), set_next_position_condition,
+                            ImVec2(1.0f, 0.0f));
+    ImGui::SetNextWindowBgAlpha(bg_alpha);
+
+    if (ImGui::Begin("ResolutionStats", nullptr, imgui_flags))
+    {
+      if (stack_vertically)
+        window_y += ImGui::GetWindowHeight() + window_padding;
+      else
+        window_x -= ImGui::GetWindowWidth() + window_padding;
+
+      clamp_window_position();
+
+      const FrameBufferSize size = m_frame_buffer_size.load(std::memory_order_relaxed);
+      ImGui::TextColored(ImVec4(r, g, b, 1.0f), "XFB res: %ux%u", size.width, size.height);
     }
     ImGui::End();
   }

@@ -13,7 +13,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #else
-#include <WinSock2.h>
+#include <winsock2.h>
 #endif
 
 #include <fmt/format.h>
@@ -462,7 +462,7 @@ DHCPBody::DHCPBody(u32 transaction, const MACAddress& client_address, u32 new_ip
 
 DHCPPacket::DHCPPacket() = default;
 
-DHCPPacket::DHCPPacket(const std::vector<u8>& data)
+DHCPPacket::DHCPPacket(std::span<const u8> data)
 {
   if (data.size() < DHCPBody::SIZE)
     return;
@@ -489,7 +489,7 @@ DHCPPacket::DHCPPacket(const std::vector<u8>& data)
   }
 }
 
-void DHCPPacket::AddOption(u8 fnc, const std::vector<u8>& params)
+void DHCPPacket::AddOption(u8 fnc, std::span<const u8> params)
 {
   if (params.size() > 255)
     return;
@@ -507,7 +507,7 @@ std::vector<u8> DHCPPacket::Build() const
   {
     result.insert(result.end(), opt.begin(), opt.end());
   }
-  const std::vector<u8> no_option = {255, 0, 0, 0};
+  constexpr auto no_option = std::to_array<u8>({255, 0, 0, 0});
   result.insert(result.end(), no_option.begin(), no_option.end());
 
   return result;
@@ -802,7 +802,7 @@ const char* StrNetworkError()
 
 bool SetPlatformSocketOptions(int fd [[maybe_unused]])
 {
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
   int opt_no_sigpipe = 1;
   if (setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &opt_no_sigpipe, sizeof(opt_no_sigpipe)) < 0)
   {

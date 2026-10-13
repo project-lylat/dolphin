@@ -15,7 +15,6 @@
 
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
-#include "Core/HW/SI/SI.h"
 #include "Core/HW/SI/SI_Device.h"
 #include "Core/NetPlayProto.h"
 #include "Core/System.h"
@@ -25,8 +24,6 @@
 #include "DolphinQt/QtUtils/NonDefaultQPushButton.h"
 #include "DolphinQt/QtUtils/SignalBlocking.h"
 #include "DolphinQt/Settings.h"
-
-#include "InputCommon/GCAdapter.h"
 
 using SIDeviceName = std::pair<SerialInterface::SIDevices, const char*>;
 static constexpr std::array s_gc_types = {
@@ -192,23 +189,13 @@ void GamecubeControllersWidget::SaveSettings()
   {
     Config::ConfigChangeCallbackGuard config_guard;
 
-    auto& system = Core::System::GetInstance();
     for (size_t i = 0; i < m_gc_groups.size(); ++i)
     {
       const SerialInterface::SIDevices si_device =
           FromGCMenuIndex(m_gc_controller_boxes[i]->currentIndex());
       Config::SetBaseOrCurrent(Config::GetInfoForSIDevice(static_cast<int>(i)), si_device);
-
-      if (Core::IsRunning(system))
-      {
-        system.GetSerialInterface().ChangeDevice(si_device, static_cast<s32>(i));
-      }
     }
   }
-  if (GCAdapter::UseAdapter())
-    GCAdapter::StartScanThread();
-  else
-    GCAdapter::StopScanThread();
 
   SConfig::GetInstance().SaveSettings();
 }

@@ -29,6 +29,20 @@ enum class CPUCore;
 
 namespace NetPlay
 {
+struct GBAConfig
+{
+  bool enabled = false;
+  bool has_rom = false;
+  std::string title;
+  std::array<u8, 20> hash{};
+};
+
+using PlayerId = u8;
+using FrameNum = u32;
+using PadIndex = s8;
+using PadMappingArray = std::array<PlayerId, 4>;
+using GBAConfigArray = std::array<GBAConfig, 4>;
+
 struct NetSettings
 {
   bool cpu_thread = false;
@@ -112,8 +126,14 @@ struct NetSettings
 
   Sram sram;
 
+  // These are sent separately from the other settings
+  PadMappingArray pad_map{};
+  GBAConfigArray gba_config{};
+  PadMappingArray wiimote_map{};
+
   // These aren't sent over the network directly
   bool is_hosting = false;
+  PlayerId local_player_id;
   std::array<std::string, 4> gba_rom_paths{};
   bool is_chat_enabled = true;
 };
@@ -226,6 +246,7 @@ enum class SyncCodeID : u8
 };
 
 constexpr u32 MAX_NAME_LENGTH = 30;
+constexpr u32 MAX_TARGET_PAD_BUFFER_SIZE = 99;
 constexpr size_t CHUNKED_DATA_UNIT_SIZE = 16384;
 constexpr u32 MAX_ENET_MTU = 1392;  // see https://github.com/lsalzman/enet/issues/132
 
@@ -235,19 +256,6 @@ enum : u8
   CHUNKED_DATA_CHANNEL,
   CHANNEL_COUNT
 };
-
-using PlayerId = u8;
-using FrameNum = u32;
-using PadIndex = s8;
-using PadMappingArray = std::array<PlayerId, 4>;
-struct GBAConfig
-{
-  bool enabled = false;
-  bool has_rom = false;
-  std::string title;
-  std::array<u8, 20> hash{};
-};
-using GBAConfigArray = std::array<GBAConfig, 4>;
 
 struct PadDetails
 {
