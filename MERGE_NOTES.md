@@ -150,3 +150,29 @@ Conflicts:
   `AddOrGetFromCache` and upstream's `OnEmulationStateChanged` plus includes.
 
 Build status: not built yet (C: is full).
+
+## Step 8: tag `2509` (7202 commits)
+
+Conflicts:
+
+- `.gitmodules`: upstream moved the bundled Windows Qt forward. The fork
+  pointed Qt at `project-lylat/ext-win-qt`, which does not have the new Qt
+  commit, so Qt now comes from `dolphin-emu/ext-win-qt` again.
+- Android `IntSetting.kt`: took upstream's new `AudioBufferSize` and kept the
+  fork's volume 50.
+- `Core/NetPlayServer.h`, `DolphinQt/MainWindow.h`: upstream marked the
+  destructors `override`. Kept the fork's extra constructor arguments (the
+  traversal-connect callback, the `-M` game path).
+- `VideoCommon/VideoConfig.h`: upstream dropped `bShowNetPlayPing` from
+  `VideoConfig`; the ping overlay now reads `GFX_SHOW_NETPLAY_PING`, whose
+  default is still the fork's `true`. Took upstream.
+- `DolphinQt/NetPlay/NetPlaySetupDialog.cpp`: upstream simplified
+  `OnConnectionTypeChanged` for its two connection types. Kept the fork's
+  three-way switch (Lylat, direct, traversal); the fork's two-list
+  `PopulateGameList` stays.
+- `DolphinQt/NetPlay/NetPlayDialog.cpp`: upstream made `is_hosting` const;
+  kept the fork's `auto_start` next to it.
+- `DolphinQt/MainWindow.cpp`: kept the fork's "Find Match" toolbar and
+  double-click-to-search connections, with upstream's lambda style.
+
+Build status: not built yet (C: is full).

@@ -99,10 +99,11 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
   switch (bp.address)
   {
   case BPMEM_GENMODE:  // Set the Generation Mode
-    PRIM_LOG("genmode: texgen={}, col={}, multisampling={}, tev={}, cullmode={}, ind={}, zfeeze={}",
-             bpmem.genMode.numtexgens, bpmem.genMode.numcolchans, bpmem.genMode.multisampling,
-             bpmem.genMode.numtevstages + 1, bpmem.genMode.cullmode, bpmem.genMode.numindstages,
-             bpmem.genMode.zfreeze);
+    PRIM_LOG(
+        "genmode: texgen={}, col={}, multisampling={}, tev={}, cull_mode={}, ind={}, zfeeze={}",
+        bpmem.genMode.numtexgens, bpmem.genMode.numcolchans, bpmem.genMode.multisampling,
+        bpmem.genMode.numtevstages + 1, bpmem.genMode.cull_mode, bpmem.genMode.numindstages,
+        bpmem.genMode.zfreeze);
 
     if (bp.changes)
       pixel_shader_manager.SetGenModeChanged();
@@ -144,8 +145,8 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
     geometry_shader_manager.SetLinePtWidthChanged();
     return;
   case BPMEM_ZMODE:  // Depth Control
-    PRIM_LOG("zmode: test={}, func={}, upd={}", bpmem.zmode.testenable, bpmem.zmode.func,
-             bpmem.zmode.updateenable);
+    PRIM_LOG("zmode: test={}, func={}, upd={}", bpmem.zmode.test_enable, bpmem.zmode.func,
+             bpmem.zmode.update_enable);
     SetDepthMode();
     pixel_shader_manager.SetZModeControl();
     return;
@@ -153,9 +154,10 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
     if (bp.changes & 0xFFFF)
     {
       PRIM_LOG("blendmode: en={}, open={}, colupd={}, alphaupd={}, dst={}, src={}, sub={}, mode={}",
-               bpmem.blendmode.blendenable, bpmem.blendmode.logicopenable,
-               bpmem.blendmode.colorupdate, bpmem.blendmode.alphaupdate, bpmem.blendmode.dstfactor,
-               bpmem.blendmode.srcfactor, bpmem.blendmode.subtract, bpmem.blendmode.logicmode);
+               bpmem.blendmode.blend_enable, bpmem.blendmode.logic_op_enable,
+               bpmem.blendmode.color_update, bpmem.blendmode.alpha_update,
+               bpmem.blendmode.dst_factor, bpmem.blendmode.src_factor, bpmem.blendmode.subtract,
+               bpmem.blendmode.logic_mode);
 
       SetBlendMode();
 
@@ -357,8 +359,13 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
       auto& system = Core::System::GetInstance();
       if (g_ActiveConfig.bImmediateXFB)
       {
+        // TODO: GetTicks is not sane from the GPU thread.
+        // This value is currently used for frame dumping and the custom shader "time_ms" value.
+        // Frame dumping has more calls that aren't sane from the GPU thread.
+        // i.e. Frame dumping is not sane in "Dual Core" mode in general.
+        const u64 ticks = system.GetCoreTiming().GetTicks();
+
         // below div two to convert from bytes to pixels - it expects width, not stride
-        u64 ticks = system.GetCoreTiming().GetTicks();
         g_presenter->ImmediateSwap(destAddr, destStride / 2, destStride, height, ticks);
       }
       else
@@ -778,7 +785,7 @@ static void BPWritten(PixelShaderManager& pixel_shader_manager, XFStateManager& 
     break;
   }
 
-  DolphinAnalytics::Instance().ReportGameQuirk(GameQuirk::USES_UNKNOWN_BP_COMMAND);
+  DolphinAnalytics::Instance().ReportGameQuirk(GameQuirk::UsesUnknownBPCommand);
   WARN_LOG_FMT(VIDEO, "Unknown BP opcode: address = {:#010x} value = {:#010x}", bp.address,
                bp.newvalue);
 }

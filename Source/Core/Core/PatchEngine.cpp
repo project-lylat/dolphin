@@ -35,6 +35,7 @@
 #include "Core/PowerPC/MMU.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/System.h"
+#include "VideoCommon/OnScreenDisplay.h"
 
 namespace PatchEngine
 {
@@ -183,7 +184,8 @@ void LoadPatches()
   LoadPatchSection("OnFrame", &s_on_frame, globalIni, localIni);
 
 #ifdef USE_RETRO_ACHIEVEMENTS
-  AchievementManager::GetInstance().FilterApprovedPatches(s_on_frame, sconfig.GetGameID());
+  AchievementManager::GetInstance().FilterApprovedPatches(s_on_frame, sconfig.GetGameID(),
+                                                          sconfig.GetRevision());
 #endif  // USE_RETRO_ACHIEVEMENTS
 
   // Check if I'm syncing Codes
@@ -194,9 +196,23 @@ void LoadPatches()
   }
   else
   {
-    Gecko::SetActiveCodes(Gecko::LoadCodes(globalIni, localIni), sconfig.GetGameID());
-    ActionReplay::LoadAndApplyCodes(globalIni, localIni, sconfig.GetGameID());
+    Gecko::SetActiveCodes(Gecko::LoadCodes(globalIni, localIni), sconfig.GetGameID(),
+                          sconfig.GetRevision());
+    ActionReplay::LoadAndApplyCodes(globalIni, localIni, sconfig.GetGameID(),
+                                    sconfig.GetRevision());
   }
+
+  const size_t enabled_patch_count =
+      std::ranges::count_if(s_on_frame, [](Patch patch) { return patch.enabled; });
+  if (enabled_patch_count > 0)
+  {
+    OSD::AddMessage(fmt::format("{} game patch(es) enabled", enabled_patch_count),
+                    OSD::Duration::NORMAL);
+  }
+
+  const size_t enabled_cheat_count = ActionReplay::CountEnabledCodes() + Gecko::CountEnabledCodes();
+  if (enabled_cheat_count > 0)
+    OSD::AddMessage(fmt::format("{} cheat(s) enabled", enabled_cheat_count), OSD::Duration::NORMAL);
 }
 
 static void ApplyPatches(const Core::CPUThreadGuard& guard, const std::vector<Patch>& patches)
@@ -216,19 +232,19 @@ static void ApplyPatches(const Core::CPUThreadGuard& guard, const std::vector<Pa
           if (!entry.conditional ||
               PowerPC::MMU::HostRead_U8(guard, addr) == static_cast<u8>(comparand))
           {
-            PowerPC::MMU::HostWrite_U8(guard, static_cast<u8>(value), addr);
+            ApplyMemoryPatch<u8>(guard, static_cast<u8>(value), addr);
           }
           break;
         case PatchType::Patch16Bit:
           if (!entry.conditional ||
               PowerPC::MMU::HostRead_U16(guard, addr) == static_cast<u16>(comparand))
           {
-            PowerPC::MMU::HostWrite_U16(guard, static_cast<u16>(value), addr);
+            ApplyMemoryPatch<u16>(guard, static_cast<u16>(value), addr);
           }
           break;
         case PatchType::Patch32Bit:
           if (!entry.conditional || PowerPC::MMU::HostRead_U32(guard, addr) == comparand)
-            PowerPC::MMU::HostWrite_U32(guard, value, addr);
+            ApplyMemoryPatch<u32>(guard, value, addr);
           break;
         default:
           // unknown patchtype
@@ -340,7 +356,7 @@ bool ApplyFramePatches(Core::System& system)
 void Shutdown()
 {
   s_on_frame.clear();
-  ActionReplay::ApplyCodes({}, "");
+  ActionReplay::ApplyCodes({}, "", 0);
   Gecko::Shutdown();
 }
 

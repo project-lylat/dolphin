@@ -43,8 +43,9 @@ public:
                             const std::string& title = "");
 
   NetPlayServer(u16 port, bool forward_port, NetPlayUI* dialog,
-                const NetTraversalConfig& traversal_config, std::function<void(std::string)> onTraversalConnectCallback);
-  ~NetPlayServer();
+                const NetTraversalConfig& traversal_config,
+                std::function<void(std::string)> onTraversalConnectCallback);
+  ~NetPlayServer() override;
 
   bool ChangeGame(const SyncIdentifier& sync_identifier, const std::string& netplay_name);
   bool ComputeGameDigest(const SyncIdentifier& sync_identifier);
@@ -200,8 +201,8 @@ private:
     std::recursive_mutex chunked_data_queue_write;
   } m_crit;
 
-  Common::SPSCQueue<AsyncQueueEntry, false> m_async_queue;
-  Common::SPSCQueue<ChunkedDataQueueEntry, false> m_chunked_data_queue;
+  Common::SPSCQueue<AsyncQueueEntry> m_async_queue;
+  Common::SPSCQueue<ChunkedDataQueueEntry> m_chunked_data_queue;
 
   SyncIdentifier m_selected_game_identifier;
   std::string m_selected_game_name;
