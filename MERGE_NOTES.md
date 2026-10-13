@@ -278,3 +278,9 @@ Build status: not built yet (C: is full).
   `-DMZ_FETCH_LIBS=OFF -DMZ_BZIP2=OFF -DMZ_PKCRYPT=OFF -DMZ_WZAES=OFF
   -DMZ_OPENSSL=OFF -DMZ_LIBBSD=OFF` (master sets these itself), or minizip-ng
   builds its own bzip2 next to Dolphin's.
+
+## Fixes found by the 2603 test build
+
+- `Core/Config/GraphicsSettings.cpp`: upstream renamed `AspectMode::AnalogWide`
+  to `AspectMode::ForceWide` (same value, so saved settings keep working). The
+  fork's default aspect ratio now uses the new name.
