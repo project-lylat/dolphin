@@ -60,6 +60,7 @@ public final class MenuFragment extends Fragment implements View.OnClickListener
     buttonsActionsMap.append(R.id.menu_change_disc, EmulationActivity.MENU_ACTION_CHANGE_DISC);
     buttonsActionsMap.append(R.id.menu_exit, EmulationActivity.MENU_ACTION_EXIT);
     buttonsActionsMap.append(R.id.menu_settings, EmulationActivity.MENU_ACTION_SETTINGS);
+    buttonsActionsMap.append(R.id.menu_skylanders, EmulationActivity.MENU_ACTION_SKYLANDERS);
   }
 
   private FragmentIngameMenuBinding mBinding;
@@ -91,7 +92,7 @@ public final class MenuFragment extends Fragment implements View.OnClickListener
   @Override
   public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState)
   {
-    if (IntSetting.MAIN_INTERFACE_THEME.getIntGlobal() != ThemeHelper.DEFAULT)
+    if (IntSetting.MAIN_INTERFACE_THEME.getInt() != ThemeHelper.DEFAULT)
     {
       @ColorInt int color = new ElevationOverlayProvider(view.getContext()).compositeOverlay(
               MaterialColors.getColor(view, R.attr.colorSurface),
@@ -110,6 +111,12 @@ public final class MenuFragment extends Fragment implements View.OnClickListener
     if (!getArguments().getBoolean(KEY_WII, true))
     {
       mBinding.menuRefreshWiimotes.setVisibility(View.GONE);
+      mBinding.menuSkylanders.setVisibility(View.GONE);
+    }
+
+    if (!BooleanSetting.MAIN_EMULATE_SKYLANDER_PORTAL.getBoolean())
+    {
+      mBinding.menuSkylanders.setVisibility(View.GONE);
     }
 
     LinearLayout options = mBinding.layoutOptions;
@@ -169,7 +176,7 @@ public final class MenuFragment extends Fragment implements View.OnClickListener
   {
     super.onResume();
 
-    boolean savestatesEnabled = BooleanSetting.MAIN_ENABLE_SAVESTATES.getBooleanGlobal();
+    boolean savestatesEnabled = BooleanSetting.MAIN_ENABLE_SAVESTATES.getBoolean();
     int savestateVisibility = savestatesEnabled ? View.VISIBLE : View.GONE;
     mBinding.menuQuicksave.setVisibility(savestateVisibility);
     mBinding.menuQuickload.setVisibility(savestateVisibility);

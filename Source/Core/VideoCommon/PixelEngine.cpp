@@ -20,7 +20,6 @@
 #include "VideoCommon/BoundingBox.h"
 #include "VideoCommon/Fifo.h"
 #include "VideoCommon/PerfQueryBase.h"
-#include "VideoCommon/RenderBase.h"
 #include "VideoCommon/VideoBackendBase.h"
 
 namespace PixelEngine
@@ -148,7 +147,7 @@ void PixelEngineManager::RegisterMMIO(MMIO::Mapping* mmio, u32 base)
   {
     mmio->Register(base | (PE_BBOX_LEFT + 2 * i),
                    MMIO::ComplexRead<u16>([i](Core::System& system, u32) {
-                     g_renderer->BBoxDisable(system.GetPixelShaderManager());
+                     g_bounding_box->Disable(system.GetPixelShaderManager());
                      return g_video_backend->Video_GetBoundingBox(i);
                    }),
                    MMIO::InvalidWrite<u16>());
@@ -157,12 +156,15 @@ void PixelEngineManager::RegisterMMIO(MMIO::Mapping* mmio, u32 base)
 
 void PixelEngineManager::UpdateInterrupts()
 {
+  auto& system = Core::System::GetInstance();
+  auto& processor_interface = system.GetProcessorInterface();
+
   // check if there is a token-interrupt
-  ProcessorInterface::SetInterrupt(INT_CAUSE_PE_TOKEN,
+  processor_interface.SetInterrupt(INT_CAUSE_PE_TOKEN,
                                    m_signal_token_interrupt && m_control.pe_token_enable);
 
   // check if there is a finish-interrupt
-  ProcessorInterface::SetInterrupt(INT_CAUSE_PE_FINISH,
+  processor_interface.SetInterrupt(INT_CAUSE_PE_FINISH,
                                    m_signal_finish_interrupt && m_control.pe_finish_enable);
 }
 

@@ -6,8 +6,9 @@
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
 #include "VideoBackends/D3D/D3DBase.h"
-#include "VideoCommon/RenderBase.h"
+#include "VideoCommon/FramebufferManager.h"
 #include "VideoCommon/VideoCommon.h"
+#include "VideoCommon/VideoConfig.h"
 
 namespace DX11
 {
@@ -96,7 +97,7 @@ u32 PerfQuery::GetQueryResult(PerfQueryType type)
     result = m_results[PQG_EFB_COPY_CLOCKS].load(std::memory_order_relaxed);
   }
 
-  return result;
+  return result / 4;
 }
 
 void PerfQuery::FlushOne()
@@ -114,8 +115,10 @@ void PerfQuery::FlushOne()
   // NOTE: Reported pixel metrics should be referenced to native resolution
   // TODO: Dropping the lower 2 bits from this count should be closer to actual
   // hardware behavior when drawing triangles.
-  const u64 native_res_result = result * EFB_WIDTH / g_renderer->GetTargetWidth() * EFB_HEIGHT /
-                                g_renderer->GetTargetHeight();
+  u64 native_res_result = result * EFB_WIDTH / g_framebuffer_manager->GetEFBWidth() * EFB_HEIGHT /
+                          g_framebuffer_manager->GetEFBHeight();
+  if (g_ActiveConfig.iMultisamples > 1)
+    native_res_result /= g_ActiveConfig.iMultisamples;
   m_results[entry.query_group].fetch_add(static_cast<u32>(native_res_result),
                                          std::memory_order_relaxed);
 
@@ -143,8 +146,8 @@ void PerfQuery::WeakFlush()
     if (hr == S_OK)
     {
       // NOTE: Reported pixel metrics should be referenced to native resolution
-      const u64 native_res_result = result * EFB_WIDTH / g_renderer->GetTargetWidth() * EFB_HEIGHT /
-                                    g_renderer->GetTargetHeight();
+      const u64 native_res_result = result * EFB_WIDTH / g_framebuffer_manager->GetEFBWidth() *
+                                    EFB_HEIGHT / g_framebuffer_manager->GetEFBHeight();
       m_results[entry.query_group].store(static_cast<u32>(native_res_result),
                                          std::memory_order_relaxed);
 

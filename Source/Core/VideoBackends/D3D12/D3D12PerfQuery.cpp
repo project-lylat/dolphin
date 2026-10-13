@@ -9,9 +9,11 @@
 #include "Common/Logging/Log.h"
 
 #include "VideoBackends/D3D12/Common.h"
-#include "VideoBackends/D3D12/D3D12Renderer.h"
+#include "VideoBackends/D3D12/D3D12Gfx.h"
 #include "VideoBackends/D3D12/DX12Context.h"
+#include "VideoCommon/FramebufferManager.h"
 #include "VideoCommon/VideoCommon.h"
+#include "VideoCommon/VideoConfig.h"
 
 namespace DX12
 {
@@ -64,7 +66,7 @@ void PerfQuery::EnableQuery(PerfQueryGroup group)
   // This is because we can't leave a query open when submitting a command list, and the draw
   // call itself may need to execute a command list if we run out of descriptors. Note that
   // this assumes that the caller has bound all required state prior to enabling the query.
-  Renderer::GetInstance()->ApplyState();
+  Gfx::GetInstance()->ApplyState();
 
   if (group == PQG_ZCOMP_ZCOMPLOC || group == PQG_ZCOMP)
   {
@@ -243,9 +245,11 @@ void PerfQuery::AccumulateQueriesFromBuffer(u32 query_count)
     std::memcpy(&result, mapped_ptr + (index * sizeof(PerfQueryDataType)), sizeof(result));
 
     // NOTE: Reported pixel metrics should be referenced to native resolution
-    const u64 native_res_result = static_cast<u64>(result) * EFB_WIDTH /
-                                  g_renderer->GetTargetWidth() * EFB_HEIGHT /
-                                  g_renderer->GetTargetHeight();
+    u64 native_res_result = static_cast<u64>(result) * EFB_WIDTH /
+                            g_framebuffer_manager->GetEFBWidth() * EFB_HEIGHT /
+                            g_framebuffer_manager->GetEFBHeight();
+    if (g_ActiveConfig.iMultisamples > 1)
+      native_res_result /= g_ActiveConfig.iMultisamples;
     m_results[entry.query_group].fetch_add(static_cast<u32>(native_res_result),
                                            std::memory_order_relaxed);
   }
@@ -261,7 +265,7 @@ void PerfQuery::PartialFlush(bool resolve, bool blocking)
 {
   // Submit a command buffer if there are unresolved queries (to write them to the buffer).
   if (resolve && m_unresolved_queries > 0)
-    Renderer::GetInstance()->ExecuteCommandList(false);
+    Gfx::GetInstance()->ExecuteCommandList(false);
 
   ReadbackQueries(blocking);
 }

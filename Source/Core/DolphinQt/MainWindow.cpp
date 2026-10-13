@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -62,6 +63,7 @@
 #include "Core/NetPlayProto.h"
 #include "Core/NetPlayServer.h"
 #include "Core/State.h"
+#include "Core/System.h"
 #include "Core/WiiUtils.h"
 
 #include "DiscIO/DirectoryBlob.h"
@@ -109,6 +111,7 @@
 #include "DolphinQt/RiivolutionBootWidget.h"
 #include "DolphinQt/SearchBar.h"
 #include "DolphinQt/Settings.h"
+#include "DolphinQt/SkylanderPortal/SkylanderPortalWindow.h"
 #include "DolphinQt/TAS/GBATASInputWindow.h"
 #include "DolphinQt/TAS/GCTASInputWindow.h"
 #include "DolphinQt/TAS/WiiTASInputWindow.h"
@@ -472,6 +475,7 @@ void MainWindow::CreateComponents()
   connect(m_breakpoint_widget, &BreakpointWidget::ShowMemory, m_memory_widget,
           &MemoryWidget::SetAddress);
   connect(m_cheats_manager, &CheatsManager::ShowMemory, m_memory_widget, &MemoryWidget::SetAddress);
+  connect(m_cheats_manager, &CheatsManager::RequestWatch, request_watch);
 }
 
 void MainWindow::ConnectMenuBar()
@@ -482,8 +486,7 @@ void MainWindow::ConnectMenuBar()
   connect(m_menu_bar, &MenuBar::Exit, this, &MainWindow::close);
   connect(m_menu_bar, &MenuBar::EjectDisc, this, &MainWindow::EjectDisc);
   connect(m_menu_bar, &MenuBar::ChangeDisc, this, &MainWindow::ChangeDisc);
-  connect(m_menu_bar, &MenuBar::BootDVDBackup, this,
-          [this](const QString& drive) { StartGame(drive, ScanForSecondDisc::No); });
+  connect(m_menu_bar, &MenuBar::OpenUserFolder, this, &MainWindow::OpenUserFolder);
 
   // Emulation
   connect(m_menu_bar, &MenuBar::Pause, this, &MainWindow::Pause);
@@ -524,6 +527,7 @@ void MainWindow::ConnectMenuBar()
   connect(m_menu_bar, &MenuBar::StartNetPlay, this, &MainWindow::ShowNetPlaySetupDialog);
   connect(m_menu_bar, &MenuBar::BrowseNetPlay, this, &MainWindow::ShowNetPlayBrowser);
   connect(m_menu_bar, &MenuBar::ShowFIFOPlayer, this, &MainWindow::ShowFIFOPlayer);
+  connect(m_menu_bar, &MenuBar::ShowSkylanderPortal, this, &MainWindow::ShowSkylanderPortal);
   connect(m_menu_bar, &MenuBar::ConnectWiiRemote, this, &MainWindow::OnConnectWiiRemote);
 
   // Movie
@@ -750,12 +754,22 @@ void MainWindow::ChangeDisc()
   std::vector<std::string> paths = StringListToStdVector(PromptFileNames());
 
   if (!paths.empty())
-    Core::RunAsCPUThread([&paths] { DVDInterface::ChangeDisc(paths); });
+    Core::RunAsCPUThread(
+        [&paths] { Core::System::GetInstance().GetDVDInterface().ChangeDisc(paths); });
 }
 
 void MainWindow::EjectDisc()
 {
-  Core::RunAsCPUThread([] { DVDInterface::EjectDisc(DVDInterface::EjectCause::User); });
+  Core::RunAsCPUThread(
+      [] { Core::System::GetInstance().GetDVDInterface().EjectDisc(DVD::EjectCause::User); });
+}
+
+void MainWindow::OpenUserFolder()
+{
+  std::string path = File::GetUserPath(D_USER_IDX);
+
+  QUrl url = QUrl::fromLocalFile(QString::fromStdString(path));
+  QDesktopServices::openUrl(url);
 }
 
 void MainWindow::SearchAndOpen()
@@ -1045,7 +1059,8 @@ void MainWindow::Reset()
 {
   if (Movie::IsRecordingInput())
     Movie::SetReset(true);
-  ProcessorInterface::ResetButton_Tap();
+  auto& system = Core::System::GetInstance();
+  system.GetProcessorInterface().ResetButton_Tap();
 }
 
 void MainWindow::FrameAdvance()
@@ -1395,6 +1410,18 @@ void MainWindow::ShowFIFOPlayer()
   m_fifo_window->activateWindow();
 }
 
+void MainWindow::ShowSkylanderPortal()
+{
+  if (!m_skylander_window)
+  {
+    m_skylander_window = new SkylanderPortalWindow;
+  }
+
+  m_skylander_window->show();
+  m_skylander_window->raise();
+  m_skylander_window->activateWindow();
+}
+
 void MainWindow::StateLoad()
 {
   QString path =
@@ -1463,7 +1490,7 @@ void MainWindow::SetStateSlot(int slot)
 
 void MainWindow::IncrementSelectedStateSlot()
 {
-  int state_slot = m_state_slot + 1;
+  u32 state_slot = m_state_slot + 1;
   if (state_slot > State::NUM_STATES)
     state_slot = 1;
   m_menu_bar->SetStateSlot(state_slot);
@@ -1471,7 +1498,7 @@ void MainWindow::IncrementSelectedStateSlot()
 
 void MainWindow::DecrementSelectedStateSlot()
 {
-  int state_slot = m_state_slot - 1;
+  u32 state_slot = m_state_slot - 1;
   if (state_slot < 1)
     state_slot = State::NUM_STATES;
   m_menu_bar->SetStateSlot(state_slot);

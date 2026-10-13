@@ -47,6 +47,7 @@ class RegisterWidget;
 class RenderWidget;
 class SearchBar;
 class SettingsWindow;
+class SkylanderPortalWindow;
 class ThreadWidget;
 class ToolBar;
 class WatchWidget;
@@ -170,6 +171,7 @@ private:
   void ShowNetPlaySetupDialog();
   void ShowNetPlayBrowser();
   void ShowFIFOPlayer();
+  void ShowSkylanderPortal();
   void ShowMemcardManager();
   void ShowResourcePackManager();
   void ShowCheatsManager();
@@ -206,6 +208,8 @@ private:
   void ChangeDisc();
   void EjectDisc();
 
+  void OpenUserFolder();
+
   QStringList PromptFileNames();
 
   void UpdateScreenSaverInhibition();
@@ -232,7 +236,7 @@ private:
   bool m_exit_requested = false;
   bool m_fullscreen_requested = false;
   bool m_is_screensaver_inhibited = false;
-  int m_state_slot = 1;
+  u32 m_state_slot = 1;
   std::unique_ptr<BootParameters> m_pending_boot;
   std::default_random_engine generator;
 
@@ -242,6 +246,7 @@ private:
   SettingsWindow* m_settings_window = nullptr;
   GraphicsWindow* m_graphics_window = nullptr;
   FIFOPlayerWindow* m_fifo_window = nullptr;
+  SkylanderPortalWindow* m_skylander_window = nullptr;
   MappingWindow* m_hotkey_window = nullptr;
   FreeLookWindow* m_freelook_window = nullptr;
 

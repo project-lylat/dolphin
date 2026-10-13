@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -41,7 +42,7 @@
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/System.h"
 
-#include "VideoCommon/FrameDump.h"
+#include "VideoCommon/FrameDumpFFMpeg.h"
 #include "VideoCommon/OnScreenDisplay.h"
 #include "VideoCommon/VideoBackendBase.h"
 
@@ -95,7 +96,7 @@ static size_t s_state_writes_in_queue;
 static std::condition_variable s_state_write_queue_is_empty;
 
 // Don't forget to increase this after doing changes on the savestate system
-constexpr u32 STATE_VERSION = 156;  // Last changed in PR 11184
+constexpr u32 STATE_VERSION = 161;  // Last changed in PR 11655
 
 // Maps savestate versions to Dolphin versions.
 // Versions after 42 don't need to be added to this list,
@@ -223,14 +224,18 @@ static void DoState(PointerWrap& p)
   g_video_backend->DoState(p);
   p.DoMarker("video_backend");
 
-  PowerPC::DoState(p);
-  p.DoMarker("PowerPC");
   // CoreTiming needs to be restored before restoring Hardware because
   // the controller code might need to schedule an event if the controller has changed.
   system.GetCoreTiming().DoState(p);
   p.DoMarker("CoreTiming");
-  HW::DoState(p);
+
+  // HW needs to be restored before PowerPC because the data cache might need to be flushed.
+  HW::DoState(system, p);
   p.DoMarker("HW");
+
+  PowerPC::DoState(p);
+  p.DoMarker("PowerPC");
+
   if (SConfig::GetInstance().bWii)
     Wiimote::DoState(p);
   p.DoMarker("Wiimote");
@@ -454,7 +459,8 @@ static void CompressAndDumpState(CompressAndDumpState_args& save_args)
     File::Rename(temp_filename, filename);
   }
 
-  Core::DisplayMessage(fmt::format("Saved State to {}", filename), 2000);
+  std::filesystem::path tempfilename(filename);
+  Core::DisplayMessage(fmt::format("Saved State to {}", tempfilename.filename().string()), 2000);
   Host_UpdateMainFrame();
 }
 
@@ -467,7 +473,7 @@ void SaveAs(const std::string& filename, bool wait)
   Core::RunOnCPUThread(
       [&] {
         {
-          std::lock_guard lk(s_state_writes_in_queue_mutex);
+          std::lock_guard lk_(s_state_writes_in_queue_mutex);
           ++s_state_writes_in_queue;
         }
 
@@ -509,7 +515,7 @@ void SaveAs(const std::string& filename, bool wait)
           // someone aborted the save by changing the mode?
           {
             // Note: The worker thread takes care of this in the other branch.
-            std::lock_guard lk(s_state_writes_in_queue_mutex);
+            std::lock_guard lk_(s_state_writes_in_queue_mutex);
             if (--s_state_writes_in_queue == 0)
               s_state_write_queue_is_empty.notify_all();
           }
@@ -684,7 +690,9 @@ void LoadAs(const std::string& filename)
         {
           if (loadedSuccessfully)
           {
-            Core::DisplayMessage(fmt::format("Loaded state from {}", filename), 2000);
+            std::filesystem::path tempfilename(filename);
+            Core::DisplayMessage(
+                fmt::format("Loaded State from {}", tempfilename.filename().string()), 2000);
             if (File::Exists(filename + ".dtm"))
               Movie::LoadInput(filename + ".dtm");
             else if (!Movie::IsJustStartingRecordingInputFromSaveState() &&
@@ -716,7 +724,7 @@ void Init()
   if (lzo_init() != LZO_E_OK)
     PanicAlertFmtT("Internal LZO Error - lzo_init() failed");
 
-  s_save_thread.Reset([](CompressAndDumpState_args args) {
+  s_save_thread.Reset("Savestate Worker", [](CompressAndDumpState_args args) {
     CompressAndDumpState(args);
 
     {

@@ -70,3 +70,17 @@ Conflicts (all default values next to new upstream settings):
   fork's defaults: `ShowFPS` on and `ShowNetPlayPing` on.
 
 Build status: not built yet (C: is full; builds are on hold).
+
+## Step 3: `db40348c86` (PR #11695, 2488 commits)
+
+Conflicts:
+
+- `VideoCommon/VideoBackendBase.cpp`: upstream moved Metal to the front of the
+  list (`emplace` at the start) and kept D3D after OpenGL. Kept the fork's
+  D3D11/D3D12-first block and dropped the old Metal `push_back` (upstream's
+  `emplace` covers it).
+- Android `BooleanSetting.java` and `IntSetting.java` were converted to Kotlin
+  upstream. Removed the Java files and put the fork's defaults into the `.kt`
+  files: `ShowFPS` on, `UsePanicHandlers` off, volume 50.
+
+Build status: not built yet (C: is full).

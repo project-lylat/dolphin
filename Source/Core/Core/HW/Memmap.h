@@ -16,6 +16,10 @@
 
 // Global declarations
 class PointerWrap;
+namespace Core
+{
+class System;
+}
 namespace MMIO
 {
 class Mapping;
@@ -54,7 +58,7 @@ struct LogicalMemoryView
 class MemoryManager
 {
 public:
-  MemoryManager();
+  explicit MemoryManager(Core::System& system);
   MemoryManager(const MemoryManager& other) = delete;
   MemoryManager(MemoryManager&& other) = delete;
   MemoryManager& operator=(const MemoryManager& other) = delete;
@@ -72,6 +76,7 @@ public:
   u32 GetExRamSize() const { return m_exram_size; }
   u32 GetExRamMask() const { return m_exram_mask; }
 
+  bool IsAddressInFastmemArea(const u8* address) const;
   u8* GetPhysicalBase() const { return m_physical_base; }
   u8* GetLogicalBase() const { return m_logical_base; }
   u8* GetPhysicalPageMappingsBase() const { return m_physical_page_mappings_base; }
@@ -146,6 +151,8 @@ private:
   // are used to set up a full GC or Wii memory map in process memory.
   // In 64-bit, this might point to "high memory" (above the 32-bit limit),
   // so be sure to load it into a 64-bit register.
+  u8* m_fastmem_arena = nullptr;
+  size_t m_fastmem_arena_size = 0;
   u8* m_physical_base = nullptr;
   u8* m_logical_base = nullptr;
 
@@ -155,28 +162,28 @@ private:
   u8* m_logical_page_mappings_base = nullptr;
 
   // The actual memory used for backing the memory map.
-  u8* m_ram;
-  u8* m_exram;
-  u8* m_l1_cache;
-  u8* m_fake_vmem;
+  u8* m_ram = nullptr;
+  u8* m_exram = nullptr;
+  u8* m_l1_cache = nullptr;
+  u8* m_fake_vmem = nullptr;
 
   // m_ram_size is the amount allocated by the emulator, whereas m_ram_size_real
   // is what will be reported in lowmem, and thus used by emulated software.
   // Note: Writing to lowmem is done by IPL. If using retail IPL, it will
   // always be set to 24MB.
-  u32 m_ram_size_real;
-  u32 m_ram_size;
-  u32 m_ram_mask;
-  u32 m_fakevmem_size;
-  u32 m_fakevmem_mask;
-  u32 m_l1_cache_size;
-  u32 m_l1_cache_mask;
+  u32 m_ram_size_real = 0;
+  u32 m_ram_size = 0;
+  u32 m_ram_mask = 0;
+  u32 m_fakevmem_size = 0;
+  u32 m_fakevmem_mask = 0;
+  u32 m_l1_cache_size = 0;
+  u32 m_l1_cache_mask = 0;
   // m_exram_size is the amount allocated by the emulator, whereas m_exram_size_real
   // is what gets used by emulated software.  If using retail IOS, it will
   // always be set to 64MB.
-  u32 m_exram_size_real;
-  u32 m_exram_size;
-  u32 m_exram_mask;
+  u32 m_exram_size_real = 0;
+  u32 m_exram_size = 0;
+  u32 m_exram_mask = 0;
 
   bool m_is_fastmem_arena_initialized = false;
 
@@ -218,8 +225,8 @@ private:
   // with address translation turned on.  This mapping is computed based
   // on the BAT registers.
   //
-  // Each of these 4GB regions is followed by 4GB of empty space so overflows
-  // in address computation in the JIT don't access the wrong memory.
+  // Each of these 4GB regions is surrounded by 2GB of empty space so overflows
+  // in address computation in the JIT don't access unrelated memory.
   //
   // The neighboring mirrors of RAM ([0x02000000, 0x08000000), etc.) exist because
   // the bus masks off the bits in question for RAM accesses; using them is a
@@ -227,16 +234,16 @@ private:
   // few buggy games (notably Rogue Squadron 2) use them by accident. They
   // aren't backed by memory mappings because they are used very rarely.
   //
-  // Dolphin doesn't emulate the difference between cached and uncached access.
-  //
   // TODO: The actual size of RAM is 24MB; the other 8MB shouldn't be backed by actual memory.
   // TODO: Do we want to handle the mirrors of the GC RAM?
-  std::array<PhysicalMemoryRegion, 4> m_physical_regions;
+  std::array<PhysicalMemoryRegion, 4> m_physical_regions{};
 
   std::vector<LogicalMemoryView> m_logical_mapped_entries;
 
-  std::array<void*, PowerPC::BAT_PAGE_COUNT> m_physical_page_mappings;
-  std::array<void*, PowerPC::BAT_PAGE_COUNT> m_logical_page_mappings;
+  std::array<void*, PowerPC::BAT_PAGE_COUNT> m_physical_page_mappings{};
+  std::array<void*, PowerPC::BAT_PAGE_COUNT> m_logical_page_mappings{};
+
+  Core::System& m_system;
 
   void InitMMIO(bool is_wii);
 };

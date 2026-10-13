@@ -67,6 +67,7 @@
 #include "Core/NetPlayCommon.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/SyncIdentifier.h"
+#include "Core/System.h"
 #include "DiscIO/Blob.h"
 
 #include "InputCommon/ControllerEmu/ControlGroup/Attachments.h"
@@ -248,7 +249,12 @@ bool NetPlayClient::Connect()
   sf::Packet rpac;
   // TODO: make this not hang
   ENetEvent netEvent;
-  if (enet_host_service(m_client, &netEvent, 5000) > 0 && netEvent.type == ENET_EVENT_TYPE_RECEIVE)
+  int net;
+  while ((net = enet_host_service(m_client, &netEvent, 5000)) > 0 && netEvent.type == 42)
+  {
+    // ignore packets from traversal server
+  }
+  if (net > 0 && netEvent.type == ENET_EVENT_TYPE_RECEIVE)
   {
     rpac.append(netEvent.packet->data, netEvent.packet->dataLength);
     enet_packet_destroy(netEvent.packet);
@@ -1847,11 +1853,12 @@ void NetPlayClient::UpdateDevices()
   u8 local_pad = 0;
   u8 pad = 0;
 
+  auto& si = Core::System::GetInstance().GetSerialInterface();
   for (auto player_id : m_pad_map)
   {
     if (m_gba_config[pad].enabled && player_id > 0)
     {
-      SerialInterface::ChangeDevice(SerialInterface::SIDEVICE_GC_GBA_EMULATED, pad);
+      si.ChangeDevice(SerialInterface::SIDEVICE_GC_GBA_EMULATED, pad);
     }
     else if (player_id == m_local_player->pid)
     {
@@ -1860,7 +1867,7 @@ void NetPlayClient::UpdateDevices()
           Config::Get(Config::GetInfoForSIDevice(local_pad));
       if (SerialInterface::SIDevice_IsGCController(si_device))
       {
-        SerialInterface::ChangeDevice(si_device, pad);
+        si.ChangeDevice(si_device, pad);
 
         if (si_device == SerialInterface::SIDEVICE_WIIU_ADAPTER)
         {
@@ -1869,17 +1876,17 @@ void NetPlayClient::UpdateDevices()
       }
       else
       {
-        SerialInterface::ChangeDevice(SerialInterface::SIDEVICE_GC_CONTROLLER, pad);
+        si.ChangeDevice(SerialInterface::SIDEVICE_GC_CONTROLLER, pad);
       }
       local_pad++;
     }
     else if (player_id > 0)
     {
-      SerialInterface::ChangeDevice(SerialInterface::SIDEVICE_GC_CONTROLLER, pad);
+      si.ChangeDevice(SerialInterface::SIDEVICE_GC_CONTROLLER, pad);
     }
     else
     {
-      SerialInterface::ChangeDevice(SerialInterface::SIDEVICE_NONE, pad);
+      si.ChangeDevice(SerialInterface::SIDEVICE_NONE, pad);
     }
     pad++;
   }
