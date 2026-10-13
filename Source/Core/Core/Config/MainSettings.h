@@ -65,7 +65,10 @@ extern const Info<bool> MAIN_DSP_HLE;
 extern const Info<int> MAIN_MAX_FALLBACK;
 extern const Info<int> MAIN_TIMING_VARIANCE;
 extern const Info<bool> MAIN_CORRECT_TIME_DRIFT;
+extern const Info<bool> MAIN_RUSH_FRAME_PRESENTATION;
+extern const Info<bool> MAIN_SMOOTH_EARLY_PRESENTATION;
 extern const Info<bool> MAIN_CPU_THREAD;
+extern const Info<bool> MAIN_LOAD_GAME_INTO_MEMORY;
 extern const Info<bool> MAIN_SYNC_ON_SKIP_IDLE;
 extern const Info<std::string> MAIN_DEFAULT_ISO;
 extern const Info<bool> MAIN_ENABLE_CHEATS;
@@ -76,6 +79,7 @@ extern const Info<AudioCommon::DPL2Quality> MAIN_DPL2_QUALITY;
 extern const Info<int> MAIN_AUDIO_LATENCY;
 extern const Info<int> MAIN_AUDIO_BUFFER_SIZE;
 extern const Info<bool> MAIN_AUDIO_FILL_GAPS;
+extern const Info<bool> MAIN_AUDIO_PRESERVE_PITCH;
 extern const Info<std::string> MAIN_MEMCARD_A_PATH;
 extern const Info<std::string> MAIN_MEMCARD_B_PATH;
 const Info<std::string>& GetInfoForMemcardPath(ExpansionInterface::Slot slot);
@@ -125,6 +129,7 @@ extern const Info<bool> MAIN_FLOAT_EXCEPTIONS;
 extern const Info<bool> MAIN_DIVIDE_BY_ZERO_EXCEPTIONS;
 extern const Info<bool> MAIN_FPRF;
 extern const Info<bool> MAIN_ACCURATE_NANS;
+extern const Info<bool> MAIN_ACCURATE_FMADDS;
 extern const Info<bool> MAIN_DISABLE_ICACHE;
 extern const Info<float> MAIN_EMULATION_SPEED;
 extern const Info<bool> MAIN_PRECISION_FRAME_TIMING;
@@ -241,6 +246,7 @@ extern const Info<bool> MAIN_USE_HIGH_CONTRAST_TOOLTIPS;
 extern const Info<bool> MAIN_USE_PANIC_HANDLERS;
 extern const Info<bool> MAIN_ABORT_ON_PANIC_ALERT;
 extern const Info<bool> MAIN_OSD_MESSAGES;
+extern const Info<int> MAIN_OSD_FONT_SIZE;
 extern const Info<bool> MAIN_SKIP_NKIT_WARNING;
 extern const Info<bool> MAIN_CONFIRM_ON_STOP;
 
@@ -326,10 +332,18 @@ extern const Info<bool> MAIN_MOVIE_DUMP_FRAMES_SILENT;
 extern const Info<bool> MAIN_MOVIE_SHOW_INPUT_DISPLAY;
 extern const Info<bool> MAIN_MOVIE_SHOW_RTC;
 extern const Info<bool> MAIN_MOVIE_SHOW_RERECORD;
+extern const Info<bool> MAIN_MOVIE_SHOW_OSD;
 
 // Main.Input
 
 extern const Info<bool> MAIN_INPUT_BACKGROUND_INPUT;
+
+extern const Config::Info<std::string> MAIN_SDL_HINT_JOYSTICK_ENHANCED_REPORTS;
+extern const Config::Info<std::string> MAIN_SDL_HINT_JOYSTICK_WGI;
+extern const Config::Info<std::string> MAIN_SDL_HINT_JOYSTICK_HIDAPI_PS5_PLAYER_LED;
+extern const Config::Info<std::string> MAIN_SDL_HINT_JOYSTICK_DIRECTINPUT;
+extern const Config::Info<std::string> MAIN_SDL_HINT_JOYSTICK_HIDAPI_COMBINE_JOY_CONS;
+extern const Config::Info<std::string> MAIN_SDL_HINT_JOYSTICK_HIDAPI_VERTICAL_JOY_CONS;
 
 // Main.Debug
 
@@ -370,6 +384,16 @@ extern const Info<bool> MAIN_EMULATE_WII_SPEAK;
 extern const Info<std::string> MAIN_WII_SPEAK_MICROPHONE;
 extern const Info<bool> MAIN_WII_SPEAK_MUTED;
 extern const Info<s16> MAIN_WII_SPEAK_VOLUME_MODIFIER;
+
+static constexpr std::size_t EMULATED_LOGITECH_MIC_COUNT = 4;
+
+extern const std::array<Info<bool>, EMULATED_LOGITECH_MIC_COUNT> MAIN_EMULATE_LOGITECH_MIC;
+extern const std::array<Info<std::string>, EMULATED_LOGITECH_MIC_COUNT>
+    MAIN_LOGITECH_MIC_MICROPHONE;
+extern const std::array<Info<bool>, EMULATED_LOGITECH_MIC_COUNT> MAIN_LOGITECH_MIC_MUTED;
+extern const std::array<Info<s16>, EMULATED_LOGITECH_MIC_COUNT> MAIN_LOGITECH_MIC_VOLUME_MODIFIER;
+
+extern const Info<std::string> MAIN_TRIFORCE_IP_REDIRECTIONS;
 
 // GameCube path utility functions
 

@@ -31,6 +31,7 @@ enum class BooleanSetting(
         false
     ),
     MAIN_AUDIO_FILL_GAPS(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "AudioFillGaps", true),
+    MAIN_AUDIO_PRESERVE_PITCH(Settings.FILE_DOLPHIN, Settings.SECTION_INI_CORE, "AudioPreservePitch", false),
     MAIN_BBA_XLINK_CHAT_OSD(
         Settings.FILE_DOLPHIN,
         Settings.SECTION_INI_CORE,
@@ -883,6 +884,54 @@ enum class BooleanSetting(
         Settings.SECTION_LOGGER_OPTIONS,
         "WriteToFile",
         false
+    ),
+    ACHIEVEMENTS_ENABLED(
+        Settings.FILE_ACHIEVEMENTS,
+        Settings.SECTION_ACHIEVEMENTS,
+        "Enabled",
+        false
+    ),
+    ACHIEVEMENTS_HARDCORE_ENABLED(
+        Settings.FILE_ACHIEVEMENTS,
+        Settings.SECTION_ACHIEVEMENTS,
+        "HardcoreEnabled",
+        true
+    ),
+    ACHIEVEMENTS_UNOFFICIAL_ENABLED(
+        Settings.FILE_ACHIEVEMENTS,
+        Settings.SECTION_ACHIEVEMENTS,
+        "UnofficialEnabled",
+        false
+    ),
+    ACHIEVEMENTS_ENCORE_ENABLED(
+        Settings.FILE_ACHIEVEMENTS,
+        Settings.SECTION_ACHIEVEMENTS,
+        "EncoreEnabled",
+        false
+    ),
+    ACHIEVEMENTS_SPECTATOR_ENABLED(
+        Settings.FILE_ACHIEVEMENTS,
+        Settings.SECTION_ACHIEVEMENTS,
+        "SpectatorEnabled",
+        false
+    ),
+    ACHIEVEMENTS_LEADERBOARD_TRACKER_ENABLED(
+        Settings.FILE_ACHIEVEMENTS,
+        Settings.SECTION_ACHIEVEMENTS,
+        "LeaderboardTrackerEnabled",
+        true
+    ),
+    ACHIEVEMENTS_CHALLENGE_INDICATORS_ENABLED(
+        Settings.FILE_ACHIEVEMENTS,
+        Settings.SECTION_ACHIEVEMENTS,
+        "ChallengeIndicatorsEnabled",
+        true
+    ),
+    ACHIEVEMENTS_PROGRESS_ENABLED(
+        Settings.FILE_ACHIEVEMENTS,
+        Settings.SECTION_ACHIEVEMENTS,
+        "ProgressEnabled",
+        false
     );
 
     override val isOverridden: Boolean
@@ -943,7 +992,12 @@ enum class BooleanSetting(
             MAIN_TIME_TRACKING,
             MAIN_EMULATE_SKYLANDER_PORTAL,
             MAIN_EMULATE_INFINITY_BASE,
-            MAIN_EMULATE_WII_SPEAK
+            MAIN_EMULATE_WII_SPEAK,
+            ACHIEVEMENTS_ENABLED,
+            ACHIEVEMENTS_HARDCORE_ENABLED,
+            ACHIEVEMENTS_UNOFFICIAL_ENABLED,
+            ACHIEVEMENTS_ENCORE_ENABLED,
+            ACHIEVEMENTS_SPECTATOR_ENABLED
         )
         private val NOT_RUNTIME_EDITABLE: Set<BooleanSetting> =
             HashSet(listOf(*NOT_RUNTIME_EDITABLE_ARRAY))

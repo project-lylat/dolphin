@@ -1,7 +1,8 @@
 // Copyright 2024 Dolphin Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include <array>
+#ifdef USE_RETRO_ACHIEVEMENTS
+
 #include <map>
 #include <string>
 #include <string_view>
@@ -15,12 +16,10 @@
 #include "Common/CommonPaths.h"
 #include "Common/Crypto/SHA1.h"
 #include "Common/FileUtil.h"
-#include "Common/IOFile.h"
 #include "Common/IniFile.h"
 #include "Common/JsonUtil.h"
 #include "Core/AchievementManager.h"
 #include "Core/ActionReplay.h"
-#include "Core/CheatCodes.h"
 #include "Core/GeckoCode.h"
 #include "Core/GeckoCodeConfig.h"
 #include "Core/PatchEngine.h"
@@ -191,3 +190,5 @@ void ReadVerified(const Common::IniFile& ini, const std::string& filename,
     }
   }
 }
+
+#endif  // USE_RETRO_ACHIEVEMENTS

@@ -176,3 +176,21 @@ Conflicts:
   double-click-to-search connections, with upstream's lambda style.
 
 Build status: not built yet (C: is full).
+
+## Step 9: tag `2603` (8254 commits)
+
+Conflicts:
+
+- `Core/Config/GraphicsSettings.cpp`: took upstream's new `CapImmediateXFB`
+  and kept the fork's `ImmediateXFBEnable` default (on).
+- `Core/WiiRoot.cpp`: upstream dropped the `SessionSettings.h` include. Kept
+  `NetplaySettings.h`, which the fork's preloaded-saves copy needs.
+- `DolphinQt/MainWindow.cpp`: kept the Lylat include and dropped
+  `WiimoteDevice.h` with upstream. Kept the fork's `SearchAndOpen` and
+  `OpenLylatJSON` next to upstream's new `OpenConfigFolder`/`OpenCacheFolder`.
+- `DolphinQt/NetPlay/NetPlaySetupDialog.cpp`: upstream wrapped the UPnP
+  connect in a Qt version check. Took that and kept the Lylat connections after
+  it. Also fixed a fork bug in the same block: the Lylat game list saved the
+  name from `m_host_games` instead of `m_lylat_games`.
+
+Build status: not built yet (C: is full).

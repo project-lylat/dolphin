@@ -64,7 +64,10 @@
     <ClCompile Include="Config\ConfigControls\ConfigRadio.cpp" />
     <ClCompile Include="Config\ConfigControls\ConfigFloatSlider.cpp" />
     <ClCompile Include="Config\ConfigControls\ConfigSlider.cpp" />
+    <ClCompile Include="Config\ConfigControls\ConfigText.cpp" />
+    <ClCompile Include="Config\ConfigControls\ConfigUserPath.cpp" />
     <ClCompile Include="Config\ControllerInterface\ControllerInterfaceWindow.cpp" />
+    <ClCompile Include="Config\SDLHints\SDLHintsWindow.cpp" />
     <ClCompile Include="Config\ControllerInterface\DualShockUDPClientAddServerDialog.cpp" />
     <ClCompile Include="Config\ControllerInterface\DualShockUDPClientWidget.cpp" />
     <ClCompile Include="Config\ControllerInterface\ServerStringValidator.cpp" />
@@ -158,6 +161,7 @@
     <ClCompile Include="Debugger\WatchWidget.cpp" />
     <ClCompile Include="DiscordHandler.cpp" />
     <ClCompile Include="DiscordJoinRequestDialog.cpp" />
+    <ClCompile Include="EmulatedUSB\LogitechMicWindow.cpp" />
     <ClCompile Include="EmulatedUSB\WiiSpeakWindow.cpp" />
     <ClCompile Include="FIFO\FIFOAnalyzer.cpp" />
     <ClCompile Include="FIFO\FIFOPlayerWindow.cpp" />
@@ -189,6 +193,7 @@
     <ClCompile Include="pch_qt.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="QtUtils\AnalyticsPrompt.cpp" />
     <ClCompile Include="QtUtils\AspectRatioWidget.cpp" />
     <ClCompile Include="QtUtils\BlockUserInputFilter.cpp" />
     <ClCompile Include="QtUtils\ClearLayoutRecursively.cpp" />
@@ -218,8 +223,10 @@
     <ClCompile Include="Settings\GameCubePane.cpp" />
     <ClCompile Include="Settings\GeneralPane.cpp" />
     <ClCompile Include="Settings\InterfacePane.cpp" />
+    <ClCompile Include="Settings\OnScreenDisplayPane.cpp" />
+    <ClCompile Include="Settings\TriforcePane.cpp" />
     <ClCompile Include="Settings\PathPane.cpp" />
-    <ClCompile Include="Settings\USBDeviceAddToWhitelistDialog.cpp" />
+    <ClCompile Include="Settings\USBDevicePicker.cpp" />
     <ClCompile Include="Settings\WiiPane.cpp" />
     <ClCompile Include="SkylanderPortal\SkylanderModifyDialog.cpp" />
     <ClCompile Include="SkylanderPortal\SkylanderPortalWindow.cpp" />
@@ -268,6 +275,7 @@
     <ClInclude Include="QtUtils\WrapInScrollArea.h" />
     <ClInclude Include="ResourcePackManager.h" />
     <ClInclude Include="Resources.h" />
+    <ClInclude Include="Settings\OnScreenDisplayPane.h" />
     <ClInclude Include="SkylanderPortal\SkylanderModifyDialog.h" />
     <ClInclude Include="TAS\TASControlState.h" />
     <ClInclude Include="TAS\TASSlider.h" />
@@ -292,7 +300,10 @@
     <QtMoc Include="Config\ConfigControls\ConfigRadio.h" />
     <QtMoc Include="Config\ConfigControls\ConfigFloatSlider.h" />
     <QtMoc Include="Config\ConfigControls\ConfigSlider.h" />
+    <QtMoc Include="Config\ConfigControls\ConfigText.h" />
+    <QtMoc Include="Config\ConfigControls\ConfigUserPath.h" />
     <QtMoc Include="Config\ControllerInterface\ControllerInterfaceWindow.h" />
+    <QtMoc Include="Config\SDLHints\SDLHintsWindow.h" />
     <QtMoc Include="Config\ControllerInterface\DualShockUDPClientAddServerDialog.h" />
     <QtMoc Include="Config\ControllerInterface\DualShockUDPClientWidget.h" />
     <QtMoc Include="Config\ControllerInterface\ServerStringValidator.h" />
@@ -380,6 +391,7 @@
     <QtMoc Include="Debugger\WatchWidget.h" />
     <QtMoc Include="DiscordHandler.h" />
     <QtMoc Include="DiscordJoinRequestDialog.h" />
+    <QtMoc Include="EmulatedUSB\LogitechMicWindow.h" />
     <QtMoc Include="EmulatedUSB\WiiSpeakWindow.h" />
     <QtMoc Include="FIFO\FIFOAnalyzer.h" />
     <QtMoc Include="FIFO\FIFOPlayerWindow.h" />
@@ -406,6 +418,7 @@
     <QtMoc Include="NetPlay\PadMappingDialog.h" />
     <QtMoc Include="NANDRepairDialog.h" />
     <QtMoc Include="NKitWarningDialog.h" />
+    <QtMoc Include="QtUtils\AnalyticsPrompt.h" />
     <QtMoc Include="QtUtils\AspectRatioWidget.h" />
     <QtMoc Include="QtUtils\BlockUserInputFilter.h" />
     <QtMoc Include="QtUtils\DoubleClickEventFilter.h" />
@@ -429,7 +442,8 @@
     <QtMoc Include="Settings\GeneralPane.h" />
     <QtMoc Include="Settings\InterfacePane.h" />
     <QtMoc Include="Settings\PathPane.h" />
-    <QtMoc Include="Settings\USBDeviceAddToWhitelistDialog.h" />
+    <QtMoc Include="Settings\TriforcePane.h" />
+    <QtMoc Include="Settings\USBDevicePicker.h" />
     <QtMoc Include="Settings\WiiPane.h" />
     <QtMoc Include="SkylanderPortal\SkylanderPortalWindow.h" />
     <QtMoc Include="TAS\GCTASInputWindow.h" />
@@ -482,6 +496,7 @@
   <Import Project="$(ExternalsDir)discord-rpc\exports.props" />
   <Import Project="$(ExternalsDir)enet\exports.props" />
   <Import Project="$(ExternalsDir)fmt\exports.props" />
+  <Import Project="$(ExternalsDir)glslang\exports.props" />
   <Import Project="$(ExternalsDir)imgui\exports.props" />
   <Import Project="$(ExternalsDir)implot\exports.props" />
   <Import Project="$(ExternalsDir)liblzma\exports.props" />
@@ -497,15 +512,18 @@
   <!--Copy Exe, Data directory and DLLs which should be located in the executable directory-->
   <ItemGroup>
     <DataSysFiles Include="$(DolphinRootDir)Data\**\Sys\**\*.*" />
-    <DataTxtFiles Include="$(DolphinRootDir)Data\license.txt" />
+    <DataTxtFiles Include="$(DolphinRootDir)\COPYING" />
+    <DataLicenseFiles Include="$(DolphinRootDir)\LICENSES\*.*" />
     <BinaryFiles Include="$(TargetPath)" />
-    <AllInputFiles Include="@(DataSysFiles);@(DataTxtFiles);@(BinaryFiles)" />
+    <AllInputFiles Include="@(DataSysFiles);@(DataTxtFiles);@(DataLicenseFiles);@(BinaryFiles)" />
   </ItemGroup>
   <Target Name="AfterBuild" Inputs="@(AllInputFiles)" Outputs="@(AllInputFiles -> '$(BinaryOutputDir)%(RecursiveDir)%(Filename)%(Extension)')">
     <Message Text="Copying Data directory..." Importance="High" />
     <RemoveDir Directories="$(BinaryOutputDir)Sys" />
     <Copy SourceFiles="@(DataSysFiles)" DestinationFolder="$(BinaryOutputDir)%(RecursiveDir)" SkipUnchangedFiles="True" />
     <Copy SourceFiles="@(DataTxtFiles)" DestinationFolder="$(BinaryOutputDir)" SkipUnchangedFiles="True" />
+    <RemoveDir Directories="$(BinaryOutputDir)LICENSES" />
+    <Copy SourceFiles="@(DataLicenseFiles)" DestinationFolder="$(BinaryOutputDir)LICENSES" SkipUnchangedFiles="True" />
     <Message Text="Copy: @(BinaryFiles) -&gt; $(BinaryOutputDir)" Importance="High" />
     <Copy SourceFiles="@(BinaryFiles)" DestinationFolder="$(BinaryOutputDir)" />
   </Target>

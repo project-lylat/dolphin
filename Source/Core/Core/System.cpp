@@ -33,12 +33,12 @@
 #include "IOS/USB/Emulated/Infinity.h"
 #include "IOS/USB/Emulated/Skylanders/Skylander.h"
 #include "IOS/USB/USBScanner.h"
-#include "VideoCommon/Assets/CustomResourceManager.h"
 #include "VideoCommon/CommandProcessor.h"
 #include "VideoCommon/Fifo.h"
 #include "VideoCommon/GeometryShaderManager.h"
 #include "VideoCommon/PixelEngine.h"
 #include "VideoCommon/PixelShaderManager.h"
+#include "VideoCommon/Resources/CustomResourceManager.h"
 #include "VideoCommon/VertexShaderManager.h"
 #include "VideoCommon/XFStateManager.h"
 
@@ -58,6 +58,9 @@ struct System::Impl
         m_jit_interface(system), m_fifo_player(system), m_fifo_recorder(system), m_movie(system)
   {
   }
+
+  // Built first since other constructors may register hooks right away.
+  VideoEvents m_video_events;
 
   std::unique_ptr<SoundStream> m_sound_stream;
   bool m_sound_stream_running = false;
@@ -339,4 +342,14 @@ VideoCommon::CustomResourceManager& System::GetCustomResourceManager() const
 {
   return m_impl->m_custom_resource_manager;
 }
+
+VideoEvents& System::GetVideoEvents() const
+{
+  return m_impl->m_video_events;
+}
 }  // namespace Core
+
+VideoEvents& GetVideoEvents()
+{
+  return Core::System::GetInstance().GetVideoEvents();
+}

@@ -4,7 +4,7 @@
 #pragma once
 
 #include <functional>
-#include <map>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -17,7 +17,7 @@ namespace Config
 {
 struct ConfigChangedCallbackID
 {
-  size_t id = -1;
+  size_t id = std::numeric_limits<size_t>::max();
 
   bool operator==(const ConfigChangedCallbackID&) const = default;
 };
@@ -72,10 +72,10 @@ T Get(const Info<T>& info)
     cached.value = GetUncached(info);
     cached.config_version = config_version;
 
-    info.SetCachedValue(cached);
+    info.TryToSetCachedValue(cached);
   }
 
-  return cached.value;
+  return std::move(cached.value);
 }
 
 template <typename T>

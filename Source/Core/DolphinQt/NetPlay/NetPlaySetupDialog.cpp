@@ -351,12 +351,16 @@ void NetPlaySetupDialog::ConnectWidgets()
           &NetPlaySetupDialog::SaveSettings);
 
 #ifdef USE_UPNP
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+  connect(m_host_upnp, &QCheckBox::checkStateChanged, this, &NetPlaySetupDialog::SaveSettings);
+#else
   connect(m_host_upnp, &QCheckBox::stateChanged, this, &NetPlaySetupDialog::SaveSettings);
+#endif
 #endif
   // Lylat Widget
   connect(m_lylat_games, qOverload<int>(&QListWidget::currentRowChanged), [this](int index) {
     Settings::GetQSettings().setValue(QStringLiteral("netplay/lylatgame"),
-                                      m_host_games->item(index)->text());
+                                      m_lylat_games->item(index)->text());
   });
   connect(m_lylat_games, &QListWidget::itemDoubleClicked, this, &NetPlaySetupDialog::accept);
   connect(m_lylat_toggle_login_button, &QPushButton::clicked, this, [this]() {
