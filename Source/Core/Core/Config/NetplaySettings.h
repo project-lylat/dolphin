@@ -20,6 +20,7 @@ extern const Info<u16> NETPLAY_TRAVERSAL_PORT_ALT;
 extern const Info<std::string> NETPLAY_TRAVERSAL_CHOICE;
 extern const Info<std::string> NETPLAY_HOST_CODE;
 extern const Info<std::string> NETPLAY_INDEX_URL;
+extern const Info<std::string> NETPLAY_LYLAT_URL;
 
 extern const Info<u16> NETPLAY_HOST_PORT;
 extern const Info<std::string> NETPLAY_ADDRESS;

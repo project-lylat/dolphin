@@ -690,6 +690,10 @@ dolphin_find_optional_system_library_pkgconfig(SPNG spng spng::spng Externals/li
 message(STATUS "Using static FreeSurround from Externals")
 add_subdirectory(Externals/FreeSurround)
 
+# QR codes for the Lylat sign-in dialog. There is no common system package.
+message(STATUS "Using static qrcodegen from Externals")
+add_subdirectory(Externals/qrcodegen)
+
 if (APPLE OR WIN32)
   message(STATUS "Using ed25519 from Externals")
   add_subdirectory(Externals/ed25519)

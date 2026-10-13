@@ -20,8 +20,10 @@
 #include <QUrl>
 
 #include "Core/Config/NetplaySettings.h"
+#include "Core/Lylat/LylatDeviceLogin.h"
 #include "Core/NetPlayProto.h"
 
+#include "DolphinQt/NetPlay/LylatQRLoginDialog.h"
 #include "DolphinQt/QtUtils/ModalMessageBox.h"
 #include "DolphinQt/QtUtils/NonDefaultQPushButton.h"
 #include "DolphinQt/QtUtils/UTF8CodePointCountValidator.h"
@@ -371,7 +373,15 @@ void NetPlaySetupDialog::ConnectWidgets()
     }
     else
     {
-      QDesktopServices::openUrl(QUrl(tr("http://lylat.gg/users/enable"), QUrl::TolerantMode));
+      // Sign in with a phone (QR code). Falls back to the browser page when the player picks
+      // "Manual login" or the server has no device-login endpoint.
+      LylatQRLoginDialog dialog(this);
+      const int result = dialog.exec();
+      if (result == QDialog::Accepted)
+        this->OnConnectionTypeChanged(this->m_connection_type->currentIndex());
+      else if (result == LylatQRLoginDialog::ManualLoginRequested)
+        QDesktopServices::openUrl(QUrl(
+            QString::fromStdString(Lylat::GetLylatBaseUrl() + "/users/enable"), QUrl::TolerantMode));
     }
   });
 

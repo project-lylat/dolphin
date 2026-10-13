@@ -317,6 +317,8 @@ add_executable(dolphin-emu
   NetPlay/ClickBlurLabel.h
   NetPlay/NetPlayBrowser.cpp
   NetPlay/NetPlayBrowser.h
+  NetPlay/LylatQRLoginDialog.cpp
+  NetPlay/LylatQRLoginDialog.h
   NetPlay/NetPlayDialog.cpp
   NetPlay/NetPlayDialog.h
   NetPlay/NetPlaySetupDialog.cpp
@@ -471,6 +473,7 @@ PRIVATE
   uicommon
   imgui
   implot
+  qrcodegen
 )
 
 if(ENABLE_SDL)

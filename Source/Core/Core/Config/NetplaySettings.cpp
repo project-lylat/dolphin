@@ -19,6 +19,9 @@ const Info<std::string> NETPLAY_TRAVERSAL_CHOICE{{System::Main, "NetPlay", "Trav
                                                  "lylat"};
 const Info<std::string> NETPLAY_INDEX_URL{{System::Main, "NetPlay", "IndexServer"},
                                           "https://lobby.dolphin-emu.org"};
+// Lylat web origin, used for sign-in. Point it at a local server for testing.
+const Info<std::string> NETPLAY_LYLAT_URL{{System::Main, "NetPlay", "LylatURL"},
+                                          "https://lylat.gg"};
 
 const Info<bool> NETPLAY_USE_INDEX{{System::Main, "NetPlay", "UseIndex"}, false};
 const Info<std::string> NETPLAY_INDEX_NAME{{System::Main, "NetPlay", "IndexName"}, ""};

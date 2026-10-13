@@ -496,6 +496,8 @@ add_library(core
   IOS/WFS/WFSSRV.h
   LibusbUtils.cpp
   LibusbUtils.h
+  Lylat/LylatDeviceLogin.cpp
+  Lylat/LylatDeviceLogin.h
   Lylat/LylatMatchmakingClient.cpp
   Lylat/LylatMatchmakingClient.h
   Lylat/LylatUser.cpp
