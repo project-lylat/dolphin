@@ -284,3 +284,30 @@ Build status: not built yet (C: is full).
 - `Core/Config/GraphicsSettings.cpp`: upstream renamed `AspectMode::AnalogWide`
   to `AspectMode::ForceWide` (same value, so saved settings keep working). The
   fork's default aspect ratio now uses the new name.
+
+## 2603 test build and QR check (2026-10-13)
+
+- `tmp-dolphin\build2603.bat configure` (Release x64, VS 2022 17.6, `-j 2`):
+  exit 0. Besides the minizip-ng flags above, MSVC 19.36 needed local-only
+  workarounds in the throwaway tree: `CL=/wd4706 /wd4459 /wd4267`
+  (warnings-as-errors in libspng, fmt and AMMediaboard), `#elifdef` ->
+  `#elif defined` in `Common/FileSearch.cpp`, and `consteval` -> `constexpr`
+  in `CachedInterpreterEmitter.h` (MSVC 19.36 rejects the immediate calls).
+  So 2603 and later also need a newer compiler than 17.6, whatever `pch.h`
+  says.
+- The fork code (Lylat matchmaking, netplay changes, QR sign-in) compiled and
+  linked with no other changes. That build found the `AnalogWide` rename,
+  fixed on this branch.
+- QR sign-in, run against `tmp-dolphin\mock_server.py` with
+  `[NetPlay] LylatURL = http://127.0.0.1:3002`, driving Tools > Start
+  NetPlay... > Sign In through UI Automation:
+  - approve: the QR code, `MOCK-7Q4X` and "Pick 42" show; token polled every
+    2 s while pending; "Approved!", then "Logged in"; the dialog closes;
+    `lylat.json` holds the mock account; NetPlay Setup shows "Mock Player" and
+    Sign Out.
+  - deny: "Sign-in denied" with Retry and Manual login; no `lylat.json`.
+  - error (500 from `/api/device/code`): "Something went wrong / Server error
+    (500)." with Retry; no `lylat.json`.
+- Not checked: the QR content was not decoded by a scanner, the real Lylat
+  server, the 404 fallback, Retry, Manual login, the expired state, Linux or
+  macOS, and any matchmaking or gameplay.
