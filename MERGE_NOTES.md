@@ -332,3 +332,19 @@ Build status: not built yet (C: is full).
 - Still not checked: a phone scan of the QR code, the real Lylat server, the
   404 fallback, Retry, Manual login, the expired state, CI, Linux, macOS,
   matchmaking and gameplay.
+
+## Wii keys from the user (after the merge with "remove any keys")
+
+The fork ships no Wii common keys (retail, RVT, Korean) and no SD key: they are zero-filled in
+`IOSC::LoadDefaultEntries` (ed5dd8d172). GameCube games never use them; Wii discs, WADs and Wii
+save import/export do.
+
+- `IOSC::LoadUserKeys` reads `User/Wii/wii_keys.txt` (in the user folder itself, so NetPlay's
+  temporary Wii root does not hide it): `common`, `korean_common`, `rvt_common` and `sd`, each
+  32 hex digits, `#` comments. Missing keys stay zero.
+- `MainWindow::StartGame`: a Wii disc or WAD with no common key does not boot. "Wii Keys Needed"
+  explains why and offers `WiiKeysDialog` (common key required, Korean and SD optional), which
+  saves the file; the player then starts the game again.
+- Checked on Windows (VS 2026 Release) with a separate user folder: Brawl (Wii disc) shows the
+  warning, the dialog saves a test key to `wii_keys.txt`, and Melee (GameCube) boots with no
+  warning. Not checked: booting a Wii game with real keys, WADs, Wii saves.

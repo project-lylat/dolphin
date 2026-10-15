@@ -6,7 +6,9 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cctype>
 #include <cstring>
+#include <fstream>
 #include <map>
 #include <utility>
 #include <vector>
@@ -17,6 +19,7 @@
 
 #include "Common/Assert.h"
 #include "Common/ChunkFile.h"
+#include "Common/CommonPaths.h"
 #include "Common/Crypto/AES.h"
 #include "Common/Crypto/SHA1.h"
 #include "Common/Crypto/ec.h"
@@ -208,6 +211,7 @@ static size_t GetSizeForType(IOSC::ObjectType type, IOSC::ObjectSubType subtype)
 IOSC::IOSC(ConsoleType console_type) : m_console_type(console_type)
 {
   LoadDefaultEntries();
+  LoadUserKeys();
   LoadEntries();
 }
 
@@ -618,6 +622,112 @@ void IOSC::LoadDefaultEntries()
                                           ObjectSubType::AES128,
                                           std::vector<u8>(AES128_KEY_SIZE),
                                           3};
+}
+
+std::string IOSC::GetUserKeysPath()
+{
+  // In the user folder itself, not the Wii root: NetPlay and a custom NAND path move the root.
+  return File::GetUserPath(D_USER_IDX) + "Wii" DIR_SEP "wii_keys.txt";
+}
+
+bool IOSC::IsValidKey(const std::string& hex)
+{
+  return hex.size() == 2 * AES128_KEY_SIZE &&
+         std::ranges::all_of(hex, [](char c) { return std::isxdigit(static_cast<u8>(c)) != 0; });
+}
+
+static std::string TrimKeyText(std::string text)
+{
+  const auto not_space = [](char c) { return !std::isspace(static_cast<u8>(c)); };
+  text.erase(text.begin(), std::find_if(text.begin(), text.end(), not_space));
+  text.erase(std::find_if(text.rbegin(), text.rend(), not_space).base(), text.end());
+  return text;
+}
+
+IOSC::UserKeys IOSC::ReadUserKeys()
+{
+  UserKeys keys;
+  std::ifstream file;
+  File::OpenFStream(file, GetUserKeysPath(), std::ios_base::in);
+  std::string line;
+  while (file && std::getline(file, line))
+  {
+    line = TrimKeyText(line.substr(0, line.find('#')));
+    const size_t equals = line.find('=');
+    if (equals == std::string::npos)
+      continue;
+    const std::string name = TrimKeyText(line.substr(0, equals));
+    std::string value = TrimKeyText(line.substr(equals + 1));
+    std::erase(value, ' ');
+    if (!IsValidKey(value))
+    {
+      WARN_LOG_FMT(IOS, "wii_keys.txt: {} is not 32 hex digits; ignored.", name);
+      continue;
+    }
+    if (name == "common")
+      keys.common = value;
+    else if (name == "korean_common")
+      keys.korean_common = value;
+    else if (name == "rvt_common")
+      keys.rvt_common = value;
+    else if (name == "sd")
+      keys.sd = value;
+  }
+  return keys;
+}
+
+bool IOSC::SaveUserKeys(const UserKeys& keys)
+{
+  const std::pair<const char*, const std::string*> entries[] = {
+      {"common", &keys.common},
+      {"korean_common", &keys.korean_common},
+      {"rvt_common", &keys.rvt_common},
+      {"sd", &keys.sd}};
+  for (const auto& [name, value] : entries)
+  {
+    if (!value->empty() && !IsValidKey(*value))
+      return false;
+  }
+  File::CreateFullPath(GetUserKeysPath());
+  std::ofstream file;
+  File::OpenFStream(file, GetUserKeysPath(), std::ios_base::out | std::ios_base::trunc);
+  if (!file)
+    return false;
+  file << "# Wii keys for this build of Dolphin, which does not include them.\n"
+          "# Dump them from your own Wii (BootMii keys.bin and the Wii common key).\n";
+  for (const auto& [name, value] : entries)
+  {
+    if (!value->empty())
+      file << name << " = " << *value << "\n";
+  }
+  return static_cast<bool>(file);
+}
+
+bool IOSC::HasUserCommonKey(ConsoleType console_type)
+{
+  const UserKeys keys = ReadUserKeys();
+  return console_type == ConsoleType::RVT ? !keys.rvt_common.empty() : !keys.common.empty();
+}
+
+static std::vector<u8> KeyBytes(const std::string& hex)
+{
+  std::vector<u8> bytes(AES128_KEY_SIZE);
+  for (size_t i = 0; i < bytes.size(); ++i)
+    bytes[i] = static_cast<u8>(std::stoul(hex.substr(2 * i, 2), nullptr, 16));
+  return bytes;
+}
+
+// The user's own keys replace the zero-filled defaults (see GetUserKeysPath).
+void IOSC::LoadUserKeys()
+{
+  const UserKeys keys = ReadUserKeys();
+  const std::string& common = m_console_type == ConsoleType::RVT ? keys.rvt_common : keys.common;
+  if (!common.empty())
+    m_key_entries[HANDLE_COMMON_KEY].data = KeyBytes(common);
+  if (!keys.korean_common.empty())
+    m_key_entries[HANDLE_NEW_COMMON_KEY].data = KeyBytes(keys.korean_common);
+  if (!keys.sd.empty())
+    m_key_entries[HANDLE_SD_KEY].data = KeyBytes(keys.sd);
 }
 
 void IOSC::LoadEntries()

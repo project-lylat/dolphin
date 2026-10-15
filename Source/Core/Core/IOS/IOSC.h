@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstddef>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -188,6 +189,26 @@ public:
   IOSC(ConsoleType console_type = ConsoleType::Retail);
   ~IOSC();
 
+  // This build ships no Wii common keys and no SD key (they are zero), so Wii discs, WADs and
+  // Wii save files cannot be decrypted until the user provides their own keys in
+  // User/Wii/wii_keys.txt: one "name = 32 hex digits" line each, for the names common,
+  // korean_common, rvt_common and sd ('#' starts a comment).
+  struct UserKeys
+  {
+    std::string common;
+    std::string korean_common;
+    std::string rvt_common;
+    std::string sd;
+  };
+  static std::string GetUserKeysPath();
+  static UserKeys ReadUserKeys();
+  // Writes the file; keys left empty are omitted. False if a key is not 32 hex digits or the file
+  // cannot be written.
+  static bool SaveUserKeys(const UserKeys& keys);
+  static bool IsValidKey(const std::string& hex);
+  // True when the common key a console type's titles need has been provided.
+  static bool HasUserCommonKey(ConsoleType console_type = ConsoleType::Retail);
+
   // Create an object for use with the other functions that operate on objects.
   ReturnCode CreateObject(Handle* handle, ObjectType type, ObjectSubType subtype, u32 pid);
   // Delete an object. Built-in objects cannot be deleted.
@@ -254,6 +275,7 @@ private:
 
   void LoadDefaultEntries();
   void LoadEntries();
+  void LoadUserKeys();
 
   KeyEntries::iterator FindFreeEntry();
   KeyEntry* FindEntry(Handle handle);

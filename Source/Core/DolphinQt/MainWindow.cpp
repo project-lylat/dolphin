@@ -104,6 +104,7 @@
 #include "DolphinQt/InfinityBase/InfinityBaseWindow.h"
 #include "DolphinQt/MenuBar.h"
 #include "DolphinQt/NKitWarningDialog.h"
+#include "DolphinQt/WiiKeysDialog.h"
 #include "DolphinQt/NetPlay/NetPlayBrowser.h"
 #include "DolphinQt/NetPlay/NetPlayDialog.h"
 #include "DolphinQt/NetPlay/NetPlaySetupDialog.h"
@@ -1320,6 +1321,13 @@ void MainWindow::StartGame(std::unique_ptr<BootParameters>&& parameters)
                                  QMessageBox::Ok);
       }
     }
+  }
+
+  // This build ships no Wii keys: a Wii disc or WAD waits until the player sets theirs up.
+  if (parameters && WiiKeysDialog::NeedsKeys(*parameters))
+  {
+    WiiKeysDialog::WarnMissingKeys(this);
+    return;
   }
 
   // If we're running, only start a new game once we've stopped the last.
