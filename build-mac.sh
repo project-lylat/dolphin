@@ -22,7 +22,7 @@ fi
 mkdir -p build
 pushd build
 cmake ${CMAKE_FLAGS} ..
-make -j7
+make -j"$(sysctl -n hw.ncpu)"
 popd
 
 # Copy the Sys folder in

@@ -1,7 +1,7 @@
 #!/bin/bash -e
 # build-linux.sh
 
-CMAKE_FLAGS='-DLINUX_LOCAL_DEV=true -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc-11 -DCMAKE_CXX_COMPILER=g++-11'
+CMAKE_FLAGS='-DLINUX_LOCAL_DEV=true -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14'
 
 DATA_SYS_PATH="./Data/Sys/"
 BINARY_PATH="./build/Binaries/"
@@ -10,7 +10,7 @@ BINARY_PATH="./build/Binaries/"
 mkdir -p build
 pushd build
 cmake .. ${CMAKE_FLAGS}
-make -j$(nproc)
+make -j"$(nproc)"
 popd
 
 # Copy the Sys folder in
