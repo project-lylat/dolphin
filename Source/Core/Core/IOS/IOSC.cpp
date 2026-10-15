@@ -578,8 +578,7 @@ void IOSC::LoadDefaultEntries()
   case ConsoleType::Retail:
     m_key_entries[HANDLE_COMMON_KEY] = {TYPE_SECRET_KEY,
                                         ObjectSubType::AES128,
-                                        {{0xeb, 0xe4, 0x2a, 0x22, 0x5e, 0x85, 0x93, 0xe4, 0x48,
-                                          0xd9, 0xc5, 0x45, 0x73, 0x81, 0xaa, 0xf7}},
+                                        std::vector<u8>(AES128_KEY_SIZE),
                                         3};
     m_root_key_entry = {TYPE_PUBLIC_KEY, ObjectSubType::RSA4096,
                         std::vector<u8>(ROOT_PUBLIC_KEY.begin(), ROOT_PUBLIC_KEY.end()),
@@ -592,8 +591,7 @@ void IOSC::LoadDefaultEntries()
   case ConsoleType::RVT:
     m_key_entries[HANDLE_COMMON_KEY] = {TYPE_SECRET_KEY,
                                         ObjectSubType::AES128,
-                                        {{0xa1, 0x60, 0x4a, 0x6a, 0x71, 0x23, 0xb5, 0x29, 0xae,
-                                          0x8b, 0xec, 0x32, 0xc8, 0x16, 0xfc, 0xaa}},
+                                        std::vector<u8>(AES128_KEY_SIZE),
                                         3};
     m_root_key_entry = {TYPE_PUBLIC_KEY, ObjectSubType::RSA4096,
                         std::vector<u8>(ROOT_PUBLIC_KEY_DEV.begin(), ROOT_PUBLIC_KEY_DEV.end()),
@@ -608,8 +606,7 @@ void IOSC::LoadDefaultEntries()
 
   m_key_entries[HANDLE_SD_KEY] = {TYPE_SECRET_KEY,
                                   ObjectSubType::AES128,
-                                  {{0xab, 0x01, 0xb9, 0xd8, 0xe1, 0x62, 0x2b, 0x08, 0xaf, 0xba,
-                                    0xd8, 0x4d, 0xbf, 0xc2, 0xa5, 0x5d}},
+                                  std::vector<u8>(AES128_KEY_SIZE),
                                   3};
 
   m_key_entries[HANDLE_BOOT2_VERSION] = {TYPE_DATA, ObjectSubType::Version, {}, 3};
@@ -619,8 +616,7 @@ void IOSC::LoadDefaultEntries()
 
   m_key_entries[HANDLE_NEW_COMMON_KEY] = {TYPE_SECRET_KEY,
                                           ObjectSubType::AES128,
-                                          {{0x63, 0xb8, 0x2b, 0xb4, 0xf4, 0x61, 0x4e, 0x2e, 0x13,
-                                            0xf2, 0xfe, 0xfb, 0xba, 0x4c, 0x9b, 0x7e}},
+                                          std::vector<u8>(AES128_KEY_SIZE),
                                           3};
 }
 
