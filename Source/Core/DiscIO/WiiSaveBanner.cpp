@@ -15,24 +15,25 @@
 
 namespace DiscIO
 {
-constexpr u32 BANNER_WIDTH = 192;
-constexpr u32 BANNER_HEIGHT = 64;
-constexpr u32 BANNER_SIZE = BANNER_WIDTH * BANNER_HEIGHT * 2;
-
 constexpr u32 ICON_WIDTH = 48;
 constexpr u32 ICON_HEIGHT = 48;
 constexpr u32 ICON_SIZE = ICON_WIDTH * ICON_HEIGHT * 2;
 
 WiiSaveBanner::WiiSaveBanner(u64 title_id)
-    : WiiSaveBanner(Common::GetTitleDataPath(title_id, Common::FROM_CONFIGURED_ROOT) +
-                    "/banner.bin")
 {
-}
+  constexpr u32 BANNER_SIZE = BANNER_WIDTH * BANNER_HEIGHT * 2;
 
-WiiSaveBanner::WiiSaveBanner(const std::string& path) : m_path(path)
-{
   constexpr size_t MINIMUM_SIZE = sizeof(Header) + BANNER_SIZE + ICON_SIZE;
-  File::IOFile file(path, "rb");
+
+  m_path = Common::GetTitleDataPath(title_id, Common::FromWhichRoot::Configured) + "/banner.bin";
+  File::IOFile file(m_path, "rb");
+
+  if (!file)
+  {
+    m_path = Common::GetTitleDataPath(title_id, Common::FromWhichRoot::Banners) + "/banner.bin";
+    file = File::IOFile(m_path, "rb");
+  }
+
   if (!file.ReadArray(&m_header, 1))
   {
     m_header = {};

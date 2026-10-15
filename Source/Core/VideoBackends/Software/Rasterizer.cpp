@@ -10,15 +10,14 @@
 #include "Common/Assert.h"
 #include "Common/CommonTypes.h"
 
-#include "VideoBackends/Software/EfbInterface.h"
 #include "VideoBackends/Software/NativeVertexFormat.h"
+#include "VideoBackends/Software/SWEfbInterface.h"
 #include "VideoBackends/Software/Tev.h"
 #include "VideoCommon/BPFunctions.h"
 #include "VideoCommon/BPMemory.h"
 #include "VideoCommon/PerfQueryBase.h"
 #include "VideoCommon/Statistics.h"
 #include "VideoCommon/VideoCommon.h"
-#include "VideoCommon/VideoConfig.h"
 #include "VideoCommon/XFMemory.h"
 
 namespace Rasterizer
@@ -28,14 +27,14 @@ static constexpr int BLOCK_SIZE = 2;
 struct SlopeContext
 {
   SlopeContext(const OutputVertexData* v0, const OutputVertexData* v1, const OutputVertexData* v2,
-               s32 x0, s32 y0, s32 x_off, s32 y_off)
-      : x0(x0), y0(y0)
+               s32 x0_, s32 y0_, s32 x_off, s32 y_off)
+      : x0(x0_), y0(y0_)
   {
     // adjust a little less than 0.5
     const float adjust = 0.495f;
 
-    xOff = ((float)x0 - (v0->screenPosition.x - x_off)) + adjust;
-    yOff = ((float)y0 - (v0->screenPosition.y - y_off)) + adjust;
+    xOff = ((float)x0_ - (v0->screenPosition.x - x_off)) + adjust;
+    yOff = ((float)y0_ - (v0->screenPosition.y - y_off)) + adjust;
 
     dx10 = v1->screenPosition.x - v0->screenPosition.x;
     dx20 = v2->screenPosition.x - v0->screenPosition.x;
@@ -55,10 +54,10 @@ struct SlopeContext
 struct Slope
 {
   Slope() = default;
-  Slope(float f0, float f1, float f2, const SlopeContext& ctx) : f0(f0)
+  Slope(float f0_, float f1, float f2, const SlopeContext& ctx) : f0(f0_)
   {
-    float delta_20 = f2 - f0;
-    float delta_10 = f1 - f0;
+    float delta_20 = f2 - f0_;
+    float delta_10 = f1 - f0_;
 
     //        x2 - x0    y1 - y0    x1 - x0    y2 - y0
     float a = delta_20 * ctx.dy10 - delta_10 * ctx.dy20;
@@ -108,8 +107,6 @@ static std::vector<BPFunctions::ScissorRect> scissors;
 
 void Init()
 {
-  tev.Init();
-
   // The other slopes are set each for each primitive drawn, but zfreeze means that the z slope
   // needs to be set to an (untested) default value.
   ZSlope = Slope();
@@ -117,7 +114,9 @@ void Init()
 
 void ScissorChanged()
 {
-  scissors = std::move(BPFunctions::ComputeScissorRects().m_result);
+  auto scissor_result = BPFunctions::ComputeScissorRects(bpmem.scissorTL, bpmem.scissorBR,
+                                                         bpmem.scissorOffset, xfmem.viewport);
+  scissors = std::move(scissor_result.rectangles);
 }
 
 // Returns approximation of log2(f) in s28.4
@@ -142,9 +141,9 @@ static inline int iround(float x)
   return t;
 }
 
-void SetTevReg(int reg, int comp, s16 color)
+void SetTevKonstColors()
 {
-  tev.SetRegColor(reg, comp, color);
+  tev.SetKonstColors();
 }
 
 static void Draw(s32 x, s32 y, s32 xi, s32 yi)
@@ -153,11 +152,11 @@ static void Draw(s32 x, s32 y, s32 xi, s32 yi)
 
   s32 z = (s32)std::clamp<float>(ZSlope.GetValue(x, y), 0.0f, 16777215.0f);
 
-  if (bpmem.UseEarlyDepthTest())
+  if (bpmem.GetEmulatedZ() == EmulatedZ::Early)
   {
     // TODO: Test if perf regs are incremented even if test is disabled
     EfbInterface::IncPerfCounterQuadCount(PQ_ZCOMP_INPUT_ZCOMPLOC);
-    if (bpmem.zmode.testenable)
+    if (bpmem.zmode.test_enable)
     {
       // early z
       if (!EfbInterface::ZCompare(x, y, z))
@@ -177,12 +176,8 @@ static void Draw(s32 x, s32 y, s32 xi, s32 yi)
   {
     for (int comp = 0; comp < 4; comp++)
     {
-      u16 color = (u16)ColorSlopes[i][comp].GetValue(x, y);
-
-      // clamp color value to 0
-      u16 mask = ~(color >> 8);
-
-      tev.Color[i][comp] = color & mask;
+      const float color = ColorSlopes[i][comp].GetValue(x, y);
+      tev.Color[i][comp] = (u8)std::clamp<float>(color, 0.0f, 255.0f);
     }
   }
 
@@ -288,13 +283,10 @@ static void BuildBlock(s32 blockX, s32 blockY)
     }
   }
 
-  u32 indref = bpmem.tevindref.hex;
   for (unsigned int i = 0; i < bpmem.genMode.numindstages; i++)
   {
-    u32 texmap = indref & 3;
-    indref >>= 3;
-    u32 texcoord = indref & 3;
-    indref >>= 3;
+    u32 texmap = bpmem.tevindref.getTexMap(i);
+    u32 texcoord = bpmem.tevindref.getTexCoord(i);
 
     CalculateLOD(&rasterBlock.IndirectLod[i], &rasterBlock.IndirectLinear[i], texmap, texcoord);
   }
@@ -335,7 +327,7 @@ static void DrawTriangleFrontFace(const OutputVertexData* v0, const OutputVertex
 
   // adapted from http://devmaster.net/posts/6145/advanced-rasterization
 
-  // 28.4 fixed-pou32 coordinates. rounded to nearest and adjusted to match hardware output
+  // 28.4 fixed-point coordinates. rounded to nearest and adjusted to match hardware output
   // could also take floor and adjust -8
   const s32 Y1 = iround(16.0f * (v0->screenPosition.y - scissor.y_off)) - 9;
   const s32 Y2 = iround(16.0f * (v1->screenPosition.y - scissor.y_off)) - 9;
@@ -354,7 +346,7 @@ static void DrawTriangleFrontFace(const OutputVertexData* v0, const OutputVertex
   const s32 DY23 = Y2 - Y3;
   const s32 DY31 = Y3 - Y1;
 
-  // Fixed-pos32 deltas
+  // Fixed-point deltas
   const s32 FDX12 = DX12 * 16;
   const s32 FDX23 = DX23 * 16;
   const s32 FDX31 = DX31 * 16;
@@ -371,9 +363,9 @@ static void DrawTriangleFrontFace(const OutputVertexData* v0, const OutputVertex
 
   // scissor
   ASSERT(scissor.rect.left >= 0);
-  ASSERT(scissor.rect.right <= EFB_WIDTH);
+  ASSERT(scissor.rect.right <= static_cast<int>(EFB_WIDTH));
   ASSERT(scissor.rect.top >= 0);
-  ASSERT(scissor.rect.bottom <= EFB_HEIGHT);
+  ASSERT(scissor.rect.bottom <= static_cast<int>(EFB_HEIGHT));
 
   minx = std::max(minx, scissor.rect.left);
   maxx = std::min(maxx, scissor.rect.right);
@@ -399,11 +391,12 @@ static void DrawTriangleFrontFace(const OutputVertexData* v0, const OutputVertex
 
   for (unsigned int i = 0; i < bpmem.genMode.numtexgens; i++)
   {
-    for (int comp = 0; comp < 3; comp++)
-    {
-      TexSlopes[i][comp] = Slope(v0->texCoords[i][comp] * w[0], v1->texCoords[i][comp] * w[1],
-                                 v2->texCoords[i][comp] * w[2], ctx);
-    }
+    TexSlopes[i][0] =
+        Slope(v0->texCoords[i].x * w[0], v1->texCoords[i].x * w[1], v2->texCoords[i].x * w[2], ctx);
+    TexSlopes[i][1] =
+        Slope(v0->texCoords[i].y * w[0], v1->texCoords[i].y * w[1], v2->texCoords[i].y * w[2], ctx);
+    TexSlopes[i][2] =
+        Slope(v0->texCoords[i].z * w[0], v1->texCoords[i].z * w[1], v2->texCoords[i].z * w[2], ctx);
   }
 
   // Half-edge constants

@@ -27,7 +27,7 @@ class PostProcessingConfigWindow final : public QDialog
   Q_OBJECT
 public:
   explicit PostProcessingConfigWindow(EnhancementsWidget* parent, const std::string& shader);
-  ~PostProcessingConfigWindow();
+  ~PostProcessingConfigWindow() override;
 
 private:
   class ConfigGroup final
@@ -41,9 +41,12 @@ private:
     const std::string& GetOptionName() const noexcept;
     void AddSubGroup(std::unique_ptr<ConfigGroup>&& subgroup);
     bool HasSubGroups() const noexcept;
+    const VideoCommon::PostProcessingConfiguration::ConfigurationOption*
+    GetConfigurationOption() const noexcept;
     const std::vector<std::unique_ptr<ConfigGroup>>& GetSubGroups() const noexcept;
     u32 AddWidgets(PostProcessingConfigWindow* parent, QGridLayout* grid, u32 row);
     void EnableSuboptions(bool state);
+    int GetCheckboxValue() const;
     int GetSliderValue(size_t index) const;
     void SetSliderText(size_t index, const QString& text);
 

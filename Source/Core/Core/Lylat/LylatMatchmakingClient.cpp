@@ -22,7 +22,7 @@ LylatMatchmakingClient::LylatMatchmakingClient()
   m_client = nullptr;
   m_server = nullptr;
   m_game = nullptr;
-  generator = std::default_random_engine(Common::Timer::GetTimeMs());
+  generator = std::default_random_engine(Common::Timer::NowMs());
   if (singleton != nullptr)
   {
     delete singleton;
@@ -199,7 +199,7 @@ void LylatMatchmakingClient::startMatchmaking()
     }
 
     netEvent.peer->data = &m_user->displayName;
-    m_client->intercept = ENetUtil::InterceptCallback;
+    m_client->intercept = Common::ENet::InterceptCallback;
     isMmConnected = true;
     WARN_LOG_FMT(LYLAT, "[Matchmaking] Connected to mm server...");
   }

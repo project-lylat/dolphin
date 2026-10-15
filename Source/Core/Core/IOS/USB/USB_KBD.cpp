@@ -13,6 +13,7 @@
 #include "Core/Config/MainSettings.h"
 #include "Core/Core.h"  // Local core functions
 #include "Core/HW/Memmap.h"
+#include "Core/System.h"
 #include "InputCommon/ControlReference/ControlReference.h"  // For background input check
 
 #ifdef _WIN32
@@ -138,7 +139,7 @@ constexpr std::array<u8, 256> s_key_codes_azerty{
     0x55,  // Multiply
     0x57,  // Add
     0x00,  // Separator
-    0x56,  // Substract
+    0x56,  // Subtract
     0x63,  // Decimal
     0x54,  // Divide
     // F1 -> F12
@@ -176,21 +177,22 @@ constexpr std::array<u8, 256> s_key_codes_azerty{};
 }  // Anonymous namespace
 
 USB_KBD::MessageData::MessageData(MessageType type, u8 modifiers_, PressedKeyData pressed_keys_)
-    : msg_type{Common::swap32(static_cast<u32>(type))}, modifiers{modifiers_}, pressed_keys{
-                                                                                   pressed_keys_}
+    : msg_type{Common::swap32(static_cast<u32>(type))}, modifiers{modifiers_},
+      pressed_keys{pressed_keys_}
 {
 }
 
 // TODO: support in netplay/movies.
 
-USB_KBD::USB_KBD(Kernel& ios, const std::string& device_name) : Device(ios, device_name)
+USB_KBD::USB_KBD(EmulationKernel& ios, const std::string& device_name)
+    : EmulationDevice(ios, device_name)
 {
 }
 
 std::optional<IPCReply> USB_KBD::Open(const OpenRequest& request)
 {
   INFO_LOG_FMT(IOS, "USB_KBD: Open");
-  IniFile ini;
+  Common::IniFile ini;
   ini.Load(File::GetUserPath(F_DOLPHINCONFIG_IDX));
   ini.GetOrCreateSection("USB Keyboard")->Get("Layout", &m_keyboard_layout, KBD_LAYOUT_QWERTY);
 
@@ -213,7 +215,9 @@ std::optional<IPCReply> USB_KBD::IOCtl(const IOCtlRequest& request)
   if (Config::Get(Config::MAIN_WII_KEYBOARD) && !Core::WantsDeterminism() &&
       ControlReference::GetInputGate() && !m_message_queue.empty())
   {
-    Memory::CopyToEmu(request.buffer_out, &m_message_queue.front(), sizeof(MessageData));
+    auto& system = GetSystem();
+    auto& memory = system.GetMemory();
+    memory.CopyToEmu(request.buffer_out, &m_message_queue.front(), sizeof(MessageData));
     m_message_queue.pop();
   }
   return IPCReply(IPC_SUCCESS);

@@ -9,6 +9,8 @@
 
 enum EQuantizeType : u32;
 
+class Jit64;
+
 class QuantizedMemoryRoutines : public EmuCodeBlock
 {
 public:
@@ -31,6 +33,8 @@ public:
 
 protected:
   void GenConvertDoubleToSingle();
+  void GenerateFmaddsEft();
+  void GeneratePsMaddEft();
   const u8* GenQuantizedLoadRuntime(bool single, EQuantizeType type);
   const u8* GenQuantizedStoreRuntime(bool single, EQuantizeType type);
   void GenQuantizedLoads();

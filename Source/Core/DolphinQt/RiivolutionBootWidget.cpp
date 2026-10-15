@@ -26,6 +26,7 @@
 #include "DiscIO/GameModDescriptor.h"
 #include "DiscIO/RiivolutionParser.h"
 #include "DiscIO/RiivolutionPatcher.h"
+#include "DolphinQt/Config/HardcoreWarningWidget.h"
 #include "DolphinQt/QtUtils/ModalMessageBox.h"
 
 struct GuiRiivolutionPatchIndex
@@ -45,9 +46,9 @@ RiivolutionBootWidget::RiivolutionBootWidget(std::string game_id, std::optional<
       m_base_game_path(std::move(base_game_path))
 {
   setWindowTitle(tr("Start with Riivolution Patches"));
-  setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
   CreateWidgets();
+  ConnectWidgets();
   LoadMatchingXMLs();
 
   resize(QSize(400, 600));
@@ -57,6 +58,9 @@ RiivolutionBootWidget::~RiivolutionBootWidget() = default;
 
 void RiivolutionBootWidget::CreateWidgets()
 {
+#ifdef USE_RETRO_ACHIEVEMENTS
+  m_hc_warning = new HardcoreWarningWidget(this);
+#endif  // USE_RETRO_ACHIEVEMENTS
   auto* open_xml_button = new QPushButton(tr("Open Riivolution XML..."));
   auto* boot_game_button = new QPushButton(tr("Start"));
   boot_game_button->setDefault(true);
@@ -79,6 +83,9 @@ void RiivolutionBootWidget::CreateWidgets()
   button_layout->addWidget(boot_game_button, 0, Qt::AlignRight);
 
   auto* layout = new QVBoxLayout();
+#ifdef USE_RETRO_ACHIEVEMENTS
+  layout->addWidget(m_hc_warning);
+#endif  // USE_RETRO_ACHIEVEMENTS
   layout->addWidget(scroll_area);
   layout->addLayout(button_layout);
   setLayout(layout);
@@ -88,11 +95,21 @@ void RiivolutionBootWidget::CreateWidgets()
   connect(save_preset_button, &QPushButton::clicked, this, &RiivolutionBootWidget::SaveAsPreset);
 }
 
+void RiivolutionBootWidget::ConnectWidgets()
+{
+#ifdef USE_RETRO_ACHIEVEMENTS
+  connect(m_hc_warning, &HardcoreWarningWidget::OpenAchievementSettings, this,
+          &RiivolutionBootWidget::OpenAchievementSettings);
+  connect(m_hc_warning, &HardcoreWarningWidget::OpenAchievementSettings, this,
+          &RiivolutionBootWidget::reject);
+#endif  // USE_RETRO_ACHIEVEMENTS
+}
+
 void RiivolutionBootWidget::LoadMatchingXMLs()
 {
   const std::string& riivolution_dir = File::GetUserPath(D_RIIVOLUTION_IDX);
   const auto config = LoadConfigXML(riivolution_dir);
-  for (const std::string& path : Common::DoFileSearch({riivolution_dir + "riivolution"}, {".xml"}))
+  for (const std::string& path : Common::DoFileSearch(riivolution_dir + "riivolution", ".xml"))
   {
     auto parsed = DiscIO::Riivolution::ParseFile(path);
     if (!parsed || !parsed->IsValidForGame(m_game_id, m_revision, m_disc_number))
@@ -169,7 +186,7 @@ void RiivolutionBootWidget::MakeGUIForParsedFile(std::string path, std::string r
   xml_root_layout->addWidget(xml_root_line_edit, 0);
   xml_root_layout->addWidget(xml_root_open, 0);
   disc_layout->addLayout(xml_root_layout);
-  connect(xml_root_open, &QPushButton::clicked, this, [this, xml_root_line_edit, disc_index]() {
+  connect(xml_root_open, &QPushButton::clicked, this, [this, xml_root_line_edit, disc_index] {
     QString dir = QDir::toNativeSeparators(QFileDialog::getExistingDirectory(
         this, tr("Select the Virtual SD Card Root"), xml_root_line_edit->text()));
     if (!dir.isEmpty())
@@ -204,14 +221,13 @@ void RiivolutionBootWidget::MakeGUIForParsedFile(std::string path, std::string r
       if (option.m_selected_choice <= option.m_choices.size())
         selection->setCurrentIndex(static_cast<int>(option.m_selected_choice));
 
-      connect(selection, qOverload<int>(&QComboBox::currentIndexChanged), this,
-              [this, selection](int idx) {
-                const auto gui_index = selection->currentData().value<GuiRiivolutionPatchIndex>();
-                auto& selected_disc = m_discs[gui_index.m_disc_index].disc;
-                auto& selected_section = selected_disc.m_sections[gui_index.m_section_index];
-                auto& selected_option = selected_section.m_options[gui_index.m_option_index];
-                selected_option.m_selected_choice = static_cast<u32>(gui_index.m_choice_index);
-              });
+      connect(selection, &QComboBox::currentIndexChanged, this, [this, selection](int idx) {
+        const auto gui_index = selection->currentData().value<GuiRiivolutionPatchIndex>();
+        auto& selected_disc = m_discs[gui_index.m_disc_index].disc;
+        auto& selected_section = selected_disc.m_sections[gui_index.m_section_index];
+        auto& selected_option = selected_section.m_options[gui_index.m_option_index];
+        selected_option.m_selected_choice = static_cast<u32>(gui_index.m_choice_index);
+      });
 
       grid_layout->addWidget(label, row, 0, 1, 1);
       grid_layout->addWidget(selection, row, 1, 1, 1);

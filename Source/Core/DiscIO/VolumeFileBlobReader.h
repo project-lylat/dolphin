@@ -20,12 +20,14 @@ class VolumeFileBlobReader final : public BlobReader
 public:
   static std::unique_ptr<VolumeFileBlobReader>
   Create(const Volume& volume, const Partition& partition, std::string_view file_path);
+  ~VolumeFileBlobReader();
 
   BlobType GetBlobType() const override { return BlobType::PLAIN; }
+  std::unique_ptr<BlobReader> CopyReader() const override;
 
   u64 GetRawSize() const override;
   u64 GetDataSize() const override;
-  bool IsDataSizeAccurate() const override { return true; }
+  DataSizeType GetDataSizeType() const override { return DataSizeType::Accurate; }
 
   u64 GetBlockSize() const override;
   bool HasFastRandomAccessInBlock() const override;

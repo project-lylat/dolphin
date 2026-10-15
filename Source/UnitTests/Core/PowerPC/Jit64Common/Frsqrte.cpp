@@ -1,20 +1,21 @@
 // Copyright 2018 Dolphin Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include <cstring>
+#include <bit>
 
-#include "Common/BitUtils.h"
 #include "Common/CommonTypes.h"
 #include "Common/FloatUtils.h"
+#include "Common/ScopeGuard.h"
 #include "Common/x64ABI.h"
+#include "Core/Core.h"
 #include "Core/PowerPC/Gekko.h"
 #include "Core/PowerPC/Jit64/Jit.h"
 #include "Core/PowerPC/Jit64Common/Jit64AsmCommon.h"
 #include "Core/PowerPC/Jit64Common/Jit64PowerPCState.h"
+#include "Core/System.h"
 
 #include "../TestValues.h"
 
-#include <fmt/format.h>
 #include <gtest/gtest.h>
 
 namespace
@@ -22,7 +23,7 @@ namespace
 class TestCommonAsmRoutines : public CommonAsmRoutines
 {
 public:
-  TestCommonAsmRoutines() : CommonAsmRoutines(jit)
+  explicit TestCommonAsmRoutines(Core::System& system) : CommonAsmRoutines(jit), jit(system)
   {
     using namespace Gen;
 
@@ -35,12 +36,9 @@ public:
     wrapped_frsqrte = reinterpret_cast<u64 (*)(u64, UReg_FPSCR&)>(AlignCode4());
     ABI_PushRegistersAndAdjustStack(ABI_ALL_CALLEE_SAVED, 8, 16);
 
-    // We know the frsqrte implementation only accesses the fpscr. We manufacture a
-    // PPCSTATE pointer so we read/write to our provided fpscr argument instead.
-    XOR(32, R(RPPCSTATE), R(RPPCSTATE));
-    LEA(64, RSCRATCH, PPCSTATE(fpscr));
-    SUB(64, R(ABI_PARAM2), R(RSCRATCH));
-    MOV(64, R(RPPCSTATE), R(ABI_PARAM2));
+    // We know that the only part of PowerPCState that the frsqrte routine accesses is the fpscr.
+    // We manufacture a PPCSTATE pointer so it reads/writes to our provided fpscr instead.
+    LEA(64, RPPCSTATE, MDisp(ABI_PARAM2, -PPCSTATE_OFF(fpscr)));
 
     // Call
     MOVQ_xmm(XMM0, R(ABI_PARAM1));
@@ -58,19 +56,23 @@ public:
 
 TEST(Jit64, Frsqrte)
 {
-  TestCommonAsmRoutines routines;
+  Core::DeclareAsCPUThread();
+  Common::ScopeGuard cpu_thread_guard([] { Core::UndeclareAsCPUThread(); });
+
+  const TestCommonAsmRoutines routines(Core::System::GetInstance());
 
   UReg_FPSCR fpscr;
 
   for (const u64 ivalue : double_test_values)
   {
-    double dvalue = Common::BitCast<double>(ivalue);
+    const double dvalue = std::bit_cast<double>(ivalue);
 
-    u64 expected = Common::BitCast<u64>(Common::ApproximateReciprocalSquareRoot(dvalue));
+    u64 expected = std::bit_cast<u64>(Common::ApproximateReciprocalSquareRoot(dvalue));
 
     u64 actual = routines.wrapped_frsqrte(ivalue, fpscr);
 
-    fmt::print("{:016x} -> {:016x} == {:016x}\n", ivalue, actual, expected);
+    if (expected != actual)
+      fmt::print("{:016x} -> {:016x} == {:016x}\n", ivalue, actual, expected);
 
     EXPECT_EQ(expected, actual);
   }

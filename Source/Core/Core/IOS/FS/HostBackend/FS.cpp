@@ -4,13 +4,16 @@
 #include "Core/IOS/FS/HostBackend/FS.h"
 
 #include <algorithm>
+#include <expected>
 #include <optional>
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
+#include <utility>
 
 #include <fmt/format.h>
 
+#include "Common/Align.h"
 #include "Common/Assert.h"
 #include "Common/ChunkFile.h"
 #include "Common/FileUtil.h"
@@ -20,6 +23,9 @@
 #include "Common/Swap.h"
 #include "Core/IOS/ES/ES.h"
 #include "Core/IOS/IOS.h"
+#include "Core/Movie.h"
+#include "Core/System.h"
+#include "Core/WiiRoot.h"
 
 namespace IOS::HLE::FS
 {
@@ -27,7 +33,7 @@ HostFileSystem::HostFilename HostFileSystem::BuildFilename(const std::string& wi
 {
   for (const auto& redirect : m_nand_redirects)
   {
-    if (StringBeginsWith(wii_path, redirect.source_path) &&
+    if (wii_path.starts_with(redirect.source_path) &&
         (wii_path.size() == redirect.source_path.size() ||
          wii_path[redirect.source_path.size()] == '/'))
     {
@@ -36,26 +42,13 @@ HostFileSystem::HostFilename HostFileSystem::BuildFilename(const std::string& wi
     }
   }
 
-  if (wii_path.compare(0, 1, "/") == 0)
+  ASSERT(!m_root_path.empty());
+
+  if (wii_path.starts_with("/"))
     return HostFilename{m_root_path + Common::EscapePath(wii_path), false};
 
-  ASSERT(false);
+  ASSERT_MSG(IOS_FS, false, "Invalid Wii path '{}' given to BuildFilename()", wii_path);
   return HostFilename{m_root_path, false};
-}
-
-// Get total filesize of contents of a directory (recursive)
-// Only used for ES_GetUsage atm, could be useful elsewhere?
-static u64 ComputeTotalFileSize(const File::FSTEntry& parent_entry)
-{
-  u64 sizeOfFiles = 0;
-  for (const File::FSTEntry& entry : parent_entry.children)
-  {
-    if (entry.isDirectory)
-      sizeOfFiles += ComputeTotalFileSize(entry);
-    else
-      sizeOfFiles += entry.size;
-  }
-  return sizeOfFiles;
 }
 
 namespace
@@ -94,9 +87,43 @@ auto GetMetadataFields(T& obj)
   return std::tie(obj.uid, obj.gid, obj.is_file, obj.modes, obj.attribute);
 }
 
-auto GetNamePredicate(const std::string& name)
+// Convert the host directory entries into ones that can be exposed to the emulated system.
+static u64 FixupDirectoryEntries(File::FSTEntry* dir, bool is_root)
 {
-  return [&name](const auto& entry) { return entry.name == name; };
+  u64 removed_entries = 0;
+  for (auto it = dir->children.begin(); it != dir->children.end();)
+  {
+    // Drop files in the root of the Wii NAND folder, since we store extra files there that the
+    // emulated system shouldn't know about.
+    if (is_root && !it->isDirectory)
+    {
+      ++removed_entries;
+      it = dir->children.erase(it);
+      continue;
+    }
+
+    // Decode escaped invalid file system characters so that games (such as Harry Potter and the
+    // Half-Blood Prince) can find what they expect.
+    if (it->virtualName.contains("__"))
+      it->virtualName = Common::UnescapeFileName(it->virtualName);
+
+    // Drop files that have too long filenames.
+    if (!IsValidFilename(it->virtualName))
+    {
+      if (it->isDirectory)
+        removed_entries += it->size;
+      ++removed_entries;
+      it = dir->children.erase(it);
+      continue;
+    }
+
+    if (dir->isDirectory)
+      removed_entries += FixupDirectoryEntries(&*it, false);
+
+    ++it;
+  }
+  dir->size -= removed_entries;
+  return removed_entries;
 }
 }  // namespace
 
@@ -113,13 +140,12 @@ bool HostFileSystem::FstEntry::CheckPermission(Uid caller_uid, Gid caller_gid,
   return (u8(requested_mode) & u8(file_mode)) == u8(requested_mode);
 }
 
-HostFileSystem::HostFileSystem(const std::string& root_path,
-                               std::vector<NandRedirect> nand_redirects)
-    : m_root_path{root_path}, m_nand_redirects(std::move(nand_redirects))
+HostFileSystem::HostFileSystem(std::string root_path, std::vector<NandRedirect> nand_redirects)
+    : m_root_path{std::move(root_path)}, m_nand_redirects(std::move(nand_redirects))
 {
-  while (StringEndsWith(m_root_path, "/"))
+  while (m_root_path.ends_with('/'))
     m_root_path.pop_back();
-  File::CreateFullPath(m_root_path + "/");
+  File::CreateFullPath(m_root_path + '/');
   ResetFst();
   LoadFst();
 }
@@ -223,8 +249,7 @@ HostFileSystem::FstEntry* HostFileSystem::GetFstEntryForPath(const std::string& 
   for (const std::string& component : SplitString(std::string(path.substr(1)), '/'))
   {
     complete_path += '/' + component;
-    const auto next =
-        std::find_if(entry->children.begin(), entry->children.end(), GetNamePredicate(component));
+    const auto next = std::ranges::find(entry->children, component, &FstEntry::name);
     if (next != entry->children.end())
     {
       entry = &*next;
@@ -254,97 +279,70 @@ HostFileSystem::FstEntry* HostFileSystem::GetFstEntryForPath(const std::string& 
 
 void HostFileSystem::DoState(PointerWrap& p)
 {
-  // Temporarily close the file, to prevent any issues with the savestating of /tmp
-  for (Handle& handle : m_handles)
+  // This piece of code is handling four separate problems:
+  // 1. Close host handles by calling reset on them, in case DoStateRead needs to modify a file that
+  //    was open.
+  // 2. Close guest handles by setting opened to false on each element in m_handles, in case
+  //    DoStateRead needs to modify a file that was open.
+  // 3. Close guest handles by setting opened to false on each element in m_handles, because if all
+  //    of them were open, it would make DoStateRead/DoStateWriteOrMeasure's calls to OpenFile fail.
+  // 4. Create a copy of m_handles that we can restore later in case we're writing/measuring,
+  //    because OpenFile happily stomps over elements in m_handles that have opened set to false.
+  auto handles_copy = std::move(m_handles);
+  m_handles = {};
+  for (Handle& handle : handles_copy)
     handle.host_file.reset();
 
-  // handle /tmp
-  std::string Path = BuildFilename("/tmp").host_path;
-  if (p.IsReadMode())
+  // The format for the next part of the save state is follows:
+  // 1. bool is_full_nand_in_state (movie active && temporary wii root)
+  // 2. Contents of the "/tmp" directory recursively.
+  // 3. u32 size_of_nand (or 0, if not is_full_nand_in_state).
+  // 4. Contents of the "/" directory recursively (or nothing, if the
+  // root of the NAND folder is not save stated).
+
+  // The "/" directory is only saved when a savestate is made during a movie recording
+  // and when the directory root is temporary (i.e. WiiSession).
+  // If a save state is made during a movie recording and is loaded when no movie is active,
+  // then a call to p.DoExternal() will be used to skip over reading the contents of the "/"
+  // directory (it skips over the number of bytes specified by size_of_nand)
+
+  auto& movie = Core::System::GetInstance().GetMovie();
+
+  const bool is_full_nand_wanted = movie.IsMovieActive() && Core::WiiRootIsTemporary();
+
+  bool is_full_nand_in_state = is_full_nand_wanted;
+  p.Do(is_full_nand_in_state);
+
+  if (!p.IsReadMode())
   {
-    File::DeleteDirRecursively(Path);
-    File::CreateDir(Path);
-
-    // now restore from the stream
-    while (1)
+    DoStateWriteOrMeasure(p, "/tmp");
+    u8* const nand_size_ptr = p.ReserveU32();
+    if (is_full_nand_in_state)
     {
-      char type = 0;
-      p.Do(type);
-      if (!type)
-        break;
-      std::string file_name;
-      p.Do(file_name);
-      std::string name = Path + "/" + file_name;
-      switch (type)
+      DoStateWriteOrMeasure(p, "/");
+      if (p.IsWriteMode())
       {
-      case 'd':
-      {
-        File::CreateDir(name);
-        break;
-      }
-      case 'f':
-      {
-        u32 size = 0;
-        p.Do(size);
-
-        File::IOFile handle(name, "wb");
-        char buf[65536];
-        u32 count = size;
-        while (count > 65536)
-        {
-          p.DoArray(buf);
-          handle.WriteArray(&buf[0], 65536);
-          count -= 65536;
-        }
-        p.DoArray(&buf[0], count);
-        handle.WriteArray(&buf[0], count);
-        break;
-      }
+        const u32 size_of_nand = p.GetOffsetFromPreviousPosition(nand_size_ptr) - sizeof(u32);
+        memcpy(nand_size_ptr, &size_of_nand, sizeof(size_of_nand));
       }
     }
+
+    m_handles = std::move(handles_copy);
   }
-  else
+  else  // case where we're in read mode.
   {
-    // recurse through tmp and save dirs and files
-
-    File::FSTEntry parent_entry = File::ScanDirectoryTree(Path, true);
-    std::deque<File::FSTEntry> todo;
-    todo.insert(todo.end(), parent_entry.children.begin(), parent_entry.children.end());
-
-    while (!todo.empty())
+    u32 size_of_nand = 0;
+    DoStateRead(p, "/tmp");
+    if (is_full_nand_in_state && is_full_nand_wanted)
     {
-      File::FSTEntry& entry = todo.front();
-      std::string name = entry.physicalName;
-      name.erase(0, Path.length() + 1);
-      char type = entry.isDirectory ? 'd' : 'f';
-      p.Do(type);
-      p.Do(name);
-      if (entry.isDirectory)
-      {
-        todo.insert(todo.end(), entry.children.begin(), entry.children.end());
-      }
-      else
-      {
-        u32 size = (u32)entry.size;
-        p.Do(size);
-
-        File::IOFile handle(entry.physicalName, "rb");
-        char buf[65536];
-        u32 count = size;
-        while (count > 65536)
-        {
-          handle.ReadArray(&buf[0], 65536);
-          p.DoArray(buf);
-          count -= 65536;
-        }
-        handle.ReadArray(&buf[0], count);
-        p.DoArray(&buf[0], count);
-      }
-      todo.pop_front();
+      p.Do(size_of_nand);
+      DoStateRead(p, "/");
     }
-
-    char type = 0;
-    p.Do(type);
+    else
+    {
+      // Skip over any NAND data without using it.
+      (void)p.DoExternal(size_of_nand);
+    }
   }
 
   for (Handle& handle : m_handles)
@@ -377,10 +375,12 @@ ResultCode HostFileSystem::Format(Uid uid)
 ResultCode HostFileSystem::CreateFileOrDirectory(Uid uid, Gid gid, const std::string& path,
                                                  FileAttribute attr, Modes modes, bool is_file)
 {
-  if (!IsValidNonRootPath(path) || !std::all_of(path.begin(), path.end(), IsPrintableCharacter))
+  if (!IsValidNonRootPath(path) || !std::ranges::all_of(path, Common::IsPrintableCharacter))
+  {
     return ResultCode::Invalid;
+  }
 
-  if (!is_file && std::count(path.begin(), path.end(), '/') > int(MaxPathDepth))
+  if (!is_file && std::ranges::count(path, '/') > int(MaxPathDepth))
     return ResultCode::TooManyPathComponents;
 
   const auto split_path = SplitPathAndBasename(path);
@@ -429,15 +429,15 @@ ResultCode HostFileSystem::CreateDirectory(Uid uid, Gid gid, const std::string& 
 
 bool HostFileSystem::IsFileOpened(const std::string& path) const
 {
-  return std::any_of(m_handles.begin(), m_handles.end(), [&path](const Handle& handle) {
+  return std::ranges::any_of(m_handles, [&path](const Handle& handle) {
     return handle.opened && handle.wii_path == path;
   });
 }
 
 bool HostFileSystem::IsDirectoryInUse(const std::string& path) const
 {
-  return std::any_of(m_handles.begin(), m_handles.end(), [&path](const Handle& handle) {
-    return handle.opened && StringBeginsWith(handle.wii_path, path);
+  return std::ranges::any_of(m_handles, [&path](const Handle& handle) {
+    return handle.opened && handle.wii_path.starts_with(path);
   });
 }
 
@@ -466,8 +466,7 @@ ResultCode HostFileSystem::Delete(Uid uid, Gid gid, const std::string& path)
   else
     return ResultCode::InUse;
 
-  const auto it = std::find_if(parent->children.begin(), parent->children.end(),
-                               GetNamePredicate(split_path.file_name));
+  const auto it = std::ranges::find(parent->children, split_path.file_name, &FstEntry::name);
   if (it != parent->children.end())
     parent->children.erase(it);
   SaveFst();
@@ -533,7 +532,7 @@ ResultCode HostFileSystem::Rename(Uid uid, Gid gid, const std::string& old_path,
     {
       // If either path is a redirect, the source and target may be on a different partition or
       // device, so a simple rename may not work. Fall back to Copy & Delete and see if that works.
-      if (!File::Copy(host_old_path, host_new_path))
+      if (!File::CopyRegularFile(host_old_path, host_new_path))
       {
         ERROR_LOG_FMT(IOS_FS, "Copying {} to {} in Rename fallback failed", host_old_path,
                       host_new_path);
@@ -552,16 +551,20 @@ ResultCode HostFileSystem::Rename(Uid uid, Gid gid, const std::string& old_path,
     }
   }
 
-  // Finally, remove the child from the old parent and move it to the new parent.
   FstEntry* new_entry = GetFstEntryForPath(new_path);
-  const auto it = std::find_if(old_parent->children.begin(), old_parent->children.end(),
-                               GetNamePredicate(split_old_path.file_name));
+  new_entry->name = split_new_path.file_name;
+
+  // Finally, remove the child from the old parent and move it to the new parent.
+  const auto it =
+      std::ranges::find(old_parent->children, split_old_path.file_name, &FstEntry::name);
   if (it != old_parent->children.end())
   {
-    *new_entry = *it;
+    new_entry->data = it->data;
+    new_entry->children = it->children;
+
     old_parent->children.erase(it);
   }
-  new_entry->name = split_new_path.file_name;
+
   SaveFst();
 
   return ResultCode::Success;
@@ -571,26 +574,21 @@ Result<std::vector<std::string>> HostFileSystem::ReadDirectory(Uid uid, Gid gid,
                                                                const std::string& path)
 {
   if (!IsValidPath(path))
-    return ResultCode::Invalid;
+    return std::unexpected{ResultCode::Invalid};
 
   const FstEntry* entry = GetFstEntryForPath(path);
   if (!entry)
-    return ResultCode::NotFound;
+    return std::unexpected{ResultCode::NotFound};
 
   if (!entry->CheckPermission(uid, gid, Mode::Read))
-    return ResultCode::AccessDenied;
+    return std::unexpected{ResultCode::AccessDenied};
 
   if (entry->data.is_file)
-    return ResultCode::Invalid;
+    return std::unexpected{ResultCode::Invalid};
 
   const std::string host_path = BuildFilename(path).host_path;
   File::FSTEntry host_entry = File::ScanDirectoryTree(host_path, false);
-  for (File::FSTEntry& child : host_entry.children)
-  {
-    // Decode escaped invalid file system characters so that games (such as
-    // Harry Potter and the Half-Blood Prince) can find what they expect.
-    child.virtualName = Common::UnescapeFileName(child.virtualName);
-  }
+  FixupDirectoryEntries(&host_entry, path == "/");
 
   // Sort files according to their order in the FST tree (issue 10234).
   // The result should look like this:
@@ -608,17 +606,17 @@ Result<std::vector<std::string>> HostFileSystem::ReadDirectory(Uid uid, Gid gid,
 
   // Now sort in reverse order because Nintendo traverses a linked list
   // in which new elements are inserted at the front.
-  std::sort(host_entry.children.begin(), host_entry.children.end(),
-            [&get_key](const File::FSTEntry& one, const File::FSTEntry& two) {
-              const int key1 = get_key(one.virtualName);
-              const int key2 = get_key(two.virtualName);
-              if (key1 != key2)
-                return key1 > key2;
+  std::ranges::sort(host_entry.children,
+                    [&get_key](const File::FSTEntry& one, const File::FSTEntry& two) {
+                      const int key1 = get_key(one.virtualName);
+                      const int key2 = get_key(two.virtualName);
+                      if (key1 != key2)
+                        return key1 > key2;
 
-              // For files that are not in the FST, sort lexicographically to ensure that
-              // results are consistent no matter what the underlying filesystem is.
-              return one.virtualName > two.virtualName;
-            });
+                      // For files that are not in the FST, sort lexicographically to ensure that
+                      // results are consistent no matter what the underlying filesystem is.
+                      return one.virtualName > two.virtualName;
+                    });
 
   std::vector<std::string> output;
   for (const File::FSTEntry& child : host_entry.children)
@@ -636,19 +634,19 @@ Result<Metadata> HostFileSystem::GetMetadata(Uid uid, Gid gid, const std::string
   else
   {
     if (!IsValidNonRootPath(path))
-      return ResultCode::Invalid;
+      return std::unexpected{ResultCode::Invalid};
 
     const auto split_path = SplitPathAndBasename(path);
     const FstEntry* parent = GetFstEntryForPath(split_path.parent);
     if (!parent)
-      return ResultCode::NotFound;
+      return std::unexpected{ResultCode::NotFound};
     if (!parent->CheckPermission(uid, gid, Mode::Read))
-      return ResultCode::AccessDenied;
+      return std::unexpected{ResultCode::AccessDenied};
     entry = GetFstEntryForPath(path);
   }
 
   if (!entry)
-    return ResultCode::NotFound;
+    return std::unexpected{ResultCode::NotFound};
 
   Metadata metadata = entry->data;
   metadata.size = File::GetSize(BuildFilename(path).host_path);
@@ -674,52 +672,87 @@ ResultCode HostFileSystem::SetMetadata(Uid caller_uid, const std::string& path, 
   if (entry->data.uid != uid && entry->data.is_file && !is_empty)
     return ResultCode::FileNotEmpty;
 
-  entry->data.gid = gid;
-  entry->data.uid = uid;
-  entry->data.attribute = attr;
-  entry->data.modes = modes;
-  SaveFst();
+  if (entry->data.gid != gid || entry->data.uid != uid || entry->data.attribute != attr ||
+      entry->data.modes != modes)
+  {
+    entry->data.gid = gid;
+    entry->data.uid = uid;
+    entry->data.attribute = attr;
+    entry->data.modes = modes;
+    SaveFst();
+  }
 
   return ResultCode::Success;
 }
 
+static u64 ComputeUsedClusters(const File::FSTEntry& parent_entry)
+{
+  u64 clusters = 0;
+  for (const File::FSTEntry& entry : parent_entry.children)
+  {
+    if (entry.isDirectory)
+      clusters += ComputeUsedClusters(entry);
+    else
+      clusters += Common::AlignUp(entry.size, CLUSTER_SIZE) / CLUSTER_SIZE;
+  }
+  return clusters;
+}
+
 Result<NandStats> HostFileSystem::GetNandStats()
 {
-  WARN_LOG_FMT(IOS_FS, "GET STATS - returning static values for now");
+  const auto root_stats = GetDirectoryStats("/");
+  if (!root_stats)
+    return std::unexpected{root_stats.error()};  // TODO: is this right? can this fail on hardware?
 
-  // TODO: scrape the real amounts from somewhere...
   NandStats stats{};
-  stats.cluster_size = 0x4000;
-  stats.free_clusters = 0x5DEC;
-  stats.used_clusters = 0x1DD4;
-  stats.bad_clusters = 0x10;
-  stats.reserved_clusters = 0x02F0;
-  stats.free_inodes = 0x146B;
-  stats.used_inodes = 0x0394;
+  stats.cluster_size = CLUSTER_SIZE;
+  stats.free_clusters = USABLE_CLUSTERS - root_stats->used_clusters;
+  stats.used_clusters = root_stats->used_clusters;
+  stats.bad_clusters = 0;
+  stats.reserved_clusters = RESERVED_CLUSTERS;
+  stats.free_inodes = TOTAL_INODES - root_stats->used_inodes;
+  stats.used_inodes = root_stats->used_inodes;
 
   return stats;
 }
 
 Result<DirectoryStats> HostFileSystem::GetDirectoryStats(const std::string& wii_path)
 {
-  if (!IsValidPath(wii_path))
-    return ResultCode::Invalid;
+  const auto result = GetExtendedDirectoryStats(wii_path);
+  if (!result)
+    return std::unexpected{result.error()};
 
   DirectoryStats stats{};
+  stats.used_inodes = static_cast<u32>(std::min<u64>(result->used_inodes, TOTAL_INODES));
+  stats.used_clusters = static_cast<u32>(std::min<u64>(result->used_clusters, USABLE_CLUSTERS));
+  return stats;
+}
+
+Result<ExtendedDirectoryStats>
+HostFileSystem::GetExtendedDirectoryStats(const std::string& wii_path)
+{
+  if (!IsValidPath(wii_path))
+    return std::unexpected{ResultCode::Invalid};
+
+  ExtendedDirectoryStats stats{};
   std::string path(BuildFilename(wii_path).host_path);
-  if (File::IsDirectory(path))
+  File::FileInfo info(path);
+  if (!info.Exists())
+  {
+    return std::unexpected{ResultCode::NotFound};
+  }
+  if (info.IsDirectory())
   {
     File::FSTEntry parent_dir = File::ScanDirectoryTree(path, true);
+    FixupDirectoryEntries(&parent_dir, wii_path == "/");
+
     // add one for the folder itself
-    stats.used_inodes = 1 + (u32)parent_dir.size;
-
-    u64 total_size = ComputeTotalFileSize(parent_dir);  // "Real" size to convert to nand blocks
-
-    stats.used_clusters = (u32)(total_size / (16 * 1024));  // one block is 16kb
+    stats.used_inodes = 1 + parent_dir.size;
+    stats.used_clusters = ComputeUsedClusters(parent_dir);
   }
   else
   {
-    WARN_LOG_FMT(IOS_FS, "fsBlock failed, cannot find directory: {}", path);
+    return std::unexpected{ResultCode::Invalid};
   }
   return stats;
 }

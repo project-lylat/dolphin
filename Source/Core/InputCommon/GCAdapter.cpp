@@ -11,10 +11,13 @@
 #define GCADAPTER_USE_ANDROID_IMPLEMENTATION true
 #endif
 
-#include <algorithm>
 #include <array>
+#include <chrono>
 #include <mutex>
 #include <optional>
+#include <utility>
+
+using namespace std::chrono_literals;
 
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
 #include <libusb.h>
@@ -22,6 +25,8 @@
 #include <jni.h>
 #endif
 
+#include "Common/BitUtils.h"
+#include "Common/Config/Config.h"
 #include "Common/Event.h"
 #include "Common/Flag.h"
 #include "Common/Logging/Log.h"
@@ -32,6 +37,7 @@
 #include "Core/HW/SI/SI.h"
 #include "Core/HW/SI/SI_Device.h"
 #include "Core/HW/SystemTimers.h"
+#include "Core/System.h"
 #include "InputCommon/GCPadStatus.h"
 
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
@@ -55,24 +61,30 @@
 namespace GCAdapter
 {
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
+
+constexpr unsigned int USB_TIMEOUT_MS = 100;
+
 static bool CheckDeviceAccess(libusb_device* device);
 static void AddGCAdapter(libusb_device* device);
 static void ResetRumbleLockNeeded();
 #endif
+
 static void Reset();
 static void Setup();
-static void Read();
-static void Write();
+static void ProcessInputPayload(const u8* data, std::size_t size);
+static void ReadThreadFunc();
+static void WriteThreadFunc();
 
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
-enum
+enum class AdapterStatus
 {
-  NO_ADAPTER_DETECTED = 0,
-  ADAPTER_DETECTED = 1,
+  NotDetected,
+  Detected,
+  Error,
 };
 
-// Current adapter status: detected/not detected/in error (holds the error code)
-static std::atomic<int> s_status = NO_ADAPTER_DETECTED;
+static std::atomic<AdapterStatus> s_status = AdapterStatus::NotDetected;
+static std::atomic<libusb_error> s_adapter_error = LIBUSB_SUCCESS;
 static libusb_device_handle* s_handle = nullptr;
 #elif GCADAPTER_USE_ANDROID_IMPLEMENTATION
 // Java classes
@@ -89,21 +101,27 @@ enum class ControllerType : u8
   Wireless = 2,
 };
 
-static std::array<ControllerType, SerialInterface::MAX_SI_CHANNELS> s_controller_type = {
-    ControllerType::None, ControllerType::None, ControllerType::None, ControllerType::None};
-static std::array<u8, SerialInterface::MAX_SI_CHANNELS> s_controller_rumble{};
+static std::array<u8, SerialInterface::MAX_SI_CHANNELS> s_controller_rumble;
 
-constexpr size_t CONTROLER_INPUT_PAYLOAD_EXPECTED_SIZE = 37;
-constexpr size_t CONTROLER_OUTPUT_INIT_PAYLOAD_SIZE = 1;
-constexpr size_t CONTROLER_OUTPUT_RUMBLE_PAYLOAD_SIZE = 5;
+constexpr size_t CONTROLLER_INPUT_PAYLOAD_EXPECTED_SIZE = 37;
+#if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
+constexpr size_t CONTROLLER_OUTPUT_INIT_PAYLOAD_SIZE = 1;
+#endif
+constexpr size_t CONTROLLER_OUTPUT_RUMBLE_PAYLOAD_SIZE = 5;
 
-static std::array<u8, CONTROLER_INPUT_PAYLOAD_EXPECTED_SIZE> s_controller_payload;
-static std::array<u8, CONTROLER_INPUT_PAYLOAD_EXPECTED_SIZE> s_controller_payload_swap;
+struct PortState
+{
+  GCPadStatus origin = {};
+  GCPadStatus status = {};
+
+  ControllerType controller_type = ControllerType::None;
+  bool is_new_connection = false;
+};
 
 // Only access with s_mutex held!
-static int s_controller_payload_size = {0};
+static std::array<PortState, SerialInterface::MAX_SI_CHANNELS> s_port_states;
 
-static std::array<u8, CONTROLER_OUTPUT_RUMBLE_PAYLOAD_SIZE> s_controller_write_payload;
+static std::array<u8, CONTROLLER_OUTPUT_RUMBLE_PAYLOAD_SIZE> s_controller_write_payload;
 static std::atomic<int> s_controller_write_payload_size{0};
 
 static std::thread s_read_adapter_thread;
@@ -112,19 +130,21 @@ static std::thread s_write_adapter_thread;
 static Common::Flag s_write_adapter_thread_running;
 static Common::Event s_write_happened;
 
-static std::mutex s_read_mutex;
-#if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
 static std::mutex s_init_mutex;
-#elif GCADAPTER_USE_ANDROID_IMPLEMENTATION
+static std::mutex s_read_mutex;
+#if GCADAPTER_USE_ANDROID_IMPLEMENTATION
 static std::mutex s_write_mutex;
 #endif
 
 static std::thread s_adapter_detect_thread;
 static Common::Flag s_adapter_detect_thread_running;
 
-#if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
 static Common::Event s_hotplug_event;
 
+static Common::Flag s_read_thread_has_init;
+static Common::Flag s_adapter_reads_failing;
+
+#if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
 static std::function<void(void)> s_detect_callback;
 
 #if defined(__FreeBSD__) && __FreeBSD__ >= 11
@@ -144,12 +164,14 @@ static u8 s_endpoint_out = 0;
 
 static u64 s_last_init = 0;
 
-static std::optional<size_t> s_config_callback_id = std::nullopt;
-static std::array<SerialInterface::SIDevices, SerialInterface::MAX_SI_CHANNELS>
-    s_config_si_device_type{};
-static std::array<bool, SerialInterface::MAX_SI_CHANNELS> s_config_rumble_enabled{};
+static std::optional<Config::ConfigChangedCallbackID> s_config_callback_id = std::nullopt;
 
-static void Read()
+static std::atomic_bool s_is_adapter_wanted = false;
+static std::array<std::atomic_bool, SerialInterface::MAX_SI_CHANNELS> s_config_rumble_enabled{};
+
+static std::atomic<double> s_adapter_poll_rate{};
+
+static void ReadThreadFunc()
 {
   Common::SetCurrentThreadName("GCAdapter Read Thread");
   NOTICE_LOG_FMT(CONTROLLERINTERFACE, "GCAdapter read thread started");
@@ -158,14 +180,14 @@ static void Read()
   bool first_read = true;
   JNIEnv* const env = IDCache::GetEnvForThread();
 
-  const jfieldID payload_field = env->GetStaticFieldID(s_adapter_class, "controller_payload", "[B");
+  const jfieldID payload_field = env->GetStaticFieldID(s_adapter_class, "controllerPayload", "[B");
   jobject payload_object = env->GetStaticObjectField(s_adapter_class, payload_field);
   auto* const java_controller_payload = reinterpret_cast<jbyteArray*>(&payload_object);
 
   // Get function pointers
-  const jmethodID getfd_func = env->GetStaticMethodID(s_adapter_class, "GetFD", "()I");
-  const jmethodID input_func = env->GetStaticMethodID(s_adapter_class, "Input", "()I");
-  const jmethodID openadapter_func = env->GetStaticMethodID(s_adapter_class, "OpenAdapter", "()Z");
+  const jmethodID getfd_func = env->GetStaticMethodID(s_adapter_class, "getFd", "()I");
+  const jmethodID input_func = env->GetStaticMethodID(s_adapter_class, "input", "()I");
+  const jmethodID openadapter_func = env->GetStaticMethodID(s_adapter_class, "openAdapter", "()Z");
 
   const bool connected = env->CallStaticBooleanMethod(s_adapter_class, openadapter_func);
 
@@ -180,35 +202,68 @@ static void Read()
 #endif
 
   s_write_adapter_thread_running.Set(true);
-  s_write_adapter_thread = std::thread(Write);
+  s_write_adapter_thread = std::thread(WriteThreadFunc);
+
+  std::chrono::steady_clock::time_point last_successful_read_time =
+      std::chrono::steady_clock::now();
+  s_adapter_reads_failing.Clear();
+  s_read_thread_has_init.Set();
 
   // Reset rumble once on initial reading
   ResetRumble();
 
-  while (s_read_adapter_thread_running.IsSet())
+  // Measure poll rate for display in UI.
+  constexpr int POLL_RATE_MEASUREMENT_SAMPLE_COUNT = 50;
+  auto poll_rate_measurement_start_time = Clock::now();
+  int poll_rate_measurement_count = 0;
+
+  bool last_read_failed = false;
+
+  while (s_read_adapter_thread_running.IsSet() && !s_adapter_reads_failing.IsSet())
   {
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
+    std::array<u8, CONTROLLER_INPUT_PAYLOAD_EXPECTED_SIZE> input_buffer;
+
     int payload_size = 0;
-    const int error =
-        libusb_interrupt_transfer(s_handle, s_endpoint_in, s_controller_payload_swap.data(),
-                                  CONTROLER_INPUT_PAYLOAD_EXPECTED_SIZE, &payload_size, 16);
-    if (error != LIBUSB_SUCCESS)
+    int transfer_return_code =
+        libusb_interrupt_transfer(s_handle, s_endpoint_in, input_buffer.data(),
+                                  int(input_buffer.size()), &payload_size, USB_TIMEOUT_MS);
+    if (transfer_return_code == LIBUSB_SUCCESS)
     {
-      ERROR_LOG_FMT(CONTROLLERINTERFACE, "Read: libusb_interrupt_transfer failed: {}",
-                    LibusbUtils::ErrorWrap(error));
+      ProcessInputPayload(input_buffer.data(), payload_size);
+      last_successful_read_time = std::chrono::steady_clock::now();
+      last_read_failed = false;
     }
+    else
+    {
+      if (last_read_failed)
+      {
+        INFO_LOG_FMT(CONTROLLERINTERFACE, "Read: libusb_interrupt_transfer failed: {}",
+                     LibusbUtils::ErrorWrap(transfer_return_code));
+
+        // Prevents busy-looping when transfers return instantly e.g. on disconnect
+        Common::SleepCurrentThread(1);
+      }
+      else
+      {
+        ERROR_LOG_FMT(CONTROLLERINTERFACE, "Read: libusb_interrupt_transfer newly failed: {}",
+                      LibusbUtils::ErrorWrap(transfer_return_code));
+      }
+      last_read_failed = true;
+
+      if (std::chrono::steady_clock::now() - last_successful_read_time > 500ms)
+      {
+        ERROR_LOG_FMT(CONTROLLERINTERFACE, "Read: continuously failing transfers, resetting.");
+        s_adapter_reads_failing.Set();
+      }
+    }
+
 #elif GCADAPTER_USE_ANDROID_IMPLEMENTATION
     const int payload_size = env->CallStaticIntMethod(s_adapter_class, input_func);
     jbyte* const java_data = env->GetByteArrayElements(*java_controller_payload, nullptr);
-    std::copy(java_data, java_data + CONTROLER_INPUT_PAYLOAD_EXPECTED_SIZE,
-              s_controller_payload_swap.begin());
-#endif
-    {
-      std::lock_guard<std::mutex> lk(s_read_mutex);
-      std::swap(s_controller_payload_swap, s_controller_payload);
-      s_controller_payload_size = payload_size;
-    }
-#if GCADAPTER_USE_ANDROID_IMPLEMENTATION
+
+    ProcessInputPayload(reinterpret_cast<const u8*>(java_data), payload_size);
+
     env->ReleaseByteArrayElements(*java_controller_payload, java_data, 0);
 
     if (first_read)
@@ -218,14 +273,26 @@ static void Read()
     }
 #endif
 
-    Common::YieldCPU();
+    // Update poll rate measurement.
+    if (++poll_rate_measurement_count == POLL_RATE_MEASUREMENT_SAMPLE_COUNT)
+    {
+      const auto now = Clock::now();
+
+      const auto poll_rate =
+          POLL_RATE_MEASUREMENT_SAMPLE_COUNT / DT_s(now - poll_rate_measurement_start_time).count();
+      s_adapter_poll_rate.store(poll_rate, std::memory_order_relaxed);
+
+      poll_rate_measurement_start_time = now;
+      poll_rate_measurement_count = 0;
+    }
   }
 
   // Terminate the write thread on leaving
   if (s_write_adapter_thread_running.TestAndClear())
   {
     s_controller_write_payload_size.store(0);
-    s_write_happened.Set();  // Kick the waiting event
+    // Kick the waiting event
+    s_write_happened.Set();
     s_write_adapter_thread.join();
   }
 
@@ -234,10 +301,12 @@ static void Read()
   s_detected = false;
 #endif
 
+  s_adapter_poll_rate.store(0.0, std::memory_order_relaxed);
+
   NOTICE_LOG_FMT(CONTROLLERINTERFACE, "GCAdapter read thread stopped");
 }
 
-static void Write()
+static void WriteThreadFunc()
 {
   Common::SetCurrentThreadName("GCAdapter Write Thread");
   NOTICE_LOG_FMT(CONTROLLERINTERFACE, "GCAdapter write thread started");
@@ -246,7 +315,7 @@ static void Write()
   int size = 0;
 #elif GCADAPTER_USE_ANDROID_IMPLEMENTATION
   JNIEnv* const env = IDCache::GetEnvForThread();
-  const jmethodID output_func = env->GetStaticMethodID(s_adapter_class, "Output", "([B)I");
+  const jmethodID output_func = env->GetStaticMethodID(s_adapter_class, "output", "([B)I");
 #endif
 
   while (s_write_adapter_thread_running.IsSet())
@@ -257,19 +326,20 @@ static void Write()
     if (write_size)
     {
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
-      const int error = libusb_interrupt_transfer(
-          s_handle, s_endpoint_out, s_controller_write_payload.data(), write_size, &size, 16);
+      const int error =
+          libusb_interrupt_transfer(s_handle, s_endpoint_out, s_controller_write_payload.data(),
+                                    write_size, &size, USB_TIMEOUT_MS);
       if (error != LIBUSB_SUCCESS)
       {
         ERROR_LOG_FMT(CONTROLLERINTERFACE, "Write: libusb_interrupt_transfer failed: {}",
                       LibusbUtils::ErrorWrap(error));
       }
 #elif GCADAPTER_USE_ANDROID_IMPLEMENTATION
-      const jbyteArray jrumble_array = env->NewByteArray(CONTROLER_OUTPUT_RUMBLE_PAYLOAD_SIZE);
+      const jbyteArray jrumble_array = env->NewByteArray(CONTROLLER_OUTPUT_RUMBLE_PAYLOAD_SIZE);
       jbyte* const jrumble = env->GetByteArrayElements(jrumble_array, nullptr);
 
       {
-        std::lock_guard<std::mutex> lk(s_write_mutex);
+        std::lock_guard lk(s_write_mutex);
         memcpy(jrumble, s_controller_write_payload.data(), write_size);
       }
 
@@ -300,9 +370,9 @@ static int HotplugCallback(libusb_context* ctx, libusb_device* dev, libusb_hotpl
       Reset();
 
     // Reset a potential error status now that the adapter is unplugged
-    if (s_status < 0)
+    if (s_status == AdapterStatus::Error)
     {
-      s_status = NO_ADAPTER_DETECTED;
+      s_status = AdapterStatus::NotDetected;
       if (s_detect_callback != nullptr)
         s_detect_callback();
     }
@@ -310,6 +380,25 @@ static int HotplugCallback(libusb_context* ctx, libusb_device* dev, libusb_hotpl
   return 0;
 }
 #endif
+#elif GCADAPTER_USE_ANDROID_IMPLEMENTATION
+extern "C" {
+
+JNIEXPORT void JNICALL
+Java_org_dolphinemu_dolphinemu_utils_GCAdapter_onAdapterConnected(JNIEnv* env, jclass)
+{
+  INFO_LOG_FMT(CONTROLLERINTERFACE, "GC adapter connected");
+  if (!s_detected)
+    s_hotplug_event.Set();
+}
+
+JNIEXPORT void JNICALL
+Java_org_dolphinemu_dolphinemu_utils_GCAdapter_onAdapterDisconnected(JNIEnv* env, jclass)
+{
+  INFO_LOG_FMT(CONTROLLERINTERFACE, "GC adapter disconnected");
+  if (s_detected)
+    Reset();
+}
+}
 #endif
 
 static void ScanThreadFunc()
@@ -321,6 +410,8 @@ static void ScanThreadFunc()
 #if LIBUSB_API_HAS_HOTPLUG
 #ifndef __FreeBSD__
   s_libusb_hotplug_enabled = libusb_has_capability(LIBUSB_CAP_HAS_HOTPLUG) != 0;
+  // As of v1.0.23-rc1 (2026/02) libusb has hotplug event capability on Linux & MacOS, but not on
+  // Windows
 #endif
   if (s_libusb_hotplug_enabled)
   {
@@ -347,28 +438,50 @@ static void ScanThreadFunc()
   {
     if (s_handle == nullptr)
     {
-      std::lock_guard<std::mutex> lk(s_init_mutex);
+      std::lock_guard lk(s_init_mutex);
       Setup();
     }
 
     if (s_libusb_hotplug_enabled)
-      s_hotplug_event.Wait();
+      s_hotplug_event.WaitFor(1000ms);
     else
       Common::SleepCurrentThread(500);
+
+    if (s_read_thread_has_init.IsSet() && s_adapter_reads_failing.IsSet())
+      Reset();
   }
 #elif GCADAPTER_USE_ANDROID_IMPLEMENTATION
   JNIEnv* const env = IDCache::GetEnvForThread();
 
-  const jmethodID queryadapter_func =
-      env->GetStaticMethodID(s_adapter_class, "QueryAdapter", "()Z");
+  const jmethodID enable_hotplug_callback_func =
+      env->GetStaticMethodID(s_adapter_class, "enableHotplugCallback", "()V");
+  env->CallStaticVoidMethod(s_adapter_class, enable_hotplug_callback_func);
+
+  const jmethodID is_usb_device_available_func =
+      env->GetStaticMethodID(s_adapter_class, "isUsbDeviceAvailable", "()Z");
 
   while (s_adapter_detect_thread_running.IsSet())
   {
-    if (!s_detected && UseAdapter() &&
-        env->CallStaticBooleanMethod(s_adapter_class, queryadapter_func))
+    if (!s_detected && s_is_adapter_wanted.load(std::memory_order_relaxed) &&
+        env->CallStaticBooleanMethod(s_adapter_class, is_usb_device_available_func))
+    {
+      std::lock_guard lk(s_init_mutex);
       Setup();
-    Common::SleepCurrentThread(1000);
+    }
+
+    s_hotplug_event.Wait();
   }
+#endif
+
+#if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
+#if LIBUSB_API_HAS_HOTPLUG
+  if (s_libusb_hotplug_enabled)
+    libusb_hotplug_deregister_callback(*s_libusb_context, s_hotplug_handle);
+#endif
+#elif GCADAPTER_USE_ANDROID_IMPLEMENTATION
+  const jmethodID disable_hotplug_callback_func =
+      env->GetStaticMethodID(s_adapter_class, "disableHotplugCallback", "()V");
+  env->CallStaticVoidMethod(s_adapter_class, disable_hotplug_callback_func);
 #endif
 
   NOTICE_LOG_FMT(CONTROLLERINTERFACE, "GC Adapter scanning thread stopped");
@@ -377,17 +490,49 @@ static void ScanThreadFunc()
 void SetAdapterCallback(std::function<void(void)> func)
 {
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
-  s_detect_callback = func;
+  s_detect_callback = std::move(func);
 #endif
+}
+
+static void StartScanThread()
+{
+  if (s_adapter_detect_thread_running.IsSet())
+    return;
+#if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
+  if (!s_libusb_context->IsValid())
+    return;
+#endif
+  s_adapter_detect_thread_running.Set(true);
+  s_adapter_detect_thread = std::thread(ScanThreadFunc);
+}
+
+static void StopScanThread()
+{
+  if (s_adapter_detect_thread_running.TestAndClear())
+  {
+    s_hotplug_event.Set();
+    s_adapter_detect_thread.join();
+  }
 }
 
 static void RefreshConfig()
 {
+  bool is_adapter_wanted = false;
+
   for (int i = 0; i < SerialInterface::MAX_SI_CHANNELS; ++i)
   {
-    s_config_si_device_type[i] = Config::Get(Config::GetInfoForSIDevice(i));
-    s_config_rumble_enabled[i] = Config::Get(Config::GetInfoForAdapterRumble(i));
+    is_adapter_wanted |= Config::Get(Config::GetInfoForSIDevice(i)) ==
+                         SerialInterface::SIDevices::SIDEVICE_WIIU_ADAPTER;
+    s_config_rumble_enabled[i].store(Config::Get(Config::GetInfoForAdapterRumble(i)),
+                                     std::memory_order_relaxed);
   }
+
+  s_is_adapter_wanted.store(is_adapter_wanted, std::memory_order_relaxed);
+
+  if (is_adapter_wanted)
+    StartScanThread();
+  else
+    StopScanThread();
 }
 
 void Init()
@@ -402,67 +547,45 @@ void Init()
     return;
 #endif
 
-  if (Core::GetState() != Core::State::Uninitialized && Core::GetState() != Core::State::Starting)
+  auto& system = Core::System::GetInstance();
+  if (const Core::State state = Core::GetState(system);
+      state != Core::State::Uninitialized && state != Core::State::Starting)
   {
-    if ((CoreTiming::GetTicks() - s_last_init) < SystemTimers::GetTicksPerSecond())
+    auto& core_timing = system.GetCoreTiming();
+    if ((core_timing.GetTicks() - s_last_init) < system.GetSystemTimers().GetTicksPerSecond())
       return;
 
-    s_last_init = CoreTiming::GetTicks();
+    s_last_init = core_timing.GetTicks();
   }
 
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
-  s_status = NO_ADAPTER_DETECTED;
+  s_status = AdapterStatus::NotDetected;
+  s_adapter_error = LIBUSB_SUCCESS;
 #elif GCADAPTER_USE_ANDROID_IMPLEMENTATION
   JNIEnv* const env = IDCache::GetEnvForThread();
 
-  const jclass adapter_class = env->FindClass("org/dolphinemu/dolphinemu/utils/Java_GCAdapter");
+  const jclass adapter_class = env->FindClass("org/dolphinemu/dolphinemu/utils/GCAdapter");
   s_adapter_class = reinterpret_cast<jclass>(env->NewGlobalRef(adapter_class));
 #endif
 
   if (!s_config_callback_id)
     s_config_callback_id = Config::AddConfigChangedCallback(RefreshConfig);
   RefreshConfig();
-
-  if (UseAdapter())
-    StartScanThread();
-}
-
-void StartScanThread()
-{
-  if (s_adapter_detect_thread_running.IsSet())
-    return;
-#if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
-  if (!s_libusb_context->IsValid())
-    return;
-#endif
-  s_adapter_detect_thread_running.Set(true);
-  s_adapter_detect_thread = std::thread(ScanThreadFunc);
-}
-
-void StopScanThread()
-{
-  if (s_adapter_detect_thread_running.TestAndClear())
-  {
-#if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
-    s_hotplug_event.Set();
-#endif
-    s_adapter_detect_thread.join();
-  }
 }
 
 static void Setup()
 {
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
-  const int prev_status = s_status;
+  const AdapterStatus prev_status = s_status;
 
   // Reset the error status in case the adapter gets unplugged
-  if (s_status < 0)
-    s_status = NO_ADAPTER_DETECTED;
+  if (s_status == AdapterStatus::Error)
+    s_status = AdapterStatus::NotDetected;
 
-  s_controller_type.fill(ControllerType::None);
+  s_port_states.fill({});
   s_controller_rumble.fill(0);
 
-  s_libusb_context->GetDeviceList([](libusb_device* device) {
+  const int ret = s_libusb_context->GetDeviceList([](libusb_device* device) {
     if (CheckDeviceAccess(device))
     {
       // Only connect to a single adapter in case the user has multiple connected
@@ -471,8 +594,11 @@ static void Setup()
     }
     return true;
   });
+  if (ret != LIBUSB_SUCCESS)
+    WARN_LOG_FMT(CONTROLLERINTERFACE, "Failed to get device list: {}", LibusbUtils::ErrorWrap(ret));
 
-  if (s_status != ADAPTER_DETECTED && prev_status != s_status && s_detect_callback != nullptr)
+  if (s_status != AdapterStatus::Detected && prev_status != s_status &&
+      s_detect_callback != nullptr)
     s_detect_callback();
 #elif GCADAPTER_USE_ANDROID_IMPLEMENTATION
   s_fd = 0;
@@ -483,7 +609,7 @@ static void Setup()
     s_read_adapter_thread.join();
 
   s_read_adapter_thread_running.Set(true);
-  s_read_adapter_thread = std::thread(Read);
+  s_read_adapter_thread = std::thread(ReadThreadFunc);
 #endif
 }
 
@@ -506,26 +632,27 @@ static bool CheckDeviceAccess(libusb_device* device)
     return false;
   }
 
-  NOTICE_LOG_FMT(CONTROLLERINTERFACE, "Found GC Adapter with Vendor: {:X} Product: {:X} Devnum: {}",
-                 desc.idVendor, desc.idProduct, 1);
-
-  // In case of failure, capture the libusb error code into the adapter status
-  Common::ScopeGuard status_guard([&ret] { s_status = ret; });
-
   const u8 bus = libusb_get_bus_number(device);
   const u8 port = libusb_get_device_address(device);
+
+  NOTICE_LOG_FMT(CONTROLLERINTERFACE,
+                 "Found GC Adapter [Bus:{:03d}, Address:{:03d}, VID:"
+                 "{:04X}, PID:{:04X}]",
+                 bus, port, desc.idVendor, desc.idProduct);
+
+  // In case of failure, capture the libusb error code into the adapter status
+  Common::ScopeGuard status_guard([&ret] {
+    s_adapter_error = static_cast<libusb_error>(ret);
+    s_status = AdapterStatus::Error;
+  });
+
   ret = libusb_open(device, &s_handle);
   if (ret != LIBUSB_SUCCESS)
   {
-    if (ret == LIBUSB_ERROR_ACCESS)
-    {
-      ERROR_LOG_FMT(CONTROLLERINTERFACE,
-                    "Dolphin does not have access to this device: Bus {:03d} Device {:03d}: ID "
-                    "{:04X}:{:04X}.",
-                    bus, port, desc.idVendor, desc.idProduct);
-    }
-    ERROR_LOG_FMT(CONTROLLERINTERFACE, "libusb_open failed to open device: {}",
-                  LibusbUtils::ErrorWrap(ret));
+    ERROR_LOG_FMT(CONTROLLERINTERFACE,
+                  "libusb_open failed to open GC Adapter [Bus:{:03d}, Address:{:03d}, VID:"
+                  "{:04X}, PID:{:04X}] with error {}",
+                  bus, port, desc.idVendor, desc.idProduct, LibusbUtils::ErrorWrap(ret));
     return false;
   }
 
@@ -534,10 +661,11 @@ static bool CheckDeviceAccess(libusb_device* device)
   if (ret == 1)  // 1: kernel driver is active
   {
     // On macos detaching would fail without root or entitlement.
-    // We assume user is using GCAdapterDriver and therefor don't want to detach anything
+    // We assume user is using GCAdapterDriver and therefore don't want to detach anything
 #if !defined(__APPLE__)
     ret = libusb_detach_kernel_driver(s_handle, 0);
-    detach_failed = ret < 0 && ret != LIBUSB_ERROR_NOT_FOUND && ret != LIBUSB_ERROR_NOT_SUPPORTED;
+    detach_failed =
+        ret < LIBUSB_SUCCESS && ret != LIBUSB_ERROR_NOT_FOUND && ret != LIBUSB_ERROR_NOT_SUPPORTED;
 #endif
     if (detach_failed)
     {
@@ -548,14 +676,23 @@ static bool CheckDeviceAccess(libusb_device* device)
   else if (ret != 0)  // 0: kernel driver is not active, but otherwise no error.
   {
     // Neither 0 nor 1 means an error occured.
-    ERROR_LOG_FMT(CONTROLLERINTERFACE, "libusb_kernel_driver_active failed: {}",
-                  LibusbUtils::ErrorWrap(ret));
+    if (ret == LIBUSB_ERROR_NOT_SUPPORTED)
+    {
+      // Expected outside Linux
+      INFO_LOG_FMT(CONTROLLERINTERFACE, "libusb_kernel_driver_active failed: {}",
+                   LibusbUtils::ErrorWrap(ret));
+    }
+    else
+    {
+      ERROR_LOG_FMT(CONTROLLERINTERFACE, "libusb_kernel_driver_active failed: {}",
+                    LibusbUtils::ErrorWrap(ret));
+    }
   }
 
   // This call makes Nyko-brand (and perhaps other) adapters work.
   // However it returns LIBUSB_ERROR_PIPE with Mayflash adapters.
   const int transfer = libusb_control_transfer(s_handle, 0x21, 11, 0x0001, 0, nullptr, 0, 1000);
-  if (transfer < 0)
+  if (transfer < LIBUSB_SUCCESS)
   {
     WARN_LOG_FMT(CONTROLLERINTERFACE, "libusb_control_transfer failed: {}",
                  LibusbUtils::ErrorWrap(transfer));
@@ -588,8 +725,8 @@ static bool CheckDeviceAccess(libusb_device* device)
 
 static void AddGCAdapter(libusb_device* device)
 {
-  libusb_config_descriptor* config = nullptr;
-  if (const int error = libusb_get_config_descriptor(device, 0, &config); error != LIBUSB_SUCCESS)
+  auto [error, config] = LibusbUtils::MakeConfigDescriptor(device);
+  if (error != LIBUSB_SUCCESS)
   {
     WARN_LOG_FMT(CONTROLLERINTERFACE, "libusb_get_config_descriptor failed: {}",
                  LibusbUtils::ErrorWrap(error));
@@ -610,11 +747,12 @@ static void AddGCAdapter(libusb_device* device)
       }
     }
   }
+  config.reset();
 
   int size = 0;
-  std::array<u8, CONTROLER_OUTPUT_INIT_PAYLOAD_SIZE> payload = {0x13};
-  const int error = libusb_interrupt_transfer(s_handle, s_endpoint_out, payload.data(),
-                                              CONTROLER_OUTPUT_INIT_PAYLOAD_SIZE, &size, 16);
+  std::array<u8, CONTROLLER_OUTPUT_INIT_PAYLOAD_SIZE> payload = {0x13};
+  error = libusb_interrupt_transfer(s_handle, s_endpoint_out, payload.data(),
+                                    CONTROLLER_OUTPUT_INIT_PAYLOAD_SIZE, &size, USB_TIMEOUT_MS);
   if (error != LIBUSB_SUCCESS)
   {
     WARN_LOG_FMT(CONTROLLERINTERFACE, "AddGCAdapter: libusb_interrupt_transfer failed: {}",
@@ -622,9 +760,9 @@ static void AddGCAdapter(libusb_device* device)
   }
 
   s_read_adapter_thread_running.Set(true);
-  s_read_adapter_thread = std::thread(Read);
+  s_read_adapter_thread = std::thread(ReadThreadFunc);
 
-  s_status = ADAPTER_DETECTED;
+  s_status = AdapterStatus::Detected;
   if (s_detect_callback != nullptr)
     s_detect_callback();
   ResetRumbleLockNeeded();
@@ -634,17 +772,11 @@ static void AddGCAdapter(libusb_device* device)
 void Shutdown()
 {
   StopScanThread();
-#if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
-#if LIBUSB_API_HAS_HOTPLUG
-  if (s_libusb_context->IsValid() && s_libusb_hotplug_enabled)
-    libusb_hotplug_deregister_callback(*s_libusb_context, s_hotplug_handle);
-#endif
-#endif
   Reset();
 
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
   s_libusb_context.reset();
-  s_status = NO_ADAPTER_DETECTED;
+  s_status = AdapterStatus::NotDetected;
 #endif
 
   if (s_config_callback_id)
@@ -656,11 +788,11 @@ void Shutdown()
 
 static void Reset()
 {
-#if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
-  std::unique_lock<std::mutex> lock(s_init_mutex, std::defer_lock);
+  std::unique_lock lock(s_init_mutex, std::defer_lock);
   if (!lock.try_lock())
     return;
-  if (s_status != ADAPTER_DETECTED)
+#if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
+  if (s_status != AdapterStatus::Detected)
     return;
 #elif GCADAPTER_USE_ANDROID_IMPLEMENTATION
   if (!s_detected)
@@ -671,10 +803,12 @@ static void Reset()
     s_read_adapter_thread.join();
   // The read thread will close the write thread
 
-  s_controller_type.fill(ControllerType::None);
+  s_read_thread_has_init.Clear();
+
+  s_port_states.fill({});
 
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
-  s_status = NO_ADAPTER_DETECTED;
+  s_status = AdapterStatus::NotDetected;
 
   if (s_handle)
   {
@@ -699,139 +833,157 @@ static void Reset()
 
 GCPadStatus Input(int chan)
 {
-  if (!UseAdapter())
+  if (!s_is_adapter_wanted.load(std::memory_order_relaxed))
     return {};
 
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
-  if (s_handle == nullptr || s_status != ADAPTER_DETECTED)
+  if (s_handle == nullptr || s_status != AdapterStatus::Detected)
     return {};
 #elif GCADAPTER_USE_ANDROID_IMPLEMENTATION
   if (!s_detected || !s_fd)
     return {};
 #endif
 
-  int payload_size = 0;
-  std::array<u8, CONTROLER_INPUT_PAYLOAD_EXPECTED_SIZE> controller_payload_copy{};
+  std::lock_guard lk(s_read_mutex);
 
+  auto& pad_state = s_port_states[chan];
+
+  // Return the "origin" state for the first input on a new connection.
+  if (pad_state.is_new_connection)
   {
-    std::lock_guard<std::mutex> lk(s_read_mutex);
-    controller_payload_copy = s_controller_payload;
-    payload_size = s_controller_payload_size;
+    pad_state.is_new_connection = false;
+    return pad_state.origin;
   }
 
-  GCPadStatus pad = {};
-  if (payload_size != CONTROLER_INPUT_PAYLOAD_EXPECTED_SIZE
+  return pad_state.status;
+}
+
+// Get ControllerType from first byte in input payload.
+static ControllerType IdentifyControllerType(u8 data)
+{
+  if (Common::ExtractBit<4>(data))
+    return ControllerType::Wired;
+
+  if (Common::ExtractBit<5>(data))
+    return ControllerType::Wireless;
+
+  return ControllerType::None;
+}
+
+void ProcessInputPayload(const u8* data, std::size_t size)
+{
+  if (size != CONTROLLER_INPUT_PAYLOAD_EXPECTED_SIZE
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
-      || controller_payload_copy[0] != LIBUSB_DT_HID
+      || data[0] != LIBUSB_DT_HID
 #endif
   )
   {
     // This can occur for a few frames on initialization.
-    ERROR_LOG_FMT(CONTROLLERINTERFACE, "error reading payload (size: {}, type: {:02x})",
-                  payload_size, controller_payload_copy[0]);
-#if GCADAPTER_USE_ANDROID_IMPLEMENTATION
-    Reset();
-#endif
+    ERROR_LOG_FMT(CONTROLLERINTERFACE, "error reading payload (size: {}, type: {:02x})", size,
+                  data[0]);
   }
   else
   {
-    bool get_origin = false;
-    // TODO: What do the other bits here indicate?  Does casting to an enum like this make sense?
-    const auto type = static_cast<ControllerType>(controller_payload_copy[1 + (9 * chan)] >> 4);
-    if (type != ControllerType::None && s_controller_type[chan] == ControllerType::None)
+    std::lock_guard lk(s_read_mutex);
+
+    for (int chan = 0; chan != SerialInterface::MAX_SI_CHANNELS; ++chan)
     {
-      NOTICE_LOG_FMT(CONTROLLERINTERFACE, "New device connected to Port {} of Type: {:02x}",
-                     chan + 1, controller_payload_copy[1 + (9 * chan)]);
-      get_origin = true;
-    }
+      const u8* const channel_data = &data[1 + (9 * chan)];
 
-    s_controller_type[chan] = type;
+      const auto type = IdentifyControllerType(channel_data[0]);
 
-    if (s_controller_type[chan] != ControllerType::None)
-    {
-      const u8 b1 = controller_payload_copy[1 + (9 * chan) + 1];
-      const u8 b2 = controller_payload_copy[1 + (9 * chan) + 2];
+      auto& pad_state = s_port_states[chan];
 
-      if (b1 & (1 << 0))
-        pad.button |= PAD_BUTTON_A;
-      if (b1 & (1 << 1))
-        pad.button |= PAD_BUTTON_B;
-      if (b1 & (1 << 2))
-        pad.button |= PAD_BUTTON_X;
-      if (b1 & (1 << 3))
-        pad.button |= PAD_BUTTON_Y;
+      GCPadStatus pad = {};
 
-      if (b1 & (1 << 4))
-        pad.button |= PAD_BUTTON_LEFT;
-      if (b1 & (1 << 5))
-        pad.button |= PAD_BUTTON_RIGHT;
-      if (b1 & (1 << 6))
-        pad.button |= PAD_BUTTON_DOWN;
-      if (b1 & (1 << 7))
-        pad.button |= PAD_BUTTON_UP;
+      if (type != ControllerType::None)
+      {
+        const u8 b1 = channel_data[1];
+        const u8 b2 = channel_data[2];
 
-      if (b2 & (1 << 0))
-        pad.button |= PAD_BUTTON_START;
-      if (b2 & (1 << 1))
-        pad.button |= PAD_TRIGGER_Z;
-      if (b2 & (1 << 2))
-        pad.button |= PAD_TRIGGER_R;
-      if (b2 & (1 << 3))
-        pad.button |= PAD_TRIGGER_L;
+        if (Common::ExtractBit<0>(b1))
+          pad.button |= PAD_BUTTON_A;
+        if (Common::ExtractBit<1>(b1))
+          pad.button |= PAD_BUTTON_B;
+        if (Common::ExtractBit<2>(b1))
+          pad.button |= PAD_BUTTON_X;
+        if (Common::ExtractBit<3>(b1))
+          pad.button |= PAD_BUTTON_Y;
 
-      if (get_origin)
+        if (Common::ExtractBit<4>(b1))
+          pad.button |= PAD_BUTTON_LEFT;
+        if (Common::ExtractBit<5>(b1))
+          pad.button |= PAD_BUTTON_RIGHT;
+        if (Common::ExtractBit<6>(b1))
+          pad.button |= PAD_BUTTON_DOWN;
+        if (Common::ExtractBit<7>(b1))
+          pad.button |= PAD_BUTTON_UP;
+
+        if (Common::ExtractBit<0>(b2))
+          pad.button |= PAD_BUTTON_START;
+        if (Common::ExtractBit<1>(b2))
+          pad.button |= PAD_TRIGGER_Z;
+        if (Common::ExtractBit<2>(b2))
+          pad.button |= PAD_TRIGGER_R;
+        if (Common::ExtractBit<3>(b2))
+          pad.button |= PAD_TRIGGER_L;
+
+        pad.stickX = channel_data[3];
+        pad.stickY = channel_data[4];
+        pad.substickX = channel_data[5];
+        pad.substickY = channel_data[6];
+        pad.triggerLeft = channel_data[7];
+        pad.triggerRight = channel_data[8];
+      }
+      else if (!Core::WantsDeterminism())
+      {
+        // This is a hack to prevent a desync due to SI devices
+        // being different and returning different values.
+        // The corresponding code in DeviceGCAdapter has the same check
+        pad.button = PAD_ERR_STATUS;
+      }
+
+      if (type != ControllerType::None && pad_state.controller_type == ControllerType::None)
+      {
+        NOTICE_LOG_FMT(CONTROLLERINTERFACE, "New device connected to Port {} of Type: {:02x}",
+                       chan + 1, channel_data[0]);
+
         pad.button |= PAD_GET_ORIGIN;
+        pad_state.origin = pad;
+        pad_state.is_new_connection = true;
+      }
 
-      pad.stickX = controller_payload_copy[1 + (9 * chan) + 3];
-      pad.stickY = controller_payload_copy[1 + (9 * chan) + 4];
-      pad.substickX = controller_payload_copy[1 + (9 * chan) + 5];
-      pad.substickY = controller_payload_copy[1 + (9 * chan) + 6];
-      pad.triggerLeft = controller_payload_copy[1 + (9 * chan) + 7];
-      pad.triggerRight = controller_payload_copy[1 + (9 * chan) + 8];
-    }
-    else if (!Core::WantsDeterminism())
-    {
-      // This is a hack to prevent a desync due to SI devices
-      // being different and returning different values.
-      // The corresponding code in DeviceGCAdapter has the same check
-      pad.button = PAD_ERR_STATUS;
+      pad_state.controller_type = type;
+      pad_state.status = pad;
     }
   }
-
-  return pad;
 }
 
 bool DeviceConnected(int chan)
 {
-  return s_controller_type[chan] != ControllerType::None;
+  std::lock_guard lk(s_read_mutex);
+  return s_port_states[chan].controller_type != ControllerType::None;
 }
 
 void ResetDeviceType(int chan)
 {
-  s_controller_type[chan] = ControllerType::None;
-}
-
-bool UseAdapter()
-{
-  const auto& si_devices = s_config_si_device_type;
-  return std::any_of(si_devices.begin(), si_devices.end(), [](const auto device_type) {
-    return device_type == SerialInterface::SIDEVICE_WIIU_ADAPTER;
-  });
+  std::lock_guard lk(s_read_mutex);
+  s_port_states[chan].controller_type = ControllerType::None;
 }
 
 void ResetRumble()
 {
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
-  std::unique_lock<std::mutex> lock(s_init_mutex, std::defer_lock);
+  std::unique_lock lock(s_init_mutex, std::defer_lock);
   if (!lock.try_lock())
     return;
   ResetRumbleLockNeeded();
 #elif GCADAPTER_USE_ANDROID_IMPLEMENTATION
-  std::array<u8, CONTROLER_OUTPUT_RUMBLE_PAYLOAD_SIZE> rumble = {0x11, 0, 0, 0, 0};
+  std::array<u8, CONTROLLER_OUTPUT_RUMBLE_PAYLOAD_SIZE> rumble = {0x11, 0, 0, 0, 0};
   {
-    std::lock_guard<std::mutex> lk(s_write_mutex);
+    std::lock_guard lk(s_write_mutex);
     s_controller_write_payload = rumble;
-    s_controller_write_payload_size.store(CONTROLER_OUTPUT_RUMBLE_PAYLOAD_SIZE);
+    s_controller_write_payload_size.store(CONTROLLER_OUTPUT_RUMBLE_PAYLOAD_SIZE);
   }
   s_write_happened.Set();
 #endif
@@ -842,20 +994,22 @@ void ResetRumble()
 // being called while the libusb state is being reset
 static void ResetRumbleLockNeeded()
 {
-  if (!UseAdapter() || (s_handle == nullptr || s_status != ADAPTER_DETECTED))
+  if (s_handle == nullptr || s_status != AdapterStatus::Detected ||
+      !s_is_adapter_wanted.load(std::memory_order_relaxed))
   {
     return;
   }
 
-  std::fill(std::begin(s_controller_rumble), std::end(s_controller_rumble), 0);
+  s_controller_rumble.fill(0);
 
-  std::array<u8, CONTROLER_OUTPUT_RUMBLE_PAYLOAD_SIZE> rumble = {
+  std::array<u8, CONTROLLER_OUTPUT_RUMBLE_PAYLOAD_SIZE> rumble = {
       0x11, s_controller_rumble[0], s_controller_rumble[1], s_controller_rumble[2],
       s_controller_rumble[3]};
 
   int size = 0;
-  const int error = libusb_interrupt_transfer(s_handle, s_endpoint_out, rumble.data(),
-                                              CONTROLER_OUTPUT_RUMBLE_PAYLOAD_SIZE, &size, 16);
+  const int error =
+      libusb_interrupt_transfer(s_handle, s_endpoint_out, rumble.data(),
+                                CONTROLLER_OUTPUT_RUMBLE_PAYLOAD_SIZE, &size, USB_TIMEOUT_MS);
   if (error != LIBUSB_SUCCESS)
   {
     WARN_LOG_FMT(CONTROLLERINTERFACE, "ResetRumbleLockNeeded: libusb_interrupt_transfer failed: {}",
@@ -868,7 +1022,8 @@ static void ResetRumbleLockNeeded()
 
 void Output(int chan, u8 rumble_command)
 {
-  if (!UseAdapter() || !s_config_rumble_enabled[chan])
+  if (!s_is_adapter_wanted.load(std::memory_order_relaxed) ||
+      !s_config_rumble_enabled[chan].load(std::memory_order_relaxed))
     return;
 
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
@@ -881,18 +1036,18 @@ void Output(int chan, u8 rumble_command)
 
   // Skip over rumble commands if it has not changed or the controller is wireless
   if (rumble_command != s_controller_rumble[chan] &&
-      s_controller_type[chan] != ControllerType::Wireless)
+      s_port_states[chan].controller_type != ControllerType::Wireless)
   {
     s_controller_rumble[chan] = rumble_command;
-    std::array<u8, CONTROLER_OUTPUT_RUMBLE_PAYLOAD_SIZE> rumble = {
+    std::array<u8, CONTROLLER_OUTPUT_RUMBLE_PAYLOAD_SIZE> rumble = {
         0x11, s_controller_rumble[0], s_controller_rumble[1], s_controller_rumble[2],
         s_controller_rumble[3]};
     {
 #if GCADAPTER_USE_ANDROID_IMPLEMENTATION
-      std::lock_guard<std::mutex> lk(s_write_mutex);
+      std::lock_guard lk(s_write_mutex);
 #endif
       s_controller_write_payload = rumble;
-      s_controller_write_payload_size.store(CONTROLER_OUTPUT_RUMBLE_PAYLOAD_SIZE);
+      s_controller_write_payload_size.store(CONTROLLER_OUTPUT_RUMBLE_PAYLOAD_SIZE);
     }
     s_write_happened.Set();
   }
@@ -901,21 +1056,26 @@ void Output(int chan, u8 rumble_command)
 bool IsDetected(const char** error_message)
 {
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
-  if (s_status >= 0)
+  if (s_status != AdapterStatus::Error)
   {
     if (error_message)
       *error_message = nullptr;
 
-    return s_status == ADAPTER_DETECTED;
+    return s_status == AdapterStatus::Detected;
   }
 
   if (error_message)
-    *error_message = libusb_strerror(static_cast<libusb_error>(s_status.load()));
+    *error_message = libusb_strerror(s_adapter_error.load());
 
   return false;
 #elif GCADAPTER_USE_ANDROID_IMPLEMENTATION
   return s_detected;
 #endif
+}
+
+double GetCurrentPollRate()
+{
+  return s_adapter_poll_rate.load(std::memory_order_relaxed);
 }
 
 }  // namespace GCAdapter

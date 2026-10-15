@@ -5,14 +5,18 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
-#include "Common/CommonTypes.h"
 #include "Common/IniFile.h"
 #include "InputCommon/ControllerEmu/Control/Control.h"
+#include "InputCommon/ControllerEmu/Setting/NumericSetting.h"
+#include "InputCommon/ControllerInterface/CoreDevice.h"
 
 namespace ControllerEmu
 {
@@ -26,6 +30,9 @@ class NumericSetting;
 
 template <typename T>
 class SettingValue;
+
+using InputOverrideFunction = std::function<std::optional<ControlState>(
+    const std::string_view group_name, const std::string_view control_name, ControlState state)>;
 
 enum class GroupType
 {
@@ -42,7 +49,8 @@ enum class GroupType
   Shake,
   IMUAccelerometer,
   IMUGyroscope,
-  IMUCursor
+  IMUCursor,
+  IRPassthrough,
 };
 
 class ControlGroup
@@ -55,16 +63,16 @@ public:
     Disabled,
   };
 
-  explicit ControlGroup(std::string name, GroupType type = GroupType::Other,
+  explicit ControlGroup(const std::string& name, GroupType type = GroupType::Other,
                         DefaultValue default_value = DefaultValue::AlwaysEnabled);
   ControlGroup(std::string name, std::string ui_name, GroupType type = GroupType::Other,
                DefaultValue default_value = DefaultValue::AlwaysEnabled);
   virtual ~ControlGroup();
 
-  virtual void LoadConfig(IniFile::Section* sec, const std::string& defdev = "",
-                          const std::string& base = "");
-  virtual void SaveConfig(IniFile::Section* sec, const std::string& defdev = "",
-                          const std::string& base = "");
+  virtual void LoadConfig(Common::IniFile::Section* sec, const std::string& base);
+  virtual void SaveConfig(Common::IniFile::Section* sec, const std::string& base);
+
+  virtual void UpdateReferences(ciface::ExpressionParser::ControlEnvironment& env);
 
   void SetControlExpression(int index, const std::string& expression);
 
@@ -91,12 +99,17 @@ public:
     return std::copysign(std::max(T{0}, std::abs(input) - deadzone) / (T{1} - deadzone), input);
   }
 
+  bool HasEnabledSetting() const;
+
   const std::string name;
   const std::string ui_name;
   const GroupType type;
-  const DefaultValue default_value;
 
-  bool enabled = true;
+  // The default "enabled" state.
+  const DefaultValue default_value;
+  SettingValue<bool> enabled;
+  std::unique_ptr<NumericSetting<bool>> enabled_setting;
+
   std::vector<std::unique_ptr<Control>> controls;
   std::vector<std::unique_ptr<NumericSettingBase>> numeric_settings;
 };

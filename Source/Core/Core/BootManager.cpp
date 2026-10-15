@@ -17,21 +17,16 @@
 
 #include "Core/BootManager.h"
 
-#include <algorithm>
-#include <array>
-#include <string>
-
 #include <fmt/format.h>
 
 #include "Common/CommonTypes.h"
 #include "Common/Config/Config.h"
 #include "Common/FileUtil.h"
-#include "Common/IniFile.h"
-#include "Common/Logging/Log.h"
 
+#include "Core/AchievementManager.h"
 #include "Core/Boot/Boot.h"
+#include "Core/Config/GraphicsSettings.h"
 #include "Core/Config/MainSettings.h"
-#include "Core/Config/SYSCONFSettings.h"
 #include "Core/ConfigLoaders/BaseConfigLoader.h"
 #include "Core/ConfigLoaders/NetPlayConfigLoader.h"
 #include "Core/ConfigManager.h"
@@ -40,36 +35,34 @@
 #include "Core/HW/SI/SI.h"
 #include "Core/HW/SI/SI_Device.h"
 #include "Core/HW/Sram.h"
-#include "Core/HW/WiimoteReal/WiimoteReal.h"
 #include "Core/Movie.h"
 #include "Core/NetPlayProto.h"
-#include "Core/PowerPC/PowerPC.h"
 #include "Core/System.h"
 #include "Core/WiiRoot.h"
 
 #include "DiscIO/Enums.h"
 
-#include "VideoCommon/VideoBackendBase.h"
-
 namespace BootManager
 {
 // Boot the ISO or file
-bool BootCore(std::unique_ptr<BootParameters> boot, const WindowSystemInfo& wsi)
+bool BootCore(Core::System& system, std::unique_ptr<BootParameters> boot,
+              const WindowSystemInfo& wsi)
 {
   if (!boot)
     return false;
 
   SConfig& StartUp = SConfig::GetInstance();
 
-  if (!StartUp.SetPathsAndGameMetadata(*boot))
+  if (!StartUp.SetPathsAndGameMetadata(system, *boot))
     return false;
 
   // Movie settings
-  if (Movie::IsPlayingInput() && Movie::IsConfigSaved())
+  auto& movie = system.GetMovie();
+  if (movie.IsPlayingInput() && movie.IsConfigSaved())
   {
     for (ExpansionInterface::Slot slot : ExpansionInterface::MEMCARD_SLOTS)
     {
-      if (Movie::IsUsingMemcard(slot) && Movie::IsStartingFromClearSave() && !StartUp.bWii)
+      if (movie.IsUsingMemcard(slot) && movie.IsStartingFromClearSave() && !system.IsWii())
       {
         const auto raw_path =
             File::GetUserPath(D_GCUSER_IDX) +
@@ -86,13 +79,12 @@ bool BootCore(std::unique_ptr<BootParameters> boot, const WindowSystemInfo& wsi)
 
   if (NetPlay::IsNetPlayRunning())
   {
-    const NetPlay::NetSettings& netplay_settings = NetPlay::GetNetSettings();
-    Config::AddLayer(ConfigLoaders::GenerateNetPlayConfigLoader(netplay_settings));
-    StartUp.bCopyWiiSaveNetplay = netplay_settings.m_CopyWiiSave;
-  }
-  else
-  {
-    g_SRAM_netplay_initialized = false;
+    const NetPlay::NetSettings* netplay_settings = boot->boot_session_data.GetNetplaySettings();
+    if (!netplay_settings)
+      return false;
+
+    Config::AddLayer(ConfigLoaders::GenerateNetPlayConfigLoader(*netplay_settings));
+    StartUp.bCopyWiiSaveNetplay = netplay_settings->savedata_load;
   }
 
   // Override out-of-region languages/countries to prevent games from crashing or behaving oddly
@@ -102,7 +94,7 @@ bool BootCore(std::unique_ptr<BootParameters> boot, const WindowSystemInfo& wsi)
         Config::MAIN_GC_LANGUAGE,
         DiscIO::ToGameCubeLanguage(StartUp.GetLanguageAdjustedForRegion(false, StartUp.m_region)));
 
-    if (StartUp.bWii)
+    if (system.IsWii())
     {
       const u32 wii_language =
           static_cast<u32>(StartUp.GetLanguageAdjustedForRegion(true, StartUp.m_region));
@@ -126,7 +118,7 @@ bool BootCore(std::unique_ptr<BootParameters> boot, const WindowSystemInfo& wsi)
         case DiscIO::Region::NTSC_K:
           Config::SetCurrent(Config::SYSCONF_COUNTRY, 0x88);  // South Korea
           break;
-        case DiscIO::Region::Unknown:
+        default:
           break;
         }
       }
@@ -135,18 +127,42 @@ bool BootCore(std::unique_ptr<BootParameters> boot, const WindowSystemInfo& wsi)
 
   // Some NTSC Wii games such as Doc Louis's Punch-Out!! and
   // 1942 (Virtual Console) crash if the PAL60 option is enabled
-  if (StartUp.bWii && DiscIO::IsNTSC(StartUp.m_region) && Config::Get(Config::SYSCONF_PAL60))
+  if (system.IsWii() && DiscIO::IsNTSC(StartUp.m_region) && Config::Get(Config::SYSCONF_PAL60))
     Config::SetCurrent(Config::SYSCONF_PAL60, false);
 
   // Disable loading time emulation for Riivolution-patched games until we have proper emulation.
   if (!boot->riivolution_patches.empty())
     Config::SetCurrent(Config::MAIN_FAST_DISC_SPEED, true);
 
-  Core::System::GetInstance().Initialize();
+  if (system.IsTriforce())
+  {
+    // Attach Triforce Baseboard hardware if not overridden in any layer.
+    // Users may set these in their GameConfig if they want them not automatically attached.
+    if (GetActiveLayerForConfig(Config::MAIN_SERIAL_PORT_1) == Config::LayerType::Base)
+    {
+      Config::SetCurrent(Config::MAIN_SERIAL_PORT_1, ExpansionInterface::EXIDeviceType::Baseboard);
+    }
+    if (GetActiveLayerForConfig(Config::GetInfoForSIDevice(0)) == Config::LayerType::Base)
+    {
+      Config::SetCurrent(Config::GetInfoForSIDevice(0),
+                         SerialInterface::SIDevices::SIDEVICE_AM_BASEBOARD);
+    }
 
-  Core::UpdateWantDeterminism(/*initial*/ true);
+    // Mario Kart Arcade GP has widescreen heuristic issues.
+    // All Triforce games are 4:3 so we'll just disable the heuristic for now.
+    if (GetActiveLayerForConfig(Config::GFX_SUGGESTED_ASPECT_RATIO) == Config::LayerType::Base)
+    {
+      Config::SetCurrent(Config::GFX_SUGGESTED_ASPECT_RATIO, AspectMode::ForceStandard);
+    }
+  }
 
-  if (StartUp.bWii)
+  system.Initialize();
+
+  Core::UpdateWantDeterminism(system, /*initial*/ true);
+
+  ConfigLoaders::TransferSYSCONFControlToGuest();
+
+  if (system.IsWii())
   {
     Core::InitializeWiiRoot(Core::WantsDeterminism());
 
@@ -154,68 +170,48 @@ bool BootCore(std::unique_ptr<BootParameters> boot, const WindowSystemInfo& wsi)
     if (!Core::WantsDeterminism())
     {
       Core::BackupWiiSettings();
-      ConfigLoaders::SaveToSYSCONF(Config::LayerType::Meta);
+      ConfigLoaders::SaveToSYSCONF(Config::LayerType::Meta,
+                                   ConfigLoaders::SkipIfControlledByGuest::No);
     }
     else
     {
-      ConfigLoaders::SaveToSYSCONF(Config::LayerType::Meta, [](const Config::Location& location) {
-        return Config::GetActiveLayerForConfig(location) >= Config::LayerType::Movie;
-      });
+      ConfigLoaders::SaveToSYSCONF(
+          Config::LayerType::Meta, ConfigLoaders::SkipIfControlledByGuest::No,
+          [](const Config::Location& location) {
+            return Config::GetActiveLayerForConfig(location) >= Config::LayerType::Movie;
+          });
     }
   }
 
-  const bool load_ipl = !StartUp.bWii && !Config::Get(Config::MAIN_SKIP_IPL) &&
+  AchievementManager::GetInstance().CloseGame();
+
+  const bool load_ipl = !system.IsWii() && !Config::Get(Config::MAIN_SKIP_IPL) &&
                         std::holds_alternative<BootParameters::Disc>(boot->parameters);
   if (load_ipl)
   {
     return Core::Init(
+        system,
         std::make_unique<BootParameters>(
             BootParameters::IPL{StartUp.m_region,
                                 std::move(std::get<BootParameters::Disc>(boot->parameters))},
             std::move(boot->boot_session_data)),
         wsi);
   }
-  return Core::Init(std::move(boot), wsi);
-}
-
-// SYSCONF can be modified during emulation by the user and internally, which makes it
-// a bad idea to just always overwrite it with the settings from the base layer.
-//
-// Conversely, we also shouldn't just accept any changes to SYSCONF, as it may cause
-// temporary settings (from Movie, Netplay, game INIs, etc.) to stick around.
-//
-// To avoid inconveniences in most cases, we accept changes that aren't being overriden by a
-// non-base layer, and restore only the overriden settings.
-static void RestoreSYSCONF()
-{
-  // This layer contains the new SYSCONF settings (including any temporary settings).
-  Config::Layer temp_layer(Config::LayerType::Base);
-  // Use a separate loader so the temp layer doesn't automatically save
-  ConfigLoaders::GenerateBaseConfigLoader()->Load(&temp_layer);
-
-  for (const auto& setting : Config::SYSCONF_SETTINGS)
-  {
-    std::visit(
-        [&](auto* info) {
-          // If this setting was overridden, then we copy the base layer value back to the SYSCONF.
-          // Otherwise we leave the new value in the SYSCONF.
-          if (Config::GetActiveLayerForConfig(*info) == Config::LayerType::Base)
-            Config::SetBase(*info, temp_layer.Get(*info));
-        },
-        setting.config_info);
-  }
-  // Save the SYSCONF.
-  Config::GetLayer(Config::LayerType::Base)->Save();
+  return Core::Init(system, std::move(boot), wsi);
 }
 
 void RestoreConfig()
 {
   Core::ShutdownWiiRoot();
 
-  if (!Core::WiiRootIsTemporary())
+  if (Core::WiiRootIsTemporary())
+  {
+    ConfigLoaders::TransferSYSCONFControlFromGuest(ConfigLoaders::WriteBackChangedValues::No);
+  }
+  else
   {
     Core::RestoreWiiSettings(Core::RestoreReason::EmulationEnd);
-    RestoreSYSCONF();
+    ConfigLoaders::TransferSYSCONFControlFromGuest(ConfigLoaders::WriteBackChangedValues::Yes);
   }
 
   Config::ClearCurrentRunLayer();

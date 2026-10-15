@@ -22,8 +22,8 @@ namespace IOS::HLE::FS
 class HostFileSystem final : public FileSystem
 {
 public:
-  HostFileSystem(const std::string& root_path, std::vector<NandRedirect> nand_redirects = {});
-  ~HostFileSystem();
+  HostFileSystem(std::string root_path, std::vector<NandRedirect> nand_redirects = {});
+  ~HostFileSystem() override;
 
   void DoState(PointerWrap& p) override;
 
@@ -55,6 +55,7 @@ public:
 
   Result<NandStats> GetNandStats() override;
   Result<DirectoryStats> GetDirectoryStats(const std::string& path) override;
+  Result<ExtendedDirectoryStats> GetExtendedDirectoryStats(const std::string& path) override;
 
   void SetNandRedirects(std::vector<NandRedirect> nand_redirects) override;
 
@@ -62,7 +63,6 @@ private:
   struct FstEntry
   {
     bool CheckPermission(Uid uid, Gid gid, Mode requested_mode) const;
-
     std::string name;
     Metadata data{};
     /// Children of this FST entry. Only valid for directories.

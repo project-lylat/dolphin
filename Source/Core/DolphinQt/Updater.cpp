@@ -3,6 +3,7 @@
 
 #include "DolphinQt/Updater.h"
 
+#include <cstdlib>
 #include <utility>
 
 #include <QCheckBox>
@@ -29,26 +30,34 @@ Updater::Updater(QWidget* parent, std::string update_track, std::string hash_ove
 
 void Updater::run()
 {
-  AutoUpdateChecker::CheckForUpdate(m_update_track, m_hash_override);
+  AutoUpdateChecker::CheckForUpdate(m_update_track, m_hash_override,
+                                    AutoUpdateChecker::CheckType::Automatic);
 }
 
-bool Updater::CheckForUpdate()
+void Updater::CheckForUpdate()
 {
-  m_update_available = false;
-  AutoUpdateChecker::CheckForUpdate(m_update_track, m_hash_override);
-
-  return m_update_available;
+  AutoUpdateChecker::CheckForUpdate(m_update_track, m_hash_override,
+                                    AutoUpdateChecker::CheckType::Manual);
 }
 
 void Updater::OnUpdateAvailable(const NewVersionInformation& info)
 {
+  if (std::getenv("DOLPHIN_UPDATE_SERVER_URL"))
+  {
+    TriggerUpdate(info, AutoUpdateChecker::RestartMode::RESTART_AFTER_UPDATE);
+    RunOnObject(m_parent, [this] {
+      m_parent->close();
+      return 0;
+    });
+    return;
+  }
+
   bool later = false;
-  m_update_available = true;
 
   std::optional<int> choice = RunOnObject(m_parent, [&] {
     QDialog* dialog = new QDialog(m_parent);
+    dialog->setAttribute(Qt::WA_DeleteOnClose, true);
     dialog->setWindowTitle(tr("Update available"));
-    dialog->setWindowFlags(dialog->windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
     auto* label = new QLabel(
         tr("<h2>A new version of Dolphin is available!</h2>Dolphin %1 is available for "

@@ -3,7 +3,6 @@
 
 #include "Core/HW/DSPHLE/UCodes/AX.h"
 
-#include <algorithm>
 #include <array>
 #include <cstring>
 #include <iterator>
@@ -21,23 +20,32 @@
 #include "Core/HW/DSPHLE/DSPHLE.h"
 #include "Core/HW/DSPHLE/MailHandler.h"
 #include "Core/HW/DSPHLE/UCodes/AXStructs.h"
+#include "Core/HW/Memmap.h"
 
 #define AX_GC
 #include "Core/HW/DSPHLE/UCodes/AXVoice.h"
 
 namespace DSP::HLE
 {
-AXUCode::AXUCode(DSPHLE* dsphle, u32 crc) : UCodeInterface(dsphle, crc)
+AXUCode::AXUCode(DSPHLE* dsphle, u32 crc, bool dummy) : UCodeInterface(dsphle, crc)
+{
+}
+
+AXUCode::AXUCode(DSPHLE* dsphle, u32 crc) : AXUCode(dsphle, crc, false)
 {
   INFO_LOG_FMT(DSPHLE, "Instantiating AXUCode: crc={:08x}", crc);
+
+  m_accelerator = std::make_unique<HLEAccelerator>(dsphle->GetSystem().GetDSP());
 }
 
-AXUCode::~AXUCode()
-{
-  m_mail_handler.Clear();
-}
+AXUCode::~AXUCode() = default;
 
 void AXUCode::Initialize()
+{
+  InitializeShared();
+}
+
+void AXUCode::InitializeShared()
 {
   m_mail_handler.PushMail(DSP_INIT, true);
 
@@ -111,13 +119,6 @@ void AXUCode::HandleCommandList()
 
   u32 pb_addr = 0;
 
-#if 0
-	INFO_LOG_FMT(DSPHLE, "Command list:");
-	for (u32 i = 0; m_cmdlist[i] != CMD_END; ++i)
-		INFO_LOG_FMT(DSPHLE, "{:04x}", m_cmdlist[i]);
-	INFO_LOG_FMT(DSPHLE, "-------------");
-#endif
-
   u32 curr_idx = 0;
   bool end = false;
   while (!end)
@@ -179,7 +180,7 @@ void AXUCode::HandleCommandList()
       break;
 
     case CMD_UNK_08:
-      DolphinAnalytics::Instance().ReportGameQuirk(GameQuirk::USES_UNIMPLEMENTED_AX_COMMAND);
+      DolphinAnalytics::Instance().ReportGameQuirk(GameQuirk::UsesUnimplementedAXCommand);
       curr_idx += 10;
       break;  // TODO: check
 
@@ -243,13 +244,13 @@ void AXUCode::HandleCommandList()
       break;
     }
 
-    // Send the contents of MAIN LRS, AUXA LRS and AUXB S to RAM, and
+    // Send the contents of AUXA LRS and AUXB S to RAM, and
     // mix data to MAIN LR and AUXB LR.
     case CMD_SEND_AUX_AND_MIX:
     {
-      // Address for Main + AUXA LRS upload
-      u16 main_auxa_up_hi = m_cmdlist[curr_idx++];
-      u16 main_auxa_up_lo = m_cmdlist[curr_idx++];
+      // Address for AUXA LRS upload
+      u16 auxa_lrs_up_hi = m_cmdlist[curr_idx++];
+      u16 auxa_lrs_up_lo = m_cmdlist[curr_idx++];
 
       // Address for AUXB S upload
       u16 auxb_s_up_hi = m_cmdlist[curr_idx++];
@@ -271,7 +272,7 @@ void AXUCode::HandleCommandList()
       u16 auxb_r_dl_hi = m_cmdlist[curr_idx++];
       u16 auxb_r_dl_lo = m_cmdlist[curr_idx++];
 
-      SendAUXAndMix(HILO_TO_32(main_auxa_up), HILO_TO_32(auxb_s_up), HILO_TO_32(main_l_dl),
+      SendAUXAndMix(HILO_TO_32(auxa_lrs_up), HILO_TO_32(auxb_s_up), HILO_TO_32(main_l_dl),
                     HILO_TO_32(main_r_dl), HILO_TO_32(auxb_l_dl), HILO_TO_32(auxb_r_dl));
       break;
     }
@@ -386,9 +387,10 @@ void AXUCode::DownloadAndMixWithVolume(u32 addr, u16 vol_main, u16 vol_auxa, u16
   int** buffers[3] = {buffers_main, buffers_auxa, buffers_auxb};
   u16 volumes[3] = {vol_main, vol_auxa, vol_auxb};
 
+  auto& memory = m_dsphle->GetSystem().GetMemory();
   for (u32 i = 0; i < 3; ++i)
   {
-    int* ptr = (int*)HLEMemory_Get_Pointer(addr);
+    int* ptr = reinterpret_cast<int*>(memory.GetPointerForRange(addr, 3 * 5 * 32 * sizeof(int)));
     u16 volume = volumes[i];
     for (u32 j = 0; j < 3; ++j)
     {
@@ -403,6 +405,56 @@ void AXUCode::DownloadAndMixWithVolume(u32 addr, u16 vol_main, u16 vol_auxa, u16
   }
 }
 
+// Determines if this version of the UCode has a PBLowPassFilter in its AXPB layout.
+static bool HasLpf(u32 crc)
+{
+  return crc != 0x4E8A8B21;
+}
+
+// Read a PB from MRAM/ARAM
+void AXUCode::ReadPB(Memory::MemoryManager& memory, u32 addr, AXPB& pb)
+{
+  if (HasLpf(m_crc))
+  {
+    u16* dst = (u16*)&pb;
+    memory.CopyFromEmuSwapped<u16>(dst, addr, sizeof(pb));
+  }
+  else
+  {
+    // Skip lpf field.
+
+    char* dst = (char*)&pb;
+
+    constexpr size_t lpf_off = offsetof(AXPB, lpf);
+    constexpr size_t lc_off = offsetof(AXPB, loop_counter);
+
+    memory.CopyFromEmuSwapped<u16>((u16*)dst, addr, lpf_off);
+    memset(dst + lpf_off, 0, lc_off - lpf_off);
+    memory.CopyFromEmuSwapped<u16>((u16*)(dst + lc_off), addr + lpf_off, sizeof(pb) - lc_off);
+  }
+}
+
+// Write a PB back to MRAM/ARAM
+void AXUCode::WritePB(Memory::MemoryManager& memory, u32 addr, const AXPB& pb)
+{
+  if (HasLpf(m_crc))
+  {
+    const u16* src = (const u16*)&pb;
+    memory.CopyToEmuSwapped<u16>(addr, src, sizeof(pb));
+  }
+  else
+  {
+    // We skip lpf in this layout.
+
+    const char* src = (const char*)&pb;
+    constexpr size_t lpf_off = offsetof(AXPB, lpf);
+    constexpr size_t lc_off = offsetof(AXPB, loop_counter);
+
+    memory.CopyToEmuSwapped<u16>(addr, (const u16*)src, lpf_off);
+    memory.CopyToEmuSwapped<u16>(addr + lpf_off, (const u16*)(src + lc_off), sizeof(pb) - lc_off);
+  }
+}
+
 void AXUCode::ProcessPBList(u32 pb_addr)
 {
   // Samples per millisecond. In theory DSP sampling rate can be changed from
@@ -411,30 +463,31 @@ void AXUCode::ProcessPBList(u32 pb_addr)
 
   AXPB pb;
 
+  auto& memory = m_dsphle->GetSystem().GetMemory();
   while (pb_addr)
   {
     AXBuffers buffers = {{m_samples_main_left, m_samples_main_right, m_samples_main_surround,
                           m_samples_auxA_left, m_samples_auxA_right, m_samples_auxA_surround,
                           m_samples_auxB_left, m_samples_auxB_right, m_samples_auxB_surround}};
 
-    ReadPB(pb_addr, pb, m_crc);
+    ReadPB(memory, pb_addr, pb);
 
-    u32 updates_addr = HILO_TO_32(pb.updates.data);
-    u16* updates = (u16*)HLEMemory_Get_Pointer(updates_addr);
+    PBUpdateData updates = LoadPBUpdates(memory, pb);
 
     for (int curr_ms = 0; curr_ms < 5; ++curr_ms)
     {
       ApplyUpdatesForMs(curr_ms, pb, pb.updates.num_updates, updates);
 
-      ProcessVoice(pb, buffers, spms, ConvertMixerControl(pb.mixer_control),
-                   m_coeffs_checksum ? m_coeffs.data() : nullptr);
+      ProcessVoice(static_cast<HLEAccelerator*>(m_accelerator.get()), pb, buffers, spms,
+                   ConvertMixerControl(pb.mixer_control),
+                   m_coeffs_checksum ? m_coeffs.data() : nullptr, false);
 
       // Forward the buffers
       for (auto& ptr : buffers.ptrs)
         ptr += spms;
     }
 
-    WritePB(pb_addr, pb, m_crc);
+    WritePB(memory, pb_addr, pb);
     pb_addr = HILO_TO_32(pb.next_pb);
   }
 }
@@ -459,17 +512,22 @@ void AXUCode::MixAUXSamples(int aux_id, u32 write_addr, u32 read_addr)
   }
 
   // First, we need to send the contents of our AUX buffers to the CPU.
+  auto& memory = m_dsphle->GetSystem().GetMemory();
   if (write_addr)
   {
-    int* ptr = (int*)HLEMemory_Get_Pointer(write_addr);
     for (auto& buffer : buffers)
-      for (u32 j = 0; j < 5 * 32; ++j)
-        *ptr++ = Common::swap32(buffer[j]);
+    {
+      memory.CopyToEmuSwapped(write_addr, buffer, 5 * 32 * sizeof(int));
+      write_addr += 5 * 32 * sizeof(int);
+    }
   }
 
   // Then, we read the new temp from the CPU and add to our current
   // temp.
-  int* ptr = (int*)HLEMemory_Get_Pointer(read_addr);
+  int* ptr = reinterpret_cast<int*>(memory.GetPointerForRange(
+      read_addr, sizeof(m_samples_main_left) + sizeof(m_samples_main_right) +
+                     sizeof(m_samples_main_surround)));
+
   for (auto& sample : m_samples_main_left)
     sample += (int)Common::swap32(*ptr++);
   for (auto& sample : m_samples_main_right)
@@ -480,20 +538,19 @@ void AXUCode::MixAUXSamples(int aux_id, u32 write_addr, u32 read_addr)
 
 void AXUCode::UploadLRS(u32 dst_addr)
 {
-  int buffers[3][5 * 32];
+  auto& memory = m_dsphle->GetSystem().GetMemory();
 
-  for (u32 i = 0; i < 5 * 32; ++i)
+  for (const auto& samples : {m_samples_main_left, m_samples_main_right, m_samples_main_surround})
   {
-    buffers[0][i] = Common::swap32(m_samples_main_left[i]);
-    buffers[1][i] = Common::swap32(m_samples_main_right[i]);
-    buffers[2][i] = Common::swap32(m_samples_main_surround[i]);
+    memory.CopyToEmuSwapped(dst_addr, samples, 5 * 32 * sizeof(int));
+    dst_addr += 5 * 32 * sizeof(int);
   }
-  memcpy(HLEMemory_Get_Pointer(dst_addr), buffers, sizeof(buffers));
 }
 
 void AXUCode::SetMainLR(u32 src_addr)
 {
-  int* ptr = (int*)HLEMemory_Get_Pointer(src_addr);
+  auto& memory = m_dsphle->GetSystem().GetMemory();
+  int* ptr = reinterpret_cast<int*>(memory.GetPointerForRange(src_addr, 5 * 32 * sizeof(int)));
   for (u32 i = 0; i < 5 * 32; ++i)
   {
     int samp = (int)Common::swap32(*ptr++);
@@ -540,7 +597,9 @@ void AXUCode::RunCompressor(u16 threshold, u16 release_frames, u32 table_addr, u
   }
 
   // apply the selected ramp
-  u16* ramp = (u16*)HLEMemory_Get_Pointer(table_addr + table_offset);
+  auto& memory = m_dsphle->GetSystem().GetMemory();
+  u16* ramp = reinterpret_cast<u16*>(
+      memory.GetPointerForRange(table_addr + table_offset, 32 * millis * sizeof(u16)));
   for (u32 i = 0; i < 32 * millis; ++i)
   {
     u16 coef = Common::swap16(*ramp++);
@@ -551,11 +610,8 @@ void AXUCode::RunCompressor(u16 threshold, u16 release_frames, u32 table_addr, u
 
 void AXUCode::OutputSamples(u32 lr_addr, u32 surround_addr)
 {
-  int surround_buffer[5 * 32];
-
-  for (u32 i = 0; i < 5 * 32; ++i)
-    surround_buffer[i] = Common::swap32(m_samples_main_surround[i]);
-  memcpy(HLEMemory_Get_Pointer(surround_addr), surround_buffer, sizeof(surround_buffer));
+  auto& memory = m_dsphle->GetSystem().GetMemory();
+  memory.CopyToEmuSwapped(surround_addr, m_samples_main_surround, 5 * 32 * sizeof(int));
 
   // 32 samples per ms, 5 ms, 2 channels
   short buffer[5 * 32 * 2];
@@ -563,27 +619,26 @@ void AXUCode::OutputSamples(u32 lr_addr, u32 surround_addr)
   // Output samples clamped to 16 bits and interlaced RLRLRLRLRL...
   for (u32 i = 0; i < 5 * 32; ++i)
   {
-    int left = std::clamp(m_samples_main_left[i], -32767, 32767);
-    int right = std::clamp(m_samples_main_right[i], -32767, 32767);
+    s16 left = ClampS16(m_samples_main_left[i]);
+    s16 right = ClampS16(m_samples_main_right[i]);
 
     buffer[2 * i + 0] = Common::swap16(right);
     buffer[2 * i + 1] = Common::swap16(left);
   }
 
-  memcpy(HLEMemory_Get_Pointer(lr_addr), buffer, sizeof(buffer));
+  memory.CopyToEmu(lr_addr, buffer, sizeof(buffer));
 }
 
 void AXUCode::MixAUXBLR(u32 ul_addr, u32 dl_addr)
 {
   // Upload AUXB L/R
-  int* ptr = (int*)HLEMemory_Get_Pointer(ul_addr);
-  for (auto& sample : m_samples_auxB_left)
-    *ptr++ = Common::swap32(sample);
-  for (auto& sample : m_samples_auxB_right)
-    *ptr++ = Common::swap32(sample);
+  auto& memory = m_dsphle->GetSystem().GetMemory();
+  memory.CopyToEmuSwapped(ul_addr, m_samples_auxB_left, sizeof(m_samples_auxB_left));
+  memory.CopyToEmuSwapped(ul_addr + sizeof(m_samples_auxB_left), m_samples_auxB_right,
+                          sizeof(m_samples_auxB_right));
 
   // Mix AUXB L/R to MAIN L/R, and replace AUXB L/R
-  ptr = (int*)HLEMemory_Get_Pointer(dl_addr);
+  int* ptr = reinterpret_cast<int*>(memory.GetPointerForRange(dl_addr, 2 * 5 * 32 * sizeof(int)));
   for (u32 i = 0; i < 5 * 32; ++i)
   {
     int samp = Common::swap32(*ptr++);
@@ -600,7 +655,8 @@ void AXUCode::MixAUXBLR(u32 ul_addr, u32 dl_addr)
 
 void AXUCode::SetOppositeLR(u32 src_addr)
 {
-  int* ptr = (int*)HLEMemory_Get_Pointer(src_addr);
+  auto& memory = m_dsphle->GetSystem().GetMemory();
+  int* ptr = reinterpret_cast<int*>(memory.GetPointerForRange(src_addr, 5 * 32 * sizeof(int)));
   for (u32 i = 0; i < 5 * 32; ++i)
   {
     int inp = Common::swap32(*ptr++);
@@ -610,28 +666,19 @@ void AXUCode::SetOppositeLR(u32 src_addr)
   }
 }
 
-void AXUCode::SendAUXAndMix(u32 main_auxa_up, u32 auxb_s_up, u32 main_l_dl, u32 main_r_dl,
+void AXUCode::SendAUXAndMix(u32 auxa_lrs_up, u32 auxb_s_up, u32 main_l_dl, u32 main_r_dl,
                             u32 auxb_l_dl, u32 auxb_r_dl)
 {
-  // Buffers to upload first
-  const std::array<const int*, 3> up_buffers{
-      m_samples_auxA_left,
-      m_samples_auxA_right,
-      m_samples_auxA_surround,
-  };
-
   // Upload AUXA LRS
-  int* ptr = (int*)HLEMemory_Get_Pointer(main_auxa_up);
-  for (const auto& up_buffer : up_buffers)
-  {
-    for (u32 j = 0; j < 32 * 5; ++j)
-      *ptr++ = Common::swap32(up_buffer[j]);
-  }
+  auto& memory = m_dsphle->GetSystem().GetMemory();
+  memory.CopyToEmuSwapped(auxa_lrs_up, m_samples_auxA_left, 32 * 5 * sizeof(int));
+  memory.CopyToEmuSwapped(auxa_lrs_up + 32 * 5 * sizeof(int), m_samples_auxA_right,
+                          32 * 5 * sizeof(int));
+  memory.CopyToEmuSwapped(auxa_lrs_up + 2 * 32 * 5 * sizeof(int), m_samples_auxA_surround,
+                          32 * 5 * sizeof(int));
 
   // Upload AUXB S
-  ptr = (int*)HLEMemory_Get_Pointer(auxb_s_up);
-  for (auto& sample : m_samples_auxB_surround)
-    *ptr++ = Common::swap32(sample);
+  memory.CopyToEmuSwapped(auxb_s_up, m_samples_auxB_surround, sizeof(m_samples_auxB_surround));
 
   // Download buffers and addresses
   const std::array<int*, 4> dl_buffers{
@@ -650,7 +697,8 @@ void AXUCode::SendAUXAndMix(u32 main_auxa_up, u32 auxb_s_up, u32 main_l_dl, u32 
   // Download and mix
   for (size_t i = 0; i < dl_buffers.size(); ++i)
   {
-    const int* dl_src = (int*)HLEMemory_Get_Pointer(dl_addrs[i]);
+    const int* dl_src =
+        reinterpret_cast<int*>(memory.GetPointerForRange(dl_addrs[i], 32 * 5 * sizeof(int)));
     for (size_t j = 0; j < 32 * 5; ++j)
       dl_buffers[i][j] += (int)Common::swap32(*dl_src++);
   }
@@ -658,53 +706,76 @@ void AXUCode::SendAUXAndMix(u32 main_auxa_up, u32 auxb_s_up, u32 main_l_dl, u32 
 
 void AXUCode::HandleMail(u32 mail)
 {
-  // Indicates if the next message is a command list address.
-  static bool next_is_cmdlist = false;
-  static u16 cmdlist_size = 0;
-
-  bool set_next_is_cmdlist = false;
-
-  if (next_is_cmdlist)
+  if (m_upload_setup_in_progress)
   {
-    CopyCmdList(mail, cmdlist_size);
+    PrepareBootUCode(mail);
+    return;
+  }
+
+  switch (m_mail_state)
+  {
+  case MailState::WaitingForCmdListSize:
+    if ((mail & MAIL_CMDLIST_MASK) == MAIL_CMDLIST)
+    {
+      // A command list address is going to be sent next.
+      m_cmdlist_size = static_cast<u16>(mail & ~MAIL_CMDLIST_MASK);
+      m_mail_state = MailState::WaitingForCmdListAddress;
+    }
+    else
+    {
+      ERROR_LOG_FMT(DSPHLE, "Unknown mail sent to AX::HandleMail; expected command list: {:08x}",
+                    mail);
+    }
+    break;
+
+  case MailState::WaitingForCmdListAddress:
+    CopyCmdList(mail, m_cmdlist_size);
     HandleCommandList();
     m_cmdlist_size = 0;
     SignalWorkEnd();
-  }
-  else if (m_upload_setup_in_progress)
-  {
-    PrepareBootUCode(mail);
-  }
-  else if (mail == MAIL_RESUME)
-  {
-    // Acknowledge the resume request
-    m_mail_handler.PushMail(DSP_RESUME, true);
-  }
-  else if (mail == MAIL_NEW_UCODE)
-  {
-    m_upload_setup_in_progress = true;
-  }
-  else if (mail == MAIL_RESET)
-  {
-    m_dsphle->SetUCode(UCODE_ROM);
-  }
-  else if (mail == MAIL_CONTINUE)
-  {
-    // We don't have to do anything here - the CPU does not wait for a ACK
-    // and sends a cmdlist mail just after.
-  }
-  else if ((mail & MAIL_CMDLIST_MASK) == MAIL_CMDLIST)
-  {
-    // A command list address is going to be sent next.
-    set_next_is_cmdlist = true;
-    cmdlist_size = (u16)(mail & ~MAIL_CMDLIST_MASK);
-  }
-  else
-  {
-    ERROR_LOG_FMT(DSPHLE, "Unknown mail sent to AX::HandleMail: {:08x}", mail);
-  }
+    m_mail_state = MailState::WaitingForNextTask;
+    break;
 
-  next_is_cmdlist = set_next_is_cmdlist;
+  case MailState::WaitingForNextTask:
+    if ((mail & TASK_MAIL_MASK) != TASK_MAIL_TO_DSP)
+    {
+      WARN_LOG_FMT(DSPHLE, "Rendering task without prefix CDD1: {:08x}", mail);
+      mail = TASK_MAIL_TO_DSP | (mail & ~TASK_MAIL_MASK);
+      // The actual uCode does not check for the CDD1 prefix.
+    }
+
+    switch (mail)
+    {
+    case MAIL_RESUME:
+      // Acknowledge the resume request
+      m_mail_handler.PushMail(DSP_RESUME, true);
+      m_mail_state = MailState::WaitingForCmdListSize;
+      break;
+
+    case MAIL_NEW_UCODE:
+      m_upload_setup_in_progress = true;
+      // Relevant when this uCode is resumed after switching.
+      // The resume mail is sent via the NeedsResumeMail() check above
+      // (and the flag corresponding to it is set by PrepareBootUCode).
+      m_mail_state = MailState::WaitingForCmdListSize;
+      break;
+
+    case MAIL_RESET:
+      m_dsphle->SetUCode(UCODE_ROM);
+      break;
+
+    case MAIL_CONTINUE:
+      // We don't have to do anything here - the CPU does not wait for a ACK
+      // and sends a cmdlist mail just after.
+      m_mail_state = MailState::WaitingForCmdListSize;
+      break;
+
+    default:
+      WARN_LOG_FMT(DSPHLE, "Unknown task mail: {:08x}", mail);
+      break;
+    }
+    break;
+  }
 }
 
 void AXUCode::CopyCmdList(u32 addr, u16 size)
@@ -715,9 +786,8 @@ void AXUCode::CopyCmdList(u32 addr, u16 size)
     return;
   }
 
-  for (u32 i = 0; i < size; ++i, addr += 2)
-    m_cmdlist[i] = HLEMemory_Read_U16(addr);
-  m_cmdlist_size = size;
+  auto& memory = m_dsphle->GetSystem().GetMemory();
+  memory.CopyFromEmuSwapped(m_cmdlist, addr, size * sizeof(u16));
 }
 
 void AXUCode::Update()
@@ -733,6 +803,7 @@ void AXUCode::DoAXState(PointerWrap& p)
 {
   p.Do(m_cmdlist);
   p.Do(m_cmdlist_size);
+  p.Do(m_mail_state);
 
   p.Do(m_samples_main_left);
   p.Do(m_samples_main_right);
@@ -760,6 +831,8 @@ void AXUCode::DoAXState(PointerWrap& p)
   }
 
   p.Do(m_compressor_pos);
+
+  m_accelerator->DoState(p);
 }
 
 void AXUCode::DoState(PointerWrap& p)

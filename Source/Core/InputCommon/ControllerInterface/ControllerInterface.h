@@ -5,13 +5,15 @@
 
 #include <atomic>
 #include <functional>
-#include <list>
 #include <memory>
 #include <mutex>
 
+#include "Common/HookableEvent.h"
 #include "Common/Matrix.h"
 #include "Common/WindowSystemInfo.h"
+
 #include "InputCommon/ControllerInterface/CoreDevice.h"
+#include "InputCommon/ControllerInterface/InputBackend.h"
 
 // enable disable sources
 #ifdef _WIN32
@@ -30,6 +32,12 @@
 #define CIFACE_USE_PIPES
 #endif
 #define CIFACE_USE_DUALSHOCKUDPCLIENT
+#if defined(HAVE_SDL3)
+#define CIFACE_USE_SDL
+#endif
+#if defined(HAVE_HIDAPI)
+#define CIFACE_USE_STEAMDECK
+#endif
 
 namespace ciface
 {
@@ -57,8 +65,6 @@ enum class InputChannel
 class ControllerInterface : public ciface::Core::DeviceContainer
 {
 public:
-  using HotplugCallbackHandle = std::list<std::function<void()>>::iterator;
-
   enum class WindowChangeReason
   {
     // Application is shutting down
@@ -91,7 +97,7 @@ public:
   // This is mandatory to use on device populations functions that can be called concurrently by
   // more than one thread, or that are called by a single other thread.
   // Without this, our devices list might end up in a mixed state.
-  void PlatformPopulateDevices(std::function<void()> callback);
+  void PlatformPopulateDevices(const std::function<void()>& callback);
   bool IsInit() const { return m_is_init; }
   void UpdateInput();
 
@@ -103,20 +109,27 @@ public:
   // Inputs based on window coordinates should be multiplied by this.
   Common::Vec2 GetWindowInputScale() const;
 
-  HotplugCallbackHandle RegisterDevicesChangedCallback(std::function<void(void)> callback);
-  void UnregisterDevicesChangedCallback(const HotplugCallbackHandle& handle);
-  void InvokeDevicesChangedCallbacks() const;
+  // Request that the mouse cursor should be centered in the render window at the next opportunity.
+  void SetMouseCenteringRequested(bool center);
+
+  bool IsMouseCenteringRequested() const;
+
+  [[nodiscard]] Common::EventHook
+  RegisterDevicesChangedCallback(Common::HookableEvent<>::CallbackType callback);
 
   static void SetCurrentInputChannel(ciface::InputChannel);
   static ciface::InputChannel GetCurrentInputChannel();
 
+  WindowSystemInfo GetWindowSystemInfo() const;
+
 private:
   void ClearDevices();
 
-  std::list<std::function<void()>> m_devices_changed_callbacks;
+  void InvokeDevicesChangedCallbacks();
+
+  Common::HookableEvent<> m_devices_changed_event;
+
   mutable std::recursive_mutex m_devices_population_mutex;
-  mutable std::mutex m_pre_population_mutex;
-  mutable std::mutex m_callbacks_mutex;
   std::atomic<bool> m_is_init;
   // This is now always protected by m_devices_population_mutex, so
   // it doesn't really need to be a counter or atomic anymore (it could be a raw bool),
@@ -124,6 +137,9 @@ private:
   std::atomic<int> m_populating_devices_counter;
   WindowSystemInfo m_wsi;
   std::atomic<float> m_aspect_ratio_adjustment = 1;
+  std::atomic<bool> m_requested_mouse_centering = false;
+
+  std::vector<std::unique_ptr<ciface::InputBackend>> m_input_backends;
 };
 
 namespace ciface

@@ -13,12 +13,8 @@ JitBlockCache::JitBlockCache(JitBase& jit) : JitBaseBlockCache{jit}
 
 void JitBlockCache::WriteLinkBlock(const JitBlock::LinkData& source, const JitBlock* dest)
 {
-  // Do not skip breakpoint check if debugging.
-  const u8* dispatcher = m_jit.IsDebuggingEnabled() ? m_jit.GetAsmRoutines()->dispatcher :
-                                                      m_jit.GetAsmRoutines()->dispatcher_no_check;
-
   u8* location = source.exitPtrs;
-  const u8* address = dest ? dest->checkedEntry : dispatcher;
+  const u8* address = dest ? dest->normalEntry : m_jit.GetAsmRoutines()->dispatcher_no_timing_check;
   if (source.call)
   {
     Gen::XEmitter emit(location, location + 5);
@@ -30,14 +26,18 @@ void JitBlockCache::WriteLinkBlock(const JitBlock::LinkData& source, const JitBl
     // to emit JMP. So just NOP out the gap to the next block.
     // Support up to 3 additional bytes because of alignment.
     s64 offset = address - location;
-    if (offset > 0 && offset <= 5 + 3)
+    if (offset > 0 && offset <= Gen::XEmitter::NEAR_JMP_LEN + 3)
     {
       Gen::XEmitter emit(location, location + offset);
       emit.NOP(offset);
     }
     else
     {
-      Gen::XEmitter emit(location, location + 5);
+      // Length forced to Near because JMP length might differ between dispatcher and linked block.
+      // Technically this isn't necessary, as this is executed after Jit64::JustWriteExit (which
+      // also pads), and a Short JMP written on top of a Near JMP isn't incorrect since the garbage
+      // bytes are skipped. But they confuse the disassembler, and probably the CPU speculation too.
+      Gen::XEmitter emit(location, location + Gen::XEmitter::NEAR_JMP_LEN);
       emit.JMP(address, true);
     }
   }
@@ -45,11 +45,9 @@ void JitBlockCache::WriteLinkBlock(const JitBlock::LinkData& source, const JitBl
 
 void JitBlockCache::WriteDestroyBlock(const JitBlock& block)
 {
-  // Only clear the entry points as we might still be within this block.
-  Gen::XEmitter emit(block.checkedEntry, block.checkedEntry + 1);
+  // Only clear the entry point as we might still be within this block.
+  Gen::XEmitter emit(block.normalEntry, block.normalEntry + 1);
   emit.INT3();
-  Gen::XEmitter emit2(block.normalEntry, block.normalEntry + 1);
-  emit2.INT3();
 }
 
 void JitBlockCache::Init()

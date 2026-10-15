@@ -5,11 +5,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
 #include "Common/MathUtil.h"
 #include "Core/Config/SYSCONFSettings.h"
 #include "Core/HW/WiimoteEmu/WiimoteEmu.h"
-#include "InputCommon/ControllerEmu/ControlGroup/Buttons.h"
 #include "InputCommon/ControllerEmu/ControlGroup/Cursor.h"
 #include "InputCommon/ControllerEmu/ControlGroup/Force.h"
 #include "InputCommon/ControllerEmu/ControlGroup/IMUAccelerometer.h"
@@ -66,7 +66,7 @@ Common::Quaternion ComplementaryFilter(const Common::Quaternion& gyroscope,
 
   const auto cos_angle = normalized_accel.Dot(gyro_vec);
 
-  // If gyro to accel angle difference is betwen 0 and 180 degrees we make an adjustment.
+  // If gyro to accel angle difference is between 0 and 180 degrees we make an adjustment.
   const auto abs_cos_angle = std::abs(cos_angle);
   if (abs_cos_angle > 0 && abs_cos_angle < 1)
   {
@@ -221,9 +221,10 @@ WiimoteCommon::AccelData ConvertAccelData(const Common::Vec3& accel, u16 zero_g,
        u16(std::clamp(std::lround(scaled_accel.z + zero_g), 0l, MAX_VALUE))});
 }
 
-void EmulatePoint(MotionState* state, ControllerEmu::Cursor* ir_group, float time_elapsed)
+void EmulatePoint(MotionState* state, ControllerEmu::Cursor* ir_group,
+                  const ControllerEmu::InputOverrideFunction& override_func, float time_elapsed)
 {
-  const auto cursor = ir_group->GetState(true);
+  const auto cursor = ir_group->GetState(true, override_func);
 
   if (!cursor.IsVisible())
   {
@@ -309,7 +310,7 @@ void EmulateIMUCursor(IMUCursorState* state, ControllerEmu::IMUCursor* imu_ir_gr
   const auto ang_vel = imu_gyroscope_group->GetState();
 
   // Reset if pointing is disabled or we have no gyro data.
-  if (!imu_ir_group->enabled || !ang_vel.has_value())
+  if (!imu_ir_group->enabled.GetValue() || !ang_vel.has_value())
   {
     *state = {};
     return;
@@ -320,10 +321,10 @@ void EmulateIMUCursor(IMUCursorState* state, ControllerEmu::IMUCursor* imu_ir_gr
   state->rotation = gyro_rotation * state->rotation;
 
   // If we have some non-zero accel data use it to adjust gyro drift.
-  constexpr auto ACCEL_WEIGHT = 0.02f;
+  const auto accel_weight = imu_ir_group->GetAccelWeight();
   auto const accel = imu_accelerometer_group->GetState().value_or(Common::Vec3{});
   if (accel.LengthSquared())
-    state->rotation = ComplementaryFilter(state->rotation, accel, ACCEL_WEIGHT);
+    state->rotation = ComplementaryFilter(state->rotation, accel, accel_weight);
 
   // Clamp yaw within configured bounds.
   const auto yaw = GetYaw(state->rotation);
@@ -396,7 +397,9 @@ Common::Quaternion GetRotationFromAcceleration(const Common::Vec3& accel)
 
 Common::Quaternion GetRotationFromGyroscope(const Common::Vec3& gyro)
 {
-  return Common::Quaternion{1, gyro.x / 2, gyro.y / 2, gyro.z / 2};
+  const auto length = gyro.Length();
+  return (length != 0) ? Common::Quaternion::Rotate(length, gyro / length) :
+                         Common::Quaternion::Identity();
 }
 
 Common::Matrix33 GetRotationalMatrix(const Common::Vec3& angle)

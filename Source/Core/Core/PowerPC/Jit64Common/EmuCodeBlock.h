@@ -49,6 +49,8 @@ public:
     return Gen::M(m_const_pool.GetConstant(&value, sizeof(T), N, index));
   }
 
+  void FlushPCBeforeSlowAccess();
+
   // Writes upper 15 bits of physical address to addr and clobbers the lower 17 bits of addr.
   // Jumps to the returned FixupBranch if lookup fails.
   Gen::FixupBranch BATAddressLookup(Gen::X64Reg addr, Gen::X64Reg tmp, const void* bat_table);
@@ -76,8 +78,8 @@ public:
     // This indicates that the write being generated cannot be patched (and thus can't use fastmem)
     SAFE_LOADSTORE_NO_FASTMEM = 4,
     SAFE_LOADSTORE_CLOBBER_RSCRATCH_INSTEAD_OF_ADDR = 8,
-    // Force slowmem (used when generating fallbacks in trampolines)
-    SAFE_LOADSTORE_FORCE_SLOWMEM = 16,
+    // Always call into C++ (used when generating fallbacks in trampolines)
+    SAFE_LOADSTORE_FORCE_SLOW_ACCESS = 16,
     SAFE_LOADSTORE_DR_ON = 32,
     // Generated from a context that doesn't have the PC of the instruction that caused it
     SAFE_LOADSTORE_NO_UPDATE_PC = 64,
@@ -111,10 +113,14 @@ public:
   void avx_op(void (Gen::XEmitter::*avxOp)(Gen::X64Reg, Gen::X64Reg, const Gen::OpArg&),
               void (Gen::XEmitter::*sseOp)(Gen::X64Reg, const Gen::OpArg&), Gen::X64Reg regOp,
               const Gen::OpArg& arg1, const Gen::OpArg& arg2, bool packed = true,
-              bool reversible = false);
+              bool reversible = false, Gen::X64Reg scratch = Gen::XMM0);
   void avx_op(void (Gen::XEmitter::*avxOp)(Gen::X64Reg, Gen::X64Reg, const Gen::OpArg&, u8),
               void (Gen::XEmitter::*sseOp)(Gen::X64Reg, const Gen::OpArg&, u8), Gen::X64Reg regOp,
-              const Gen::OpArg& arg1, const Gen::OpArg& arg2, u8 imm);
+              const Gen::OpArg& arg1, const Gen::OpArg& arg2, u8 imm,
+              Gen::X64Reg scratch = Gen::XMM0);
+  void avx_op(void (Gen::XEmitter::*avxOp)(Gen::X64Reg, Gen::X64Reg, u8),
+              void (Gen::XEmitter::*sseOp)(Gen::X64Reg, u8), Gen::X64Reg regOp1, Gen::X64Reg regOp2,
+              u8 imm);
 
   void Force25BitPrecision(Gen::X64Reg output, const Gen::OpArg& input, Gen::X64Reg tmp);
 

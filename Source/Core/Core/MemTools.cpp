@@ -3,25 +3,27 @@
 
 #include "Core/MemTools.h"
 
-#include <cstdio>
 #include <cstdlib>
-#include <cstring>
-#include <vector>
 
-#include "Common/Assert.h"
 #include "Common/CommonFuncs.h"
-#include "Common/CommonTypes.h"
 #include "Common/MsgHandler.h"
-#include "Common/Thread.h"
 
 #include "Core/MachineContext.h"
 #include "Core/PowerPC/JitInterface.h"
+#include "Core/System.h"
 
 #if defined(__FreeBSD__) || defined(__NetBSD__)
 #include <signal.h>
 #endif
 #ifndef _WIN32
 #include <unistd.h>  // Needed for _POSIX_VERSION
+#endif
+
+#ifdef _WIN32
+#include "Common/Assert.h"
+#endif
+#if defined(__APPLE__) && !defined(USE_SIGACTION_ON_APPLE)
+#include "Common/Thread.h"
 #endif
 
 #if defined(__APPLE__)
@@ -60,7 +62,7 @@ static LONG NTAPI Handler(PEXCEPTION_POINTERS pPtrs)
     uintptr_t fault_address = (uintptr_t)pPtrs->ExceptionRecord->ExceptionInformation[1];
     SContext* ctx = pPtrs->ContextRecord;
 
-    if (JitInterface::HandleFault(fault_address, ctx))
+    if (Core::System::GetInstance().GetJitInterface().HandleFault(fault_address, ctx))
     {
       return EXCEPTION_CONTINUE_EXECUTION;
     }
@@ -72,7 +74,7 @@ static LONG NTAPI Handler(PEXCEPTION_POINTERS pPtrs)
   }
 
   case EXCEPTION_STACK_OVERFLOW:
-    if (JitInterface::HandleStackFault())
+    if (Core::System::GetInstance().GetJitInterface().HandleStackFault())
       return EXCEPTION_CONTINUE_EXECUTION;
     else
       return EXCEPTION_CONTINUE_SEARCH;
@@ -132,7 +134,7 @@ static void ExceptionThread(mach_port_t port)
 {
   Common::SetCurrentThreadName("Mach exception thread");
 #pragma pack(4)
-  struct
+  struct alignas(8)
   {
     mach_msg_header_t Head;
     NDR_record_t NDR;
@@ -145,7 +147,7 @@ static void ExceptionThread(mach_port_t port)
     mach_msg_trailer_t trailer;
   } msg_in;
 
-  struct
+  struct alignas(8)
   {
     mach_msg_header_t Head;
     NDR_record_t NDR;
@@ -157,7 +159,6 @@ static void ExceptionThread(mach_port_t port)
 #pragma pack()
   memset(&msg_in, 0xee, sizeof(msg_in));
   memset(&msg_out, 0xee, sizeof(msg_out));
-  mach_msg_header_t* send_msg = nullptr;
   mach_msg_size_t send_size = 0;
   mach_msg_option_t option = MACH_RCV_MSG;
   while (true)
@@ -167,7 +168,7 @@ static void ExceptionThread(mach_port_t port)
     // thread_set_exception_ports, or MACH_NOTIFY_NO_SENDERS due to
     // mach_port_request_notification.
     CheckKR("mach_msg_overwrite",
-            mach_msg_overwrite(send_msg, option, send_size, sizeof(msg_in), port,
+            mach_msg_overwrite(&msg_out.Head, option, send_size, sizeof(msg_in), port,
                                MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL, &msg_in.Head, 0));
 
     if (msg_in.Head.msgh_id == MACH_NOTIFY_NO_SENDERS)
@@ -191,7 +192,8 @@ static void ExceptionThread(mach_port_t port)
 
     thread_state64_t* state = (thread_state64_t*)msg_in.old_state;
 
-    bool ok = JitInterface::HandleFault((uintptr_t)msg_in.code[1], state);
+    bool ok =
+        Core::System::GetInstance().GetJitInterface().HandleFault((uintptr_t)msg_in.code[1], state);
 
     // Set up the reply.
     msg_out.Head.msgh_bits = MACH_MSGH_BITS(MACH_MSGH_BITS_REMOTE(msg_in.Head.msgh_bits), 0);
@@ -216,7 +218,6 @@ static void ExceptionThread(mach_port_t port)
     msg_out.Head.msgh_size =
         offsetof(__typeof__(msg_out), new_state) + msg_out.new_stateCnt * sizeof(natural_t);
 
-    send_msg = &msg_out.Head;
     send_size = msg_out.Head.msgh_size;
     option |= MACH_SEND_MSG;
   }
@@ -258,73 +259,51 @@ bool IsExceptionHandlerSupported()
 #elif defined(_POSIX_VERSION) && !defined(_M_GENERIC)
 
 static struct sigaction old_sa_segv;
+#if defined(__APPLE__)
 static struct sigaction old_sa_bus;
+#endif
 
 static void sigsegv_handler(int sig, siginfo_t* info, void* raw_context)
 {
-  if (sig != SIGSEGV && sig != SIGBUS)
+  if (sig != SIGSEGV
+#if defined(__APPLE__)
+      && sig != SIGBUS
+#endif
+  )
   {
     // We are not interested in other signals - handle it as usual.
     return;
   }
-  ucontext_t* context = (ucontext_t*)raw_context;
-  int sicode = info->si_code;
+  auto* const context = static_cast<ucontext_t*>(raw_context);
+  const int sicode = info->si_code;
   if (sicode != SEGV_MAPERR && sicode != SEGV_ACCERR)
   {
     // Huh? Return.
     return;
   }
-  uintptr_t bad_address = (uintptr_t)info->si_addr;
+  const auto bad_address = reinterpret_cast<uintptr_t>(info->si_addr);
 
 // Get all the information we can out of the context.
 #ifdef __OpenBSD__
-  ucontext_t* ctx = context;
+  SContext* const ctx = context;
+#elif defined(__APPLE__)
+  // `uc_mcontext` is already a pointer here.
+  SContext* const ctx = context->uc_mcontext;
 #else
-  mcontext_t* ctx = &context->uc_mcontext;
+  SContext* const ctx = &context->uc_mcontext;
 #endif
-  // assume it's not a write
-  if (!JitInterface::HandleFault(bad_address,
-#ifdef __APPLE__
-                                 *ctx
-#else
-                                 ctx
+  if (Core::System::GetInstance().GetJitInterface().HandleFault(bad_address, ctx))
+    return;
+
+  // If JIT didn't handle the signal, restore the original handler and invoke it.
+  const auto& old_sa =
+#if defined(__APPLE__)
+      (sig == SIGBUS) ? old_sa_bus :
 #endif
-                                 ))
-  {
-    // retry and crash
-    // According to the sigaction man page, if sa_flags "SA_SIGINFO" is set to the sigaction
-    // function pointer, otherwise sa_handler contains one of:
-    // SIG_DEF: The 'default' action is performed
-    // SIG_IGN: The signal is ignored
-    // Any other value is a function pointer to a signal handler
+                        old_sa_segv;
 
-    struct sigaction* old_sa;
-    if (sig == SIGSEGV)
-    {
-      old_sa = &old_sa_segv;
-    }
-    else
-    {
-      old_sa = &old_sa_bus;
-    }
-
-    if (old_sa->sa_flags & SA_SIGINFO)
-    {
-      old_sa->sa_sigaction(sig, info, raw_context);
-      return;
-    }
-    if (old_sa->sa_handler == SIG_DFL)
-    {
-      signal(sig, SIG_DFL);
-      return;
-    }
-    if (old_sa->sa_handler == SIG_IGN)
-    {
-      // Ignore signal
-      return;
-    }
-    old_sa->sa_handler(sig);
-  }
+  sigaction(sig, &old_sa, nullptr);
+  raise(sig);
 }
 
 void InstallExceptionHandler()
@@ -337,10 +316,9 @@ void InstallExceptionHandler()
 #endif
   signal_stack.ss_size = SIGSTKSZ;
   signal_stack.ss_flags = 0;
-  if (sigaltstack(&signal_stack, nullptr))
-    PanicAlertFmt("sigaltstack failed");
-  struct sigaction sa;
-  sa.sa_handler = nullptr;
+  if (sigaltstack(&signal_stack, nullptr) != 0)
+    PanicAlertFmt("sigaltstack failed: {}", Common::LastStrerrorString());
+  struct sigaction sa{};
   sa.sa_sigaction = &sigsegv_handler;
   sa.sa_flags = SA_SIGINFO;
   sigemptyset(&sa.sa_mask);
@@ -352,7 +330,8 @@ void InstallExceptionHandler()
 
 void UninstallExceptionHandler()
 {
-  stack_t signal_stack, old_stack;
+  stack_t signal_stack;
+  stack_t old_stack;
   signal_stack.ss_flags = SS_DISABLE;
   if (!sigaltstack(&signal_stack, &old_stack) && !(old_stack.ss_flags & SS_DISABLE))
   {

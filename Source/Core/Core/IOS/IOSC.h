@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstddef>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -136,7 +137,7 @@ public:
   // More information on default handles: https://wiibrew.org/wiki/IOS/Syscalls
   enum DefaultHandle : u32
   {
-    // ECC-233 private signing key (per-console)
+    // NG private key. ECC-233 private signing key (per-console)
     HANDLE_CONSOLE_KEY = 0,
     // Console ID
     HANDLE_CONSOLE_ID = 1,
@@ -174,19 +175,39 @@ public:
     TYPE_DATA = 3,
   };
 
-  enum ObjectSubType : u8
+  enum class ObjectSubType : u8
   {
-    SUBTYPE_AES128 = 0,
-    SUBTYPE_MAC = 1,
-    SUBTYPE_RSA2048 = 2,
-    SUBTYPE_RSA4096 = 3,
-    SUBTYPE_ECC233 = 4,
-    SUBTYPE_DATA = 5,
-    SUBTYPE_VERSION = 6
+    AES128 = 0,
+    MAC = 1,
+    RSA2048 = 2,
+    RSA4096 = 3,
+    ECC233 = 4,
+    Data = 5,
+    Version = 6
   };
 
   IOSC(ConsoleType console_type = ConsoleType::Retail);
   ~IOSC();
+
+  // This build ships no Wii common keys and no SD key (they are zero), so Wii discs, WADs and
+  // Wii save files cannot be decrypted until the user provides their own keys in
+  // User/Wii/wii_keys.txt: one "name = 32 hex digits" line each, for the names common,
+  // korean_common, rvt_common and sd ('#' starts a comment).
+  struct UserKeys
+  {
+    std::string common;
+    std::string korean_common;
+    std::string rvt_common;
+    std::string sd;
+  };
+  static std::string GetUserKeysPath();
+  static UserKeys ReadUserKeys();
+  // Writes the file; keys left empty are omitted. False if a key is not 32 hex digits or the file
+  // cannot be written.
+  static bool SaveUserKeys(const UserKeys& keys);
+  static bool IsValidKey(const std::string& hex);
+  // True when the common key a console type's titles need has been provided.
+  static bool HasUserCommonKey(ConsoleType console_type = ConsoleType::Retail);
 
   // Create an object for use with the other functions that operate on objects.
   ReturnCode CreateObject(Handle* handle, ObjectType type, ObjectSubType subtype, u32 pid);
@@ -252,8 +273,9 @@ private:
     ExcludeRootKey,
   };
 
-  void LoadDefaultEntries(ConsoleType console_type);
+  void LoadDefaultEntries();
   void LoadEntries();
+  void LoadUserKeys();
 
   KeyEntries::iterator FindFreeEntry();
   KeyEntry* FindEntry(Handle handle);
@@ -265,12 +287,12 @@ private:
   ReturnCode DecryptEncrypt(Common::AES::Mode mode, Handle key_handle, u8* iv, const u8* input,
                             size_t size, u8* output, u32 pid) const;
 
+  ConsoleType m_console_type{ConsoleType::Retail};
   KeyEntries m_key_entries;
   KeyEntry m_root_key_entry;
   Common::ec::Signature m_console_signature{};
-  // Retail keyblob are issued by CA00000001. Default to 1 even though IOSC actually defaults to 2.
-  u32 m_ms_id = 2;
-  u32 m_ca_id = 1;
+  u32 m_ms_id = 0;
+  u32 m_ca_id = 0;
   u32 m_console_key_id = 0;
 };
 }  // namespace HLE

@@ -152,10 +152,10 @@ enum : u32
   DSP_DSMAH = 0xce,  // DSP DMA Address High (External)
   DSP_DSMAL = 0xcf,  // DSP DMA Address Low (External)
 
-  DSP_FORMAT = 0xd1,   // Sample format
-  DSP_ACUNK = 0xd2,    // Set to 3 on my dumps
-  DSP_ACDATA1 = 0xd3,  // Used only by Zelda ucodes
-  DSP_ACSAH = 0xd4,    // Start of loop
+  DSP_FORMAT = 0xd1,  // Sample format
+  DSP_ACUNK = 0xd2,   // Set to 3 on my dumps
+  DSP_ACDRAW = 0xd3,  // Raw accelerator accesses
+  DSP_ACSAH = 0xd4,   // Start of loop
   DSP_ACSAL = 0xd5,
   DSP_ACEAH = 0xd6,  // End of sample (and loop)
   DSP_ACEAL = 0xd7,
@@ -164,9 +164,9 @@ enum : u32
   DSP_PRED_SCALE = 0xda,  // ADPCM predictor and scale
   DSP_YN1 = 0xdb,
   DSP_YN2 = 0xdc,
-  DSP_ACCELERATOR = 0xdd,  // ADPCM accelerator read. Used by AX.
+  DSP_ACDSAMP = 0xdd,  // Accelerator sample reads, processed differently depending on FORMAT
   DSP_GAIN = 0xde,
-  DSP_ACUNK2 = 0xdf,  // Set to 0xc on my dumps
+  DSP_ACIN = 0xdf,  // Feeds PCM samples written here
 
   DSP_AMDM = 0xef,  // ARAM DMA Request Mask 0: DMA with ARAM unmasked 1: masked
 
@@ -226,13 +226,13 @@ enum : u16
 // Exception vectors
 enum class ExceptionType
 {
-  StackOverflow = 1,        // 0x0002 stack under/over flow
-  EXP_2 = 2,                // 0x0004
-  EXP_3 = 3,                // 0x0006
-  EXP_4 = 4,                // 0x0008
-  AcceleratorOverflow = 5,  // 0x000a accelerator address overflow
-  EXP_6 = 6,                // 0x000c
-  ExternalInterrupt = 7     // 0x000e external int (message from CPU)
+  StackOverflow = 1,                  // 0x0002 stack under/over flow
+  EXP_2 = 2,                          // 0x0004
+  AcceleratorRawReadOverflow = 3,     // 0x0006 accelerator raw read address overflow
+  AcceleratorRawWriteOverflow = 4,    // 0x0008 accelerator raw write address overflow
+  AcceleratorSampleReadOverflow = 5,  // 0x000a accelerator sample reads address overflow
+  EXP_6 = 6,                          // 0x000c
+  ExternalInterrupt = 7               // 0x000e external int (message from CPU)
 };
 
 enum class Mailbox
@@ -383,7 +383,7 @@ struct SDSP
   void SetException(ExceptionType exception);
 
   // Checks if any exceptions occurred an updates the DSP state as appropriate.
-  void CheckExceptions();
+  bool CheckExceptions();
 
   // Notify that an external interrupt is pending (used by thread mode)
   void SetExternalInterrupt(bool val);
@@ -419,11 +419,12 @@ struct SDSP
   DSP_Regs r{};
   u16 pc = 0;
 
-  // This is NOT the same cr as r.cr.
+  // This is NOT the same as r.cr.
   // This register is shared with the main emulation, see DSP.cpp
   // The engine has control over 0x0C07 of this reg.
   // Bits are defined in a struct in DSP.cpp.
-  u16 cr = 0;
+  u16 control_reg = 0;
+  u64 control_reg_init_code_clear_time = 0;
 
   u8 reg_stack_ptrs[4]{};
   u8 exceptions = 0;  // pending exceptions
@@ -529,7 +530,7 @@ public:
   void CheckExternalInterrupt();
 
   // Checks if any exceptions occurred an updates the DSP state as appropriate.
-  void CheckExceptions();
+  bool CheckExceptions();
 
   // Reads the current value from a particular register.
   u16 ReadRegister(size_t reg) const;
@@ -577,14 +578,10 @@ public:
   Interpreter::Interpreter& GetInterpreter() { return *m_dsp_interpreter; }
   const Interpreter::Interpreter& GetInterpreter() const { return *m_dsp_interpreter; }
 
-  bool GetInitHax() const { return m_init_hax; }
-  void SetInitHax(bool value) { m_init_hax = value; }
-
 private:
   SDSP m_dsp;
   DSPBreakpoints m_dsp_breakpoints;
   State m_core_state = State::Stopped;
-  bool m_init_hax = false;
   std::unique_ptr<Interpreter::Interpreter> m_dsp_interpreter;
   std::unique_ptr<JIT::DSPEmitter> m_dsp_jit;
   std::unique_ptr<DSPCaptureLogger> m_dsp_cap;

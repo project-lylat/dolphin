@@ -18,7 +18,7 @@
 #include "Core/IOS/USB/Bluetooth/BTEmu.h"
 #include "Core/IOS/USB/Bluetooth/WiimoteDevice.h"
 #include "Core/Movie.h"
-#include "Core/NetPlayClient.h"
+#include "Core/System.h"
 #include "Core/WiiUtils.h"
 
 #include "InputCommon/ControllerEmu/ControlGroup/ControlGroup.h"
@@ -30,7 +30,7 @@ static std::array<u8, MAX_BBMOTES> s_last_connect_request_counter;
 namespace
 {
 static std::array<std::atomic<WiimoteSource>, MAX_BBMOTES> s_wiimote_sources;
-static std::optional<size_t> s_config_callback_id = std::nullopt;
+static std::optional<Config::ConfigChangedCallbackID> s_config_callback_id = std::nullopt;
 
 WiimoteSource GetSource(unsigned int index)
 {
@@ -49,7 +49,8 @@ void OnSourceChanged(unsigned int index, WiimoteSource source)
 
   WiimoteReal::HandleWiimoteSourceChange(index);
 
-  Core::RunAsCPUThread([index] { WiimoteCommon::UpdateSource(index); });
+  const Core::CPUThreadGuard guard(Core::System::GetInstance());
+  WiimoteCommon::UpdateSource(index);
 }
 
 void RefreshConfig()
@@ -96,7 +97,7 @@ HIDWiimote* GetHIDWiimoteSource(unsigned int index)
 
 namespace Wiimote
 {
-static InputConfig s_config(WIIMOTE_INI_NAME, _trans("Wii Remote"), "Wiimote");
+static InputConfig s_config(WIIMOTE_INI_NAME, _trans("Wii Remote"), "Wiimote", "Wiimote");
 
 InputConfig* GetConfig()
 {
@@ -152,6 +153,12 @@ ControllerEmu::ControlGroup* GetTaTaConGroup(int number, WiimoteEmu::TaTaConGrou
   return static_cast<WiimoteEmu::Wiimote*>(s_config.GetController(number))->GetTaTaConGroup(group);
 }
 
+ControllerEmu::ControlGroup* GetShinkansenGroup(int number, WiimoteEmu::ShinkansenGroup group)
+{
+  return static_cast<WiimoteEmu::Wiimote*>(s_config.GetController(number))
+      ->GetShinkansenGroup(group);
+}
+
 void Shutdown()
 {
   s_config.UnregisterHotplugCallback();
@@ -186,8 +193,9 @@ void Initialize(InitializeMode init_mode)
   WiimoteReal::Initialize(init_mode);
 
   // Reload Wiimotes with our settings
-  if (Movie::IsMovieActive())
-    Movie::ChangeWiiPads();
+  auto& movie = Core::System::GetInstance().GetMovie();
+  if (movie.IsMovieActive())
+    movie.ChangeWiiPads();
 }
 
 void ResetAllWiimotes()
@@ -198,8 +206,13 @@ void ResetAllWiimotes()
 
 void LoadConfig()
 {
-  s_config.LoadConfig(InputConfig::InputClass::Wii);
+  s_config.LoadConfig();
   s_last_connect_request_counter.fill(0);
+}
+
+void GenerateDynamicInputTextures()
+{
+  s_config.GenerateControllerTextures();
 }
 
 void Resume()

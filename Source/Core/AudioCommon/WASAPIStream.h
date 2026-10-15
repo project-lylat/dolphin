@@ -6,7 +6,7 @@
 #ifdef _WIN32
 
 // clang-format off
-#include <Windows.h>
+#include <windows.h>
 #include <mmreg.h>
 #include <objbase.h>
 #include <wil/resource.h>
@@ -32,7 +32,7 @@ class WASAPIStream final : public SoundStream
 #ifdef _WIN32
 public:
   explicit WASAPIStream();
-  ~WASAPIStream();
+  ~WASAPIStream() override;
   bool Init() override;
   bool SetRunning(bool running) override;
 

@@ -10,10 +10,9 @@
 #include <QProgressDialog>
 #include <QPushButton>
 
-#include "Common/FileUtil.h"
+#include "Common/Assert.h"
 #include "Common/Flag.h"
 
-#include "Core/Core.h"
 #include "Core/WiiUtils.h"
 
 #include "DiscIO/NANDImporter.h"
@@ -71,6 +70,9 @@ static void ShowResult(QWidget* parent, WiiUtils::UpdateResult result)
                               QObject::tr("The game disc does not contain any usable "
                                           "update information."));
     break;
+  default:
+    ASSERT(false);
+    break;
   }
 }
 
@@ -91,7 +93,6 @@ static WiiUtils::UpdateResult ShowProgress(QWidget* parent, Callable function, A
   UpdateProgressDialog dialog{parent};
   dialog.setLabelText(QObject::tr("Preparing to update...\nThis can take a while."));
   dialog.setWindowTitle(QObject::tr("Updating"));
-  dialog.setWindowFlags(dialog.windowFlags() & ~Qt::WindowContextHelpButtonHint);
   // QProgressDialog doesn't set its minimum size correctly.
   dialog.setMinimumSize(360, 150);
 

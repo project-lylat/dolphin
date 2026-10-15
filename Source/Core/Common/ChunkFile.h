@@ -32,7 +32,6 @@
 #include "Common/EnumMap.h"
 #include "Common/Flag.h"
 #include "Common/Inline.h"
-#include "Common/Logging/Log.h"
 
 // Wrapper class
 class PointerWrap
@@ -105,7 +104,7 @@ public:
     case Mode::Read:
       for (x.clear(); count != 0; --count)
       {
-        V value;
+        V value = {};
         Do(value);
         x.insert(value);
       }
@@ -195,13 +194,15 @@ public:
     DoArray(x.data(), static_cast<u32>(x.size()));
   }
 
-  template <typename T, typename std::enable_if_t<std::is_trivially_copyable_v<T>, int> = 0>
+  template <typename T>
+  requires(std::is_trivially_copyable_v<T>)
   void DoArray(T* x, u32 count)
   {
     DoVoid(x, count * sizeof(T));
   }
 
-  template <typename T, typename std::enable_if_t<!std::is_trivially_copyable_v<T>, int> = 0>
+  template <typename T>
+  requires(!std::is_trivially_copyable_v<T>)
   void DoArray(T* x, u32 count)
   {
     for (u32 i = 0; i < count; ++i)
@@ -229,6 +230,22 @@ public:
     return current;
   }
 
+  // The reserved u32 is set to 0, and a pointer to it is returned.
+  // The caller needs to fill in the reserved u32 with the appropriate value later on, if they
+  // want a non-zero value there.
+  [[nodiscard]] u8* ReserveU32()
+  {
+    u32 temp = 0;
+    u8* previous_pointer = *m_ptr_current;
+    Do(temp);
+    return previous_pointer;
+  }
+
+  u32 GetOffsetFromPreviousPosition(u8* previous_pointer)
+  {
+    return static_cast<u32>((*m_ptr_current) - previous_pointer);
+  }
+
   void Do(Common::Flag& flag)
   {
     bool s = flag.IsSet();
@@ -247,19 +264,13 @@ public:
   }
 
   template <typename T>
+  requires(std::is_trivially_copyable_v<T> && !std::is_pointer_v<T>)
   void Do(T& x)
   {
-    static_assert(std::is_trivially_copyable_v<T>, "Only sane for trivially copyable types");
     // Note:
     // Usually we can just use x = **ptr, etc.  However, this doesn't work
     // for unions containing BitFields (long story, stupid language rules)
     // or arrays.  This will get optimized anyway.
-    DoVoid((void*)&x, sizeof(x));
-  }
-
-  template <typename T>
-  void DoPOD(T& x)
-  {
     DoVoid((void*)&x, sizeof(x));
   }
 
@@ -277,7 +288,7 @@ public:
   }
 
   template <typename T>
-  void DoPointer(T*& x, T* const base)
+  bool DoPointer(T*& x, T* const base, size_t count)
   {
     // pointers can be more than 2^31 apart, but you're using this function wrong if you need that
     // much range
@@ -285,8 +296,23 @@ public:
     Do(offset);
     if (IsReadMode())
     {
+      if (offset < 0 || static_cast<size_t>(offset) > count)
+      {
+        SetMeasureMode();
+        return false;
+      }
       x = base + offset;
     }
+    return true;
+  }
+
+  bool DoPointer(void*& x, void* const base, size_t count)
+  {
+    auto* ptr = static_cast<u8*>(x);
+    if (!DoPointer(ptr, static_cast<u8*>(base), count))
+      return false;
+    x = ptr;
+    return true;
   }
 
   void DoMarker(const std::string& prevName, u32 arbitraryNumber = 0x42)

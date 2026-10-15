@@ -15,7 +15,11 @@ namespace ActionReplay
 struct ARCode;
 }
 
+class CheatCodeEditor;
 class CheatWarningWidget;
+#ifdef USE_RETRO_ACHIEVEMENTS
+class HardcoreWarningWidget;
+#endif  // USE_RETRO_ACHIEVEMENTS
 class QLabel;
 class QListWidget;
 class QListWidgetItem;
@@ -28,10 +32,14 @@ public:
   explicit ARCodeWidget(std::string game_id, u16 game_revision, bool restart_required = true);
   ~ARCodeWidget() override;
 
+  void ChangeGame(std::string game_id, u16 game_revision);
   void AddCode(ActionReplay::ARCode code);
 
 signals:
   void OpenGeneralSettings();
+#ifdef USE_RETRO_ACHIEVEMENTS
+  void OpenAchievementSettings();
+#endif  // USE_RETRO_ACHIEVEMENTS
 
 private:
   void OnSelectionChanged();
@@ -41,23 +49,36 @@ private:
   void CreateWidgets();
   void ConnectWidgets();
   void UpdateList();
+  void LoadCodes();
   void SaveCodes();
   void SortAlphabetically();
+  void SortEnabledCodesFirst();
+  void SortDisabledCodesFirst();
+  void UpdateToggleButton();
 
   void OnCodeAddClicked();
   void OnCodeEditClicked();
   void OnCodeRemoveClicked();
+  void OnCodeToggleAllClicked();
 
   void OnListReordered();
+
+  bool IsEveryCodeEnabled();
 
   std::string m_game_id;
   u16 m_game_revision;
 
   CheatWarningWidget* m_warning;
+#ifdef USE_RETRO_ACHIEVEMENTS
+  HardcoreWarningWidget* m_hc_warning;
+#endif  // USE_RETRO_ACHIEVEMENTS
   QListWidget* m_code_list;
   QPushButton* m_code_add;
   QPushButton* m_code_edit;
   QPushButton* m_code_remove;
+  QPushButton* m_code_toggle_all;
+
+  CheatCodeEditor* m_cheat_code_editor;
 
   std::vector<ActionReplay::ARCode> m_ar_codes;
   bool m_restart_required;

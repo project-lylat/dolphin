@@ -3,27 +3,26 @@
 
 #pragma once
 
-#include "DolphinQt/Config/Graphics/GraphicsWidget.h"
+#include <QGroupBox>
+#include <QWidget>
 
-class GraphicsBool;
-class GraphicsChoice;
-class GraphicsInteger;
-class GraphicsWindow;
-class QCheckBox;
-class QComboBox;
-class QSpinBox;
-class ToolTipCheckBox;
+class ConfigBool;
+class ConfigChoice;
+class ConfigInteger;
+class GraphicsPane;
 
-class AdvancedWidget final : public GraphicsWidget
+namespace Config
+{
+class Layer;
+}  // namespace Config
+
+class AdvancedWidget final : public QWidget
 {
   Q_OBJECT
 public:
-  explicit AdvancedWidget(GraphicsWindow* parent);
+  explicit AdvancedWidget(GraphicsPane* gfx_pane);
 
 private:
-  void LoadSettings() override;
-  void SaveSettings() override;
-
   void CreateWidgets();
   void ConnectWidgets();
   void AddDescriptions();
@@ -31,36 +30,49 @@ private:
   void OnEmulationStateChanged(bool running);
 
   // Debugging
-  GraphicsBool* m_enable_wireframe;
-  GraphicsBool* m_show_statistics;
-  GraphicsBool* m_enable_format_overlay;
-  GraphicsBool* m_enable_api_validation;
+  ConfigBool* m_enable_wireframe;
+  ConfigBool* m_enable_format_overlay;
+  ConfigBool* m_enable_api_validation;
+  ConfigBool* m_log_render_time;
 
   // Utility
-  GraphicsBool* m_prefetch_custom_textures;
-  GraphicsBool* m_dump_efb_target;
-  GraphicsBool* m_dump_xfb_target;
-  GraphicsBool* m_disable_vram_copies;
-  GraphicsBool* m_load_custom_textures;
+  ConfigBool* m_prefetch_custom_textures;
+  ConfigBool* m_dump_efb_target;
+  ConfigBool* m_dump_xfb_target;
+  ConfigBool* m_disable_vram_copies;
+  ConfigBool* m_load_custom_textures;
+  ConfigBool* m_enable_graphics_mods;
 
   // Texture dumping
-  GraphicsBool* m_dump_textures;
-  GraphicsBool* m_dump_mip_textures;
-  GraphicsBool* m_dump_base_textures;
+  ConfigBool* m_dump_textures;
+  ConfigBool* m_dump_mip_textures;
+  ConfigBool* m_dump_base_textures;
 
   // Frame dumping
-  GraphicsBool* m_dump_use_ffv1;
-  GraphicsBool* m_use_fullres_framedumps;
-  GraphicsInteger* m_dump_bitrate;
-  GraphicsInteger* m_png_compression_level;
+  ConfigBool* m_dump_use_lossless;
+  ConfigChoice* m_frame_dumps_resolution_type;
+  ConfigInteger* m_dump_bitrate;
+  ConfigInteger* m_png_compression_level;
 
   // Misc
-  GraphicsBool* m_enable_cropping;
-  ToolTipCheckBox* m_enable_prog_scan;
-  GraphicsBool* m_backend_multithreading;
-  GraphicsBool* m_borderless_fullscreen;
+  ConfigBool* m_enable_prog_scan;
+  ConfigBool* m_backend_multithreading;
+  ConfigBool* m_prefer_vs_for_point_line_expansion;
+  ConfigBool* m_cpu_cull;
+  ConfigBool* m_borderless_fullscreen;
+
+  // Misc (Cropping)
+  ConfigBool* m_crop_to_aspect_ratio;
+  ConfigBool* m_crop_custom;
+  QGroupBox* m_crop_custom_box;
+  ConfigInteger* m_crop_custom_left;
+  ConfigInteger* m_crop_custom_top;
+  ConfigInteger* m_crop_custom_right;
+  ConfigInteger* m_crop_custom_bottom;
 
   // Experimental
-  GraphicsBool* m_defer_efb_access_invalidation;
-  GraphicsBool* m_manual_texture_sampling;
+  ConfigBool* m_defer_efb_access_invalidation;
+  ConfigBool* m_manual_texture_sampling;
+
+  Config::Layer* m_game_layer = nullptr;
 };

@@ -9,6 +9,8 @@
 
 namespace Common
 {
+#define EMULATOR_NAME "Dolphin"
+
 #ifdef _DEBUG
 #define BUILD_TYPE_STR "Debug "
 #elif defined DEBUGFAST
@@ -17,11 +19,18 @@ namespace Common
 #define BUILD_TYPE_STR ""
 #endif
 
+const std::string& GetEmulatorName()
+{
+  static const std::string emulator_name = EMULATOR_NAME;
+  return emulator_name;
+}
+
 const std::string& GetScmRevStr()
 {
-  static const std::string scm_rev_str = "Dolphin "
-#if !SCM_IS_MASTER
-                                         "[" SCM_BRANCH_STR "] "
+  static const std::string scm_rev_str = EMULATOR_NAME " "
+  // Note this macro can be empty if the master branch does not exist.
+#if 1 - SCM_COMMITS_AHEAD_MASTER - 1 != 0
+                                                       "[" SCM_BRANCH_STR "] "
 #endif
 
 #ifdef __INTEL_COMPILER
@@ -50,6 +59,12 @@ const std::string& GetScmBranchStr()
   return scm_branch_str;
 }
 
+const std::string& GetUserAgentStr()
+{
+  static const std::string user_agent_str = EMULATOR_NAME "/" SCM_DESC_STR;
+  return user_agent_str;
+}
+
 const std::string& GetScmDistributorStr()
 {
   static const std::string scm_distributor_str = SCM_DISTRIBUTOR_STR;
@@ -65,13 +80,23 @@ const std::string& GetScmUpdateTrackStr()
 const std::string& GetNetplayDolphinVer()
 {
 #ifdef _WIN32
-  static const std::string netplay_dolphin_ver = SCM_DESC_STR " Win";
+  static const std::string netplay_dolphin_ver = SCM_DESC_STR " Windows";
 #elif __APPLE__
-  static const std::string netplay_dolphin_ver = SCM_DESC_STR " Mac";
+  static const std::string netplay_dolphin_ver = SCM_DESC_STR " macOS";
+#elif ANDROID
+  static const std::string netplay_dolphin_ver = SCM_DESC_STR " Android";
+#elif __linux__
+  static const std::string netplay_dolphin_ver = SCM_DESC_STR " Linux";
 #else
-  static const std::string netplay_dolphin_ver = SCM_DESC_STR " Lin";
+  static const std::string netplay_dolphin_ver = SCM_DESC_STR;
 #endif
   return netplay_dolphin_ver;
+}
+
+int GetScmCommitsAheadMaster()
+{
+  // Note this macro can be empty if the master branch does not exist.
+  return SCM_COMMITS_AHEAD_MASTER + 0;
 }
 
 }  // namespace Common

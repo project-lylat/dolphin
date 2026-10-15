@@ -63,10 +63,10 @@ enum NET_IOCTL
   IOCTL_SO_ICMPCLOSE
 };
 
-class NetIPTopDevice : public Device
+class NetIPTopDevice : public EmulationDevice
 {
 public:
-  NetIPTopDevice(Kernel& ios, const std::string& device_name);
+  NetIPTopDevice(EmulationKernel& ios, const std::string& device_name);
 
   void DoState(PointerWrap& p) override;
   std::optional<IPCReply> IOCtl(const IOCtlRequest& request) override;
@@ -120,7 +120,7 @@ private:
   IPCReply HandleICMPPingRequest(const IOCtlVRequest& request);
 
   Common::SocketContext m_socket_context;
-  Common::WorkQueueThread<AsyncTask> m_work_queue;
+  Common::WorkQueueThreadSP<AsyncTask> m_work_queue;
   std::mutex m_async_reply_lock;
   std::queue<AsyncReply> m_async_replies;
 };

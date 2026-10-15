@@ -8,7 +8,6 @@
 
 #include "Common/Matrix.h"
 
-#include "InputCommon/ControlReference/ControlReference.h"
 #include "InputCommon/ControllerEmu/ControlGroup/ControlGroup.h"
 #include "InputCommon/ControllerEmu/Setting/NumericSetting.h"
 
@@ -37,8 +36,8 @@ class OctagonStickGate : public StickGate
 public:
   // Radius of circumscribed circle
   explicit OctagonStickGate(ControlState radius);
-  ControlState GetRadiusAtAngle(double ang) const override final;
-  std::optional<u32> GetIdealCalibrationSampleCount() const override final;
+  ControlState GetRadiusAtAngle(double ang) const final;
+  std::optional<u32> GetIdealCalibrationSampleCount() const final;
 
 private:
   const ControlState m_radius;
@@ -49,8 +48,8 @@ class RoundStickGate : public StickGate
 {
 public:
   explicit RoundStickGate(ControlState radius);
-  ControlState GetRadiusAtAngle(double ang) const override final;
-  std::optional<u32> GetIdealCalibrationSampleCount() const override final;
+  ControlState GetRadiusAtAngle(double ang) const final;
+  std::optional<u32> GetIdealCalibrationSampleCount() const final;
 
 private:
   const ControlState m_radius;
@@ -61,8 +60,8 @@ class SquareStickGate : public StickGate
 {
 public:
   explicit SquareStickGate(ControlState half_width);
-  ControlState GetRadiusAtAngle(double ang) const override final;
-  std::optional<u32> GetIdealCalibrationSampleCount() const override final;
+  ControlState GetRadiusAtAngle(double ang) const final;
+  std::optional<u32> GetIdealCalibrationSampleCount() const final;
 
 private:
   const ControlState m_half_width;
@@ -87,7 +86,7 @@ public:
 
   ControlState GetDeadzonePercentage() const;
 
-  virtual ControlState GetVirtualNotchSize() const { return 0.0; };
+  virtual ControlState GetVirtualNotchSize() const { return 0.0; }
 
   virtual ControlState GetGateRadiusAtAngle(double angle) const = 0;
   virtual ReshapeData GetReshapableState(bool adjusted) const = 0;
@@ -106,6 +105,10 @@ public:
   const ReshapeData& GetCenter() const;
   void SetCenter(ReshapeData center);
 
+  static constexpr const char* X_INPUT_OVERRIDE = "X";
+  static constexpr const char* Y_INPUT_OVERRIDE = "Y";
+  static constexpr const char* Z_INPUT_OVERRIDE = "Z";
+
 protected:
   ReshapeData Reshape(ControlState x, ControlState y, ControlState modifier = 0.0,
                       ControlState clamp = 1.0) const;
@@ -113,8 +116,8 @@ protected:
   virtual Control* GetModifierInput() const;
 
 private:
-  void LoadConfig(IniFile::Section*, const std::string&, const std::string&) override;
-  void SaveConfig(IniFile::Section*, const std::string&, const std::string&) override;
+  void LoadConfig(Common::IniFile::Section*, const std::string& base_name) override;
+  void SaveConfig(Common::IniFile::Section*, const std::string& base_name) override;
 
   CalibrationData m_calibration;
   SettingValue<double> m_deadzone_setting;

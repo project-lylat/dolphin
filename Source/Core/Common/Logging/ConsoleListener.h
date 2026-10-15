@@ -9,10 +9,12 @@ class ConsoleListener : public Common::Log::LogListener
 {
 public:
   ConsoleListener();
-  ~ConsoleListener();
+  ~ConsoleListener() override;
 
   void Log(Common::Log::LogLevel level, const char* text) override;
 
 private:
-  [[maybe_unused]] bool m_use_color = false;
+#if !defined _WIN32 && !defined ANDROID
+  bool m_use_color = false;
+#endif
 };

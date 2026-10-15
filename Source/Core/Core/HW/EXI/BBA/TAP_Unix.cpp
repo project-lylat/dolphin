@@ -11,16 +11,13 @@
 
 #include "Common/Logging/Log.h"
 #include "Common/StringUtil.h"
-#include "Core/HW/EXI/EXI_Device.h"
 
 #ifdef __linux__
 #include <fcntl.h>
 #include <linux/if_tun.h>
 #include <net/if.h>
-#include <netinet/in.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
-#include <sys/socket.h>
 #endif
 
 namespace ExpansionInterface
@@ -50,7 +47,7 @@ bool CEXIETHERNET::TAPNetworkInterface::Activate()
   const int MAX_INTERFACES = 32;
   for (int i = 0; i < MAX_INTERFACES; ++i)
   {
-    strncpy(ifr.ifr_name, StringFromFormat("Dolphin%d", i).c_str(), IFNAMSIZ);
+    fmt::format_to_n(ifr.ifr_name, IFNAMSIZ, "Dolphin{}", i);
 
     int err;
     if ((err = ioctl(fd, TUNSETIFF, (void*)&ifr)) < 0)

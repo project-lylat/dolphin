@@ -5,10 +5,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <ranges>
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 
-#include "Common/Common.h"
 #include "Common/MathUtil.h"
 #include "Common/Matrix.h"
 #include "Common/StringUtil.h"
@@ -33,7 +34,7 @@ std::optional<double> GetRayLineIntersection(Common::DVec2 ray, Common::DVec2 po
   const auto dot = diff.Dot({-ray.y, ray.x});
   if (std::abs(dot) < 0.00001)
   {
-    // Both points are on top of eachother.
+    // Both points are on top of each other.
     return std::nullopt;
   }
 
@@ -168,7 +169,7 @@ ControlState ReshapableInput::GetCalibrationDataRadiusAtAngle(const CalibrationD
                              GetPointFromAngleAndLength(sample1_angle, data[sample1_index]),
                              GetPointFromAngleAndLength(sample2_angle, data[sample2_index]));
 
-  // Intersection has no value when points are on top of eachother.
+  // Intersection has no value when points are on top of each other.
   return intersection.value_or(data[sample1_index]);
 }
 
@@ -226,10 +227,9 @@ void ReshapableInput::SetCenter(ReshapableInput::ReshapeData center)
   m_center = center;
 }
 
-void ReshapableInput::LoadConfig(IniFile::Section* section, const std::string& default_device,
-                                 const std::string& base_name)
+void ReshapableInput::LoadConfig(Common::IniFile::Section* section, const std::string& base_name)
 {
-  ControlGroup::LoadConfig(section, default_device, base_name);
+  ControlGroup::LoadConfig(section, base_name);
 
   const std::string group(base_name + name + '/');
 
@@ -269,17 +269,23 @@ void ReshapableInput::LoadConfig(IniFile::Section* section, const std::string& d
   }
 }
 
-void ReshapableInput::SaveConfig(IniFile::Section* section, const std::string& default_device,
-                                 const std::string& base_name)
+void ReshapableInput::SaveConfig(Common::IniFile::Section* section, const std::string& base_name)
 {
-  ControlGroup::SaveConfig(section, default_device, base_name);
+  ControlGroup::SaveConfig(section, base_name);
 
   const std::string group(base_name + name + '/');
-  std::vector<std::string> save_data(m_calibration.size());
-  std::transform(
-      m_calibration.begin(), m_calibration.end(), save_data.begin(),
-      [](ControlState val) { return fmt::format("{:.2f}", val * CALIBRATION_CONFIG_SCALE); });
-  section->Set(group + CALIBRATION_CONFIG_NAME, JoinStrings(save_data, " "), "");
+
+  // Special handling for "Modifier" button "Range" settings which default to 50% instead of 100%.
+  if (const auto* modifier_input = GetModifierInput())
+  {
+    section->Set(group + modifier_input->name + "/Range", modifier_input->control_ref->range * 100,
+                 50.0);
+  }
+
+  const std::ranges::transform_view scaled_calibration(
+      m_calibration, [](ControlState val) { return val * CALIBRATION_CONFIG_SCALE; });
+  section->Set(group + CALIBRATION_CONFIG_NAME,
+               fmt::format("{:.2f}", fmt::join(scaled_calibration, " ")), "");
 
   // Save center value.
   static constexpr char center_format[] = "{:.2f} {:.2f}";

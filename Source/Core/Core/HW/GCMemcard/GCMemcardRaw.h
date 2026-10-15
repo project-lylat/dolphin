@@ -17,11 +17,9 @@ class PointerWrap;
 class MemoryCard : public MemoryCardBase
 {
 public:
-  MemoryCard(const std::string& filename, ExpansionInterface::Slot card_slot,
+  MemoryCard(std::string filename, ExpansionInterface::Slot card_slot,
              u16 size_mbits = Memcard::MBIT_SIZE_MEMORY_CARD_2043);
-  ~MemoryCard();
-  static void CheckPath(std::string& memcardPath, const std::string& gameRegion,
-                        ExpansionInterface::Slot slot);
+  ~MemoryCard() override;
   void FlushThread();
   void MakeDirty();
 
@@ -32,7 +30,11 @@ public:
   void DoState(PointerWrap& p) override;
 
 private:
-  bool IsAddressInBounds(u32 address) const { return address <= (m_memory_card_size - 1); }
+  bool IsAddressInBounds(u32 address, u32 length) const
+  {
+    const u64 end_address = static_cast<u64>(address) + static_cast<u64>(length);
+    return end_address <= static_cast<u64>(m_memory_card_size);
+  }
 
   std::string m_filename;
   std::unique_ptr<u8[]> m_memcard_data;

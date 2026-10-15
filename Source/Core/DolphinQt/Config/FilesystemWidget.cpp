@@ -6,12 +6,12 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QFileInfo>
+#include <QGridLayout>
 #include <QHeaderView>
 #include <QMenu>
 #include <QStandardItemModel>
 #include <QStyleFactory>
 #include <QTreeView>
-#include <QVBoxLayout>
 
 #include <future>
 
@@ -54,7 +54,10 @@ FilesystemWidget::~FilesystemWidget() = default;
 
 void FilesystemWidget::CreateWidgets()
 {
-  auto* layout = new QVBoxLayout;
+  // Note: At least with KDE Plasma,
+  //  QTreeView takes on an ugly square-corner style when alone in a QVBoxLayout.
+  // QGridLayout does not produce this problem.
+  auto* const layout = new QGridLayout{this};
 
   m_tree_model = new QStandardItemModel(0, 2);
   m_tree_model->setHorizontalHeaderLabels({tr("Name"), tr("Size")});
@@ -62,12 +65,14 @@ void FilesystemWidget::CreateWidgets()
   m_tree_view = new QTreeView(this);
   m_tree_view->setModel(m_tree_model);
   m_tree_view->setContextMenuPolicy(Qt::CustomContextMenu);
+  m_tree_model->setParent(m_tree_view);
 
   auto* header = m_tree_view->header();
 
   header->setSectionResizeMode(0, QHeaderView::Stretch);
   header->setSectionResizeMode(1, QHeaderView::ResizeToContents);
   header->setStretchLastSection(false);
+  header->setDefaultAlignment(Qt::AlignCenter);
 
 // Windows: Set style to (old) windows, which draws branch lines
 #ifdef _WIN32
@@ -76,8 +81,6 @@ void FilesystemWidget::CreateWidgets()
 #endif
 
   layout->addWidget(m_tree_view);
-
-  setLayout(layout);
 }
 
 void FilesystemWidget::ConnectWidgets()
@@ -89,12 +92,12 @@ void FilesystemWidget::ConnectWidgets()
 void FilesystemWidget::PopulateView()
 {
   // Cache these two icons, the tree will use them a lot.
-  m_folder_icon = Resources::GetScaledIcon("isoproperties_folder");
-  m_file_icon = Resources::GetScaledIcon("isoproperties_file");
+  m_folder_icon = Resources::GetResourceIcon("isoproperties_folder");
+  m_file_icon = Resources::GetResourceIcon("isoproperties_file");
 
   auto* disc = new QStandardItem(tr("Disc"));
   disc->setEditable(false);
-  disc->setIcon(Resources::GetScaledIcon("isoproperties_disc"));
+  disc->setIcon(Resources::GetResourceIcon("isoproperties_disc"));
   disc->setData(QVariant::fromValue(EntryType::Disc), ENTRY_TYPE);
   m_tree_model->appendRow(disc);
   m_tree_view->expand(disc->index());
@@ -106,7 +109,7 @@ void FilesystemWidget::PopulateView()
     auto* item = new QStandardItem;
     item->setEditable(false);
 
-    item->setIcon(Resources::GetScaledIcon("isoproperties_disc"));
+    item->setIcon(Resources::GetResourceIcon("isoproperties_disc"));
     item->setData(static_cast<qlonglong>(i), ENTRY_PARTITION);
     item->setData(QVariant::fromValue(EntryType::Partition), ENTRY_TYPE);
 
@@ -167,7 +170,7 @@ void FilesystemWidget::PopulateDirectory(int partition_id, QStandardItem* root,
     for (u32 i = 0; i < 4; i++)
     {
       char c = static_cast<char>(title_id.value() >> 8 * (3 - i));
-      if (IsPrintableCharacter(c))
+      if (Common::IsPrintableCharacter(c))
         text += QLatin1Char(c);
       else
         text += QLatin1Char('.');
@@ -211,8 +214,7 @@ void FilesystemWidget::PopulateDirectory(int partition_id, QStandardItem* root,
 
 QString FilesystemWidget::SelectFolder()
 {
-  return DolphinFileDialog::getExistingDirectory(this,
-                                                 QObject::tr("Choose the folder to extract to"));
+  return DolphinFileDialog::getExistingDirectory(this, QObject::tr("Choose Folder to Extract To"));
 }
 
 void FilesystemWidget::ShowContextMenu(const QPoint&)
@@ -224,6 +226,7 @@ void FilesystemWidget::ShowContextMenu(const QPoint&)
   auto* item = m_tree_model->itemFromIndex(selection->selectedIndexes()[0]);
 
   QMenu* menu = new QMenu(this);
+  menu->setAttribute(Qt::WA_DeleteOnClose, true);
 
   EntryType type = item->data(ENTRY_TYPE).value<EntryType>();
 
@@ -264,7 +267,7 @@ void FilesystemWidget::ShowContextMenu(const QPoint&)
   switch (type)
   {
   case EntryType::Disc:
-    menu->addAction(tr("Extract Entire Disc..."), this, [this, path] {
+    menu->addAction(tr("Extract Entire Disc..."), this, [this] {
       auto folder = SelectFolder();
 
       if (folder.isEmpty())
@@ -297,7 +300,7 @@ void FilesystemWidget::ShowContextMenu(const QPoint&)
   case EntryType::File:
     menu->addAction(tr("Extract File..."), this, [this, partition, path] {
       auto dest =
-          DolphinFileDialog::getSaveFileName(this, tr("Save File to"), QFileInfo(path).fileName());
+          DolphinFileDialog::getSaveFileName(this, tr("Save File To"), QFileInfo(path).fileName());
 
       if (!dest.isEmpty())
         ExtractFile(partition, path, dest);

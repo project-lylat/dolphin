@@ -9,7 +9,7 @@
 #include <string_view>
 #include <unordered_map>
 
-#include "Common/GL/GLUtil.h"
+#include "Common/GL/GLExtensions/GLExtensions.h"
 #include "VideoCommon/AsyncShaderCompiler.h"
 
 namespace OGL
@@ -48,7 +48,6 @@ struct PipelineProgramKey
   u64 pixel_shader_id;
 
   bool operator==(const PipelineProgramKey& rhs) const;
-  bool operator!=(const PipelineProgramKey& rhs) const;
   bool operator<(const PipelineProgramKey& rhs) const;
 };
 
@@ -69,6 +68,7 @@ class ProgramShaderCache
 {
 public:
   static void BindVertexFormat(const GLVertexFormat* vertex_format);
+  static void ReBindVertexFormat();
   static bool IsValidVertexFormatBound();
   static void InvalidateVertexFormat();
   static void InvalidateVertexFormatIfBound(GLuint vao);

@@ -3,8 +3,6 @@
 
 #pragma once
 
-#include "Core/HW/WiimoteEmu/Extension/Extension.h"
-
 #include <array>
 #include <string>
 
@@ -12,11 +10,13 @@
 #include "Common/CommonTypes.h"
 #include "Core/HW/WiimoteEmu/Encryption.h"
 #include "Core/HW/WiimoteEmu/I2CBus.h"
-#include "InputCommon/ControllerEmu/ControllerEmu.h"
+#include "InputCommon/ControllerEmu/ControlGroup/Attachments.h"
 
 namespace WiimoteEmu
 {
-class Extension : public ControllerEmu::EmulatedController, public I2CSlave
+struct DesiredExtensionState;
+
+class Extension : public ControllerEmu::AttachedController, public I2CSlave
 {
 public:
   explicit Extension(const char* name);
@@ -32,7 +32,8 @@ public:
 
   virtual void Reset() = 0;
   virtual void DoState(PointerWrap& p) = 0;
-  virtual void Update() = 0;
+  virtual void BuildDesiredExtensionState(DesiredExtensionState* target_state) = 0;
+  virtual void Update(const DesiredExtensionState& target_state) = 0;
 
 private:
   const char* const m_config_name;
@@ -46,7 +47,8 @@ public:
 
 private:
   bool ReadDeviceDetectPin() const override;
-  void Update() override;
+  void BuildDesiredExtensionState(DesiredExtensionState* target_state) override;
+  void Update(const DesiredExtensionState& target_state) override;
   void Reset() override;
   void DoState(PointerWrap& p) override;
 
@@ -63,11 +65,6 @@ public:
 
   using Extension::Extension;
 
-  // TODO: This is public for TAS reasons.
-  // TODO: TAS handles encryption poorly.
-  EncryptionKey ext_key;
-
-protected:
   static constexpr int CALIBRATION_CHECKSUM_BYTES = 2;
 
 #pragma pack(push, 1)
@@ -97,6 +94,8 @@ protected:
 
   static_assert(0x100 == sizeof(Register));
 
+protected:
+  EncryptionKey ext_key;
   Register m_reg = {};
 
   void Reset() override;
@@ -121,7 +120,7 @@ protected:
   using EncryptedExtension::EncryptedExtension;
 
 private:
-  void UpdateEncryptionKey() final override;
+  void UpdateEncryptionKey() final;
 };
 
 class Extension3rdParty : public EncryptedExtension
@@ -130,7 +129,7 @@ protected:
   using EncryptedExtension::EncryptedExtension;
 
 private:
-  void UpdateEncryptionKey() final override;
+  void UpdateEncryptionKey() final;
 };
 
 }  // namespace WiimoteEmu

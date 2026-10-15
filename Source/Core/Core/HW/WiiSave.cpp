@@ -13,7 +13,6 @@
 #include <cstdio>
 #include <cstring>
 #include <mbedtls/md5.h>
-#include <mbedtls/sha1.h>
 #include <memory>
 #include <optional>
 #include <string>
@@ -24,13 +23,13 @@
 
 #include "Common/Align.h"
 #include "Common/CommonTypes.h"
+#include "Common/Crypto/SHA1.h"
 #include "Common/Crypto/ec.h"
 #include "Common/FileUtil.h"
 #include "Common/IOFile.h"
 #include "Common/Lazy.h"
 #include "Common/Logging/Log.h"
 #include "Common/NandPaths.h"
-#include "Common/StringUtil.h"
 #include "Common/Swap.h"
 #include "Core/CommonTitles.h"
 #include "Core/HW/WiiSaveStructs.h"
@@ -85,7 +84,7 @@ public:
     for (const SaveFile& file : m_files_list)
     {
       // files in subdirs are deleted automatically when the subdir is deleted
-      if (file.path.find('/') != std::string::npos)
+      if (file.path.contains('/'))
         continue;
 
       const auto result =
@@ -104,14 +103,21 @@ public:
     if (!m_uid || !m_gid)
       return {};
 
-    const auto banner = m_fs->OpenFile(*m_uid, *m_gid, m_data_dir + "/banner.bin", FS::Mode::Read);
+    const auto banner_path = m_data_dir + "/banner.bin";
+    const auto banner = m_fs->OpenFile(*m_uid, *m_gid, banner_path, FS::Mode::Read);
     if (!banner)
       return {};
     Header header{};
     header.banner_size = banner->GetStatus()->size;
+    if (header.banner_size > sizeof(header.banner))
+    {
+      ERROR_LOG_FMT(CORE, "NandStorage::ReadHeader: {} corrupted banner_size: {:x}", banner_path,
+                    header.banner_size);
+      return {};
+    }
     header.tid = m_tid;
     header.md5 = s_md5_blanker;
-    const u8 mode = GetBinMode(m_data_dir + "/banner.bin");
+    const u8 mode = GetBinMode(banner_path);
     if (!mode || !banner->Read(header.banner, header.banner_size))
       return {};
     header.permissions = mode;
@@ -120,7 +126,7 @@ public:
 
     Md5 md5_calc;
     mbedtls_md5_ret(reinterpret_cast<const u8*>(&header), sizeof(Header), md5_calc.data());
-    header.md5 = std::move(md5_calc);
+    header.md5 = md5_calc;
     return header;
   }
 
@@ -152,7 +158,7 @@ public:
 
   bool WriteBkHeader(const BkHeader& bk_header) override { return true; }
 
-  bool WriteFiles(const std::vector<SaveFile>& files) override
+  bool WriteFiles(std::span<const SaveFile> files) override
   {
     if (!m_uid || !m_gid)
       return false;
@@ -384,7 +390,7 @@ public:
     return m_file.Seek(sizeof(Header), File::SeekOrigin::Begin) && m_file.WriteArray(&bk_header, 1);
   }
 
-  bool WriteFiles(const std::vector<SaveFile>& files) override
+  bool WriteFiles(std::span<const SaveFile> files) override
   {
     if (!m_file.Seek(sizeof(Header) + sizeof(BkHeader), File::SeekOrigin::Begin))
       return false;
@@ -415,7 +421,7 @@ public:
       if (data)
       {
         std::vector<u8> file_data_enc(Common::AlignUp(data->size(), BLOCK_SZ));
-        std::copy(data->cbegin(), data->cend(), file_data_enc.begin());
+        std::ranges::copy(*data, file_data_enc.begin());
         m_iosc.Encrypt(IOS::HLE::IOSC::HANDLE_SD_KEY, file_hdr.iv.data(), file_data_enc.data(),
                        file_data_enc.size(), file_data_enc.data(), IOS::PID_ES);
         if (!m_file.WriteBytes(file_data_enc.data(), file_data_enc.size()))
@@ -439,14 +445,14 @@ private:
       return false;
 
     // Read data to sign.
-    std::array<u8, 20> data_sha1;
+    Common::SHA1::Digest data_sha1;
     {
       const u32 data_size = bk_header->size_of_files + sizeof(BkHeader);
       auto data = std::make_unique<u8[]>(data_size);
       m_file.Seek(sizeof(Header), File::SeekOrigin::Begin);
       if (!m_file.ReadBytes(data.get(), data_size))
         return false;
-      mbedtls_sha1_ret(data.get(), data_size, data_sha1.data());
+      data_sha1 = Common::SHA1::CalculateDigest(data.get(), data_size);
     }
 
     // Sign the data.
@@ -535,7 +541,7 @@ CopyResult Copy(Storage* source, Storage* dest)
   return CopyResult::Success;
 }
 
-CopyResult Import(const std::string& data_bin_path, std::function<bool()> can_overwrite)
+CopyResult Import(const std::string& data_bin_path, const std::function<bool()>& can_overwrite)
 {
   IOS::HLE::Kernel ios;
   const auto data_bin = MakeDataBinStorage(&ios.GetIOSC(), data_bin_path, "rb");
@@ -546,7 +552,7 @@ CopyResult Import(const std::string& data_bin_path, std::function<bool()> can_ov
     return CopyResult::CorruptedSource;
   }
 
-  if (!WiiUtils::EnsureTMDIsImported(*ios.GetFS(), *ios.GetES(), header->tid))
+  if (!WiiUtils::EnsureTMDIsImported(*ios.GetFS(), ios.GetESCore(), header->tid))
   {
     ERROR_LOG_FMT(CORE, "WiiSave::Import: Failed to find or import TMD for title {:16x}",
                   header->tid);
@@ -578,7 +584,7 @@ size_t ExportAll(std::string_view export_path)
 {
   IOS::HLE::Kernel ios;
   size_t exported_save_count = 0;
-  for (const u64 title : ios.GetES()->GetInstalledTitles())
+  for (const u64 title : ios.GetESCore().GetInstalledTitles())
   {
     if (Export(title, export_path, &ios) == CopyResult::Success)
       ++exported_save_count;

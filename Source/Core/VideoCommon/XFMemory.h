@@ -18,7 +18,7 @@ constexpr size_t NUM_XF_COLOR_CHANNELS = 2;
 // Lighting
 
 // Projection
-enum class TexSize : u32
+enum class TexSize : u8
 {
   ST = 0,
   STQ = 1
@@ -30,7 +30,7 @@ struct fmt::formatter<TexSize> : EnumFormatter<TexSize::STQ>
 };
 
 // Input form
-enum class TexInputForm : u32
+enum class TexInputForm : u8
 {
   AB11 = 0,
   ABC1 = 1
@@ -45,16 +45,25 @@ enum class NormalCount : u32
 {
   None = 0,
   Normal = 1,
-  NormalTangentBinormal = 2
+  NormalTangentBinormal = 2,
+  // Hardware testing indicates that this beahves the same as NormalTangentBinormal.
+  // Call of Duty: Black Ops uses this in some cases; see https://bugs.dolphin-emu.org/issues/13070
+  Invalid = 3,
 };
 template <>
-struct fmt::formatter<NormalCount> : EnumFormatter<NormalCount::NormalTangentBinormal>
+struct fmt::formatter<NormalCount> : EnumFormatter<NormalCount::Invalid>
 {
-  constexpr formatter() : EnumFormatter({"None", "Normal only", "Normal, tangent, and binormal"}) {}
+  static constexpr array_type names = {
+      "None",
+      "Normal only",
+      "Normal, tangent, and binormal",
+      "Invalid (Normal, tangent, and binormal)",
+  };
+  constexpr formatter() : EnumFormatter(names) {}
 };
 
 // Texture generation type
-enum class TexGenType : u32
+enum class TexGenType : u8
 {
   Regular = 0,
   EmbossMap = 1,  // Used when bump mapping
@@ -74,7 +83,7 @@ struct fmt::formatter<TexGenType> : EnumFormatter<TexGenType::Color1>
 };
 
 // Source row
-enum class SourceRow : u32
+enum class SourceRow : u8
 {
   Geom = 0,    // Input is abc
   Normal = 1,  // Input is abc
@@ -214,8 +223,6 @@ enum
   XFMEM_SETMATRIXINDA = 0x1018,
   XFMEM_SETMATRIXINDB = 0x1019,
   XFMEM_SETVIEWPORT = 0x101a,
-  XFMEM_SETZSCALE = 0x101c,
-  XFMEM_SETZOFFSET = 0x101f,
   XFMEM_SETPROJECTION = 0x1020,
   // XFMEM_SETPROJECTIONB = 0x1021,
   // XFMEM_SETPROJECTIONC = 0x1022,
@@ -311,11 +318,11 @@ struct fmt::formatter<INVTXSPEC>
 union TexMtxInfo
 {
   BitField<0, 1, u32> unknown;
-  BitField<1, 1, TexSize> projection;
-  BitField<2, 1, TexInputForm> inputform;
+  BitField<1, 1, TexSize, u32> projection;
+  BitField<2, 1, TexInputForm, u32> inputform;
   BitField<3, 1, u32> unknown2;
-  BitField<4, 3, TexGenType> texgentype;
-  BitField<7, 5, SourceRow> sourcerow;
+  BitField<4, 3, TexGenType, u32> texgentype;
+  BitField<7, 5, SourceRow, u32> sourcerow;
   BitField<12, 3, u32> embosssourceshift;  // what generated texcoord to use
   BitField<15, 3, u32> embosslightshift;   // light index that is used
   u32 hex;
@@ -414,7 +421,7 @@ struct Projection
   ProjectionType type;
 };
 
-struct XFMemory
+struct alignas(16) XFMemory
 {
   float posMatrices[256];                   // 0x0000 - 0x00ff
   u32 unk0[768];                            // 0x0100 - 0x03ff

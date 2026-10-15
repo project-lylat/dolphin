@@ -4,55 +4,33 @@
 #include "InputCommon/DynamicInputTextures/DITConfiguration.h"
 
 #include <optional>
-#include <sstream>
 #include <string>
 
 #include <picojson.h>
 
-#include "Common/CommonPaths.h"
-#include "Common/FileUtil.h"
+#include "Common/IniFile.h"
+#include "Common/JsonUtil.h"
 #include "Common/Logging/Log.h"
 #include "Common/StringUtil.h"
 #include "Core/ConfigManager.h"
-#include "InputCommon/ControllerEmu/ControllerEmu.h"
 #include "InputCommon/DynamicInputTextures/DITSpecification.h"
 #include "InputCommon/ImageOperations.h"
 
-namespace
-{
-std::string GetStreamAsString(std::ifstream& stream)
-{
-  std::stringstream ss;
-  ss << stream.rdbuf();
-  return ss.str();
-}
-}  // namespace
-
 namespace InputCommon::DynamicInputTextures
 {
-Configuration::Configuration(const std::string& json_file)
+Configuration::Configuration(const std::string& json_path)
 {
-  std::ifstream json_stream;
-  File::OpenFStream(json_stream, json_file, std::ios_base::in);
-  if (!json_stream.is_open())
-  {
-    ERROR_LOG_FMT(VIDEO, "Failed to load dynamic input json file '{}'", json_file);
-    m_valid = false;
-    return;
-  }
-
   picojson::value root;
-  const auto error = picojson::parse(root, GetStreamAsString(json_stream));
-
-  if (!error.empty())
+  std::string error;
+  if (!JsonFromFile(json_path, &root, &error))
   {
     ERROR_LOG_FMT(VIDEO, "Failed to load dynamic input json file '{}' due to parse error: {}",
-                  json_file, error);
+                  json_path, error);
     m_valid = false;
     return;
   }
 
-  SplitPath(json_file, &m_base_path, nullptr, nullptr);
+  SplitPath(json_path, &m_base_path, nullptr, nullptr);
 
   const picojson::value& specification_json = root.get("specification");
   u8 specification = 1;
@@ -65,7 +43,7 @@ Configuration::Configuration(const std::string& json_file)
       ERROR_LOG_FMT(
           VIDEO,
           "Failed to load dynamic input json file '{}', specification '{}' is not within bounds",
-          json_file, spec_from_json);
+          json_path, spec_from_json);
       m_valid = false;
       return;
     }
@@ -76,36 +54,40 @@ Configuration::Configuration(const std::string& json_file)
   {
     ERROR_LOG_FMT(VIDEO,
                   "Failed to load dynamic input json file '{}', specification '{}' is invalid",
-                  json_file, specification);
+                  json_path, specification);
     m_valid = false;
     return;
   }
 
-  m_valid = ProcessSpecificationV1(root, m_dynamic_input_textures, m_base_path, json_file);
+  m_valid = ProcessSpecificationV1(root, m_dynamic_input_textures, m_base_path, json_path);
 }
 
 Configuration::~Configuration() = default;
 
-bool Configuration::GenerateTextures(const IniFile& file,
-                                     const std::vector<std::string>& controller_names) const
+void Configuration::GenerateTextures(const Common::IniFile& file,
+                                     const std::vector<std::string>& controller_names,
+                                     OutputDetails* output) const
 {
-  bool any_dirty = false;
   for (const auto& texture_data : m_dynamic_input_textures)
   {
-    any_dirty |= GenerateTexture(file, controller_names, texture_data);
+    GenerateTexture(file, controller_names, texture_data, output);
   }
-
-  return any_dirty;
 }
 
-bool Configuration::GenerateTexture(const IniFile& file,
+void Configuration::GenerateTexture(const Common::IniFile& file,
                                     const std::vector<std::string>& controller_names,
-                                    const Data& texture_data) const
+                                    const Data& texture_data, OutputDetails* output) const
 {
   // Two copies of the loaded texture
   // The first one is used as a fallback if a key or device isn't mapped
   // the second one is used as the final image to write to the textures directory
   const auto original_image = LoadImage(m_base_path + texture_data.m_image_name);
+  if (!original_image)
+  {
+    ERROR_LOG_FMT(VIDEO, "Failed to load image '{}' needed for dynamic input texture generation",
+                  texture_data.m_image_name);
+    return;
+  }
   auto image_to_write = original_image;
 
   bool dirty = false;
@@ -165,7 +147,15 @@ bool Configuration::GenerateTexture(const IniFile& file,
       }
       else
       {
-        const auto host_key_image = LoadImage(m_base_path + input_image_iter->second);
+        const std::string full_image_path = m_base_path + input_image_iter->second;
+        const auto host_key_image = LoadImage(full_image_path);
+        if (!host_key_image)
+        {
+          ERROR_LOG_FMT(VIDEO,
+                        "Failed to load image '{}' needed for dynamic input texture generation",
+                        full_image_path);
+          continue;
+        }
 
         for (const auto& rect : rects)
         {
@@ -197,25 +187,8 @@ bool Configuration::GenerateTexture(const IniFile& file,
 
   if (dirty)
   {
-    const std::string& game_id = SConfig::GetInstance().GetGameID();
-    const auto hi_res_folder =
-        File::GetUserPath(D_HIRESTEXTURES_IDX) + texture_data.m_generated_folder_name;
-    if (!File::IsDirectory(hi_res_folder))
-    {
-      File::CreateDir(hi_res_folder);
-    }
-    WriteImage(hi_res_folder + DIR_SEP + texture_data.m_hires_texture_name, *image_to_write);
-
-    const auto game_id_folder = hi_res_folder + DIR_SEP + "gameids";
-    if (!File::IsDirectory(game_id_folder))
-    {
-      File::CreateDir(game_id_folder);
-    }
-    File::CreateEmptyFile(game_id_folder + DIR_SEP + game_id + ".txt");
-
-    return true;
+    (*output)[texture_data.m_generated_folder_name][texture_data.m_hires_texture_name] =
+        std::move(*image_to_write);
   }
-
-  return false;
 }
 }  // namespace InputCommon::DynamicInputTextures

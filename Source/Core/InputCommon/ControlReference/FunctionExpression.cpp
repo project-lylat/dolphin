@@ -16,17 +16,16 @@ using FSec = std::chrono::duration<ControlState>;
 class ToggleExpression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
     // Optional 2nd argument for clearing state:
-    if (args.size() == 1 || args.size() == 2)
+    if (GetArgCount() == 1 || GetArgCount() == 2)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"toggle_state_input, [clear_state_input]"};
   }
 
-  ControlState GetValue() const override
+  ControlState GetValue() override
   {
     const ControlState inner_value = GetArg(0).GetValue();
 
@@ -48,137 +47,144 @@ private:
     return m_state;
   }
 
-  mutable bool m_released{};
-  mutable bool m_state{};
+  bool m_released{};
+  bool m_state{};
 };
 
 // usage: not(expression)
 class NotExpression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 1)
+    if (GetArgCount() == 1)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"expression"};
   }
 
-  ControlState GetValue() const override { return 1.0 - GetArg(0).GetValue(); }
+  ControlState GetValue() override { return 1.0 - GetArg(0).GetValue(); }
   void SetValue(ControlState value) override { GetArg(0).SetValue(1.0 - value); }
+};
+
+// usage: abs(expression)
+class AbsExpression final : public FunctionExpression
+{
+private:
+  ArgumentValidation ValidateArguments() override
+  {
+    if (GetArgCount() == 1)
+      return ArgumentsAreValid{};
+    else
+      return ExpectedArguments{"expression"};
+  }
+
+  ControlState GetValue() override { return std::abs(GetArg(0).GetValue()); }
 };
 
 // usage: sin(expression)
 class SinExpression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 1)
+    if (GetArgCount() == 1)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"expression"};
   }
 
-  ControlState GetValue() const override { return std::sin(GetArg(0).GetValue()); }
+  ControlState GetValue() override { return std::sin(GetArg(0).GetValue()); }
 };
 
 // usage: cos(expression)
 class CosExpression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 1)
+    if (GetArgCount() == 1)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"expression"};
   }
 
-  ControlState GetValue() const override { return std::cos(GetArg(0).GetValue()); }
+  ControlState GetValue() override { return std::cos(GetArg(0).GetValue()); }
 };
 
 // usage: tan(expression)
 class TanExpression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 1)
+    if (GetArgCount() == 1)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"expression"};
   }
 
-  ControlState GetValue() const override { return std::tan(GetArg(0).GetValue()); }
+  ControlState GetValue() override { return std::tan(GetArg(0).GetValue()); }
 };
 
 // usage: asin(expression)
 class ASinExpression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 1)
+    if (GetArgCount() == 1)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"expression"};
   }
 
-  ControlState GetValue() const override { return std::asin(GetArg(0).GetValue()); }
+  ControlState GetValue() override { return std::asin(GetArg(0).GetValue()); }
 };
 
 // usage: acos(expression)
 class ACosExpression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 1)
+    if (GetArgCount() == 1)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"expression"};
   }
 
-  ControlState GetValue() const override { return std::acos(GetArg(0).GetValue()); }
+  ControlState GetValue() override { return std::acos(GetArg(0).GetValue()); }
 };
 
 // usage: atan(expression)
 class ATanExpression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 1)
+    if (GetArgCount() == 1)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"expression"};
   }
 
-  ControlState GetValue() const override { return std::atan(GetArg(0).GetValue()); }
+  ControlState GetValue() override { return std::atan(GetArg(0).GetValue()); }
 };
 
 // usage: atan2(y, x)
 class ATan2Expression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 2)
+    if (GetArgCount() == 2)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"y, x"};
   }
 
-  ControlState GetValue() const override
+  ControlState GetValue() override
   {
     return std::atan2(GetArg(0).GetValue(), GetArg(1).GetValue());
   }
@@ -188,89 +194,135 @@ private:
 class SqrtExpression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 1)
+    if (GetArgCount() == 1)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"expression"};
   }
 
-  ControlState GetValue() const override { return std::sqrt(GetArg(0).GetValue()); }
+  ControlState GetValue() override { return std::sqrt(GetArg(0).GetValue()); }
 };
 
 // usage: pow(base, exponent)
 class PowExpression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 2)
+    if (GetArgCount() == 2)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"base, exponent"};
   }
 
-  ControlState GetValue() const override
+  ControlState GetValue() override { return std::pow(GetArg(0).GetValue(), GetArg(1).GetValue()); }
+};
+
+// usage: floor(expression)
+class FloorExpression : public FunctionExpression
+{
+private:
+  ArgumentValidation ValidateArguments() override
   {
-    return std::pow(GetArg(0).GetValue(), GetArg(1).GetValue());
+    if (GetArgCount() == 1)
+      return ArgumentsAreValid{};
+    else
+      return ExpectedArguments{"expression"};
   }
+
+  ControlState GetValue() override { return std::floor(GetArg(0).GetValue()); }
+};
+
+// usage: ceil(expression)
+class CeilExpression : public FunctionExpression
+{
+private:
+  ArgumentValidation ValidateArguments() override
+  {
+    if (GetArgCount() == 1)
+      return ArgumentsAreValid{};
+    else
+      return ExpectedArguments{"expression"};
+  }
+
+  ControlState GetValue() override { return std::ceil(GetArg(0).GetValue()); }
+};
+
+// usage: round(expression)
+class RoundExpression : public FunctionExpression
+{
+private:
+  ArgumentValidation ValidateArguments() override
+  {
+    if (GetArgCount() == 1)
+      return ArgumentsAreValid{};
+    else
+      return ExpectedArguments{"expression"};
+  }
+
+  ControlState GetValue() override { return std::round(GetArg(0).GetValue()); }
+};
+
+// usage: trunc(expression)
+class TruncExpression : public FunctionExpression
+{
+private:
+  ArgumentValidation ValidateArguments() override
+  {
+    if (GetArgCount() == 1)
+      return ArgumentsAreValid{};
+    else
+      return ExpectedArguments{"expression"};
+  }
+
+  ControlState GetValue() override { return std::trunc(GetArg(0).GetValue()); }
 };
 
 // usage: min(a, b)
 class MinExpression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 2)
+    if (GetArgCount() == 2)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"a, b"};
   }
 
-  ControlState GetValue() const override
-  {
-    return std::min(GetArg(0).GetValue(), GetArg(1).GetValue());
-  }
+  ControlState GetValue() override { return std::min(GetArg(0).GetValue(), GetArg(1).GetValue()); }
 };
 
 // usage: max(a, b)
 class MaxExpression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 2)
+    if (GetArgCount() == 2)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"a, b"};
   }
 
-  ControlState GetValue() const override
-  {
-    return std::max(GetArg(0).GetValue(), GetArg(1).GetValue());
-  }
+  ControlState GetValue() override { return std::max(GetArg(0).GetValue(), GetArg(1).GetValue()); }
 };
 
 // usage: clamp(value, min, max)
 class ClampExpression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 3)
+    if (GetArgCount() == 3)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"value, min, max"};
   }
 
-  ControlState GetValue() const override
+  ControlState GetValue() override
   {
     return std::clamp(GetArg(0).GetValue(), GetArg(1).GetValue(), GetArg(2).GetValue());
   }
@@ -280,16 +332,15 @@ private:
 class TimerExpression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 1)
+    if (GetArgCount() == 1)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"seconds"};
   }
 
-  ControlState GetValue() const override
+  ControlState GetValue() override
   {
     const auto now = Clock::now();
     const auto elapsed = now - m_start_time;
@@ -316,26 +367,26 @@ private:
   }
 
 private:
-  mutable Clock::time_point m_start_time = Clock::now();
+  Clock::time_point m_start_time = Clock::now();
 };
 
 // usage: if(condition, true_expression, false_expression)
 class IfExpression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 3)
+    if (GetArgCount() == 3)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"condition, true_expression, false_expression"};
   }
 
-  ControlState GetValue() const override
+  ControlState GetValue() override { return GetLValue()->GetValue(); }
+
+  Expression* GetLValue() override
   {
-    return (GetArg(0).GetValue() > CONDITION_THRESHOLD) ? GetArg(1).GetValue() :
-                                                          GetArg(2).GetValue();
+    return (GetArg(0).GetValue() > CONDITION_THRESHOLD) ? &GetArg(1) : &GetArg(2);
   }
 };
 
@@ -343,35 +394,48 @@ private:
 class UnaryMinusExpression : public FunctionExpression
 {
 private:
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 1)
+    if (GetArgCount() == 1)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"expression"};
   }
 
-  ControlState GetValue() const override
+  ControlState GetValue() override
   {
     // Subtraction for clarity:
     return 0.0 - GetArg(0).GetValue();
   }
 };
 
+// usage: plus(expression)
+class UnaryPlusExpression : public FunctionExpression
+{
+private:
+  ArgumentValidation ValidateArguments() override
+  {
+    if (GetArgCount() == 1)
+      return ArgumentsAreValid{};
+    else
+      return ExpectedArguments{"expression"};
+  }
+
+  ControlState GetValue() override { return GetArg(0).GetValue(); }
+};
+
 // usage: deadzone(input, amount)
 class DeadzoneExpression : public FunctionExpression
 {
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 2)
+    if (GetArgCount() == 2)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"input, amount"};
   }
 
-  ControlState GetValue() const override
+  ControlState GetValue() override
   {
     const ControlState val = GetArg(0).GetValue();
     const ControlState deadzone = GetArg(1).GetValue();
@@ -383,16 +447,15 @@ class DeadzoneExpression : public FunctionExpression
 // seconds is seconds to change from 0.0 to 1.0
 class SmoothExpression : public FunctionExpression
 {
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 2 || args.size() == 3)
+    if (GetArgCount() == 2 || GetArgCount() == 3)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"input, seconds_up, seconds_down = seconds_up"};
   }
 
-  ControlState GetValue() const override
+  ControlState GetValue() override
   {
     const auto now = Clock::now();
     const auto elapsed = now - m_last_update;
@@ -420,23 +483,22 @@ class SmoothExpression : public FunctionExpression
   }
 
 private:
-  mutable ControlState m_value = 0.0;
-  mutable Clock::time_point m_last_update = Clock::now();
+  ControlState m_value = 0.0;
+  Clock::time_point m_last_update = Clock::now();
 };
 
 // usage: hold(input, seconds)
 class HoldExpression : public FunctionExpression
 {
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 2)
+    if (GetArgCount() == 2)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"input, seconds"};
   }
 
-  ControlState GetValue() const override
+  ControlState GetValue() override
   {
     const auto now = Clock::now();
 
@@ -459,23 +521,22 @@ class HoldExpression : public FunctionExpression
   }
 
 private:
-  mutable bool m_state = false;
-  mutable Clock::time_point m_start_time = Clock::now();
+  bool m_state = false;
+  Clock::time_point m_start_time = Clock::now();
 };
 
 // usage: tap(input, seconds, taps=2)
 class TapExpression : public FunctionExpression
 {
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 2 || args.size() == 3)
+    if (GetArgCount() == 2 || GetArgCount() == 3)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"input, seconds, taps = 2"};
   }
 
-  ControlState GetValue() const override
+  ControlState GetValue() override
   {
     const auto now = Clock::now();
 
@@ -517,25 +578,24 @@ class TapExpression : public FunctionExpression
   }
 
 private:
-  mutable bool m_released = true;
-  mutable u32 m_taps = 0;
-  mutable Clock::time_point m_start_time = Clock::now();
+  bool m_released = true;
+  u32 m_taps = 0;
+  Clock::time_point m_start_time = Clock::now();
 };
 
 // usage: relative(input, speed, [max_abs_value, [shared_state]])
 // speed is max movement per second
 class RelativeExpression : public FunctionExpression
 {
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() >= 2 && args.size() <= 4)
+    if (GetArgCount() >= 2 && GetArgCount() <= 4)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"input, speed, [max_abs_value, [shared_state]]"};
   }
 
-  ControlState GetValue() const override
+  ControlState GetValue() override
   {
     // There is a lot of funky math in this function but it allows for a variety of uses:
     //
@@ -578,23 +638,22 @@ class RelativeExpression : public FunctionExpression
   }
 
 private:
-  mutable ControlState m_state = 0.0;
-  mutable Clock::time_point m_last_update = Clock::now();
+  ControlState m_state = 0.0;
+  Clock::time_point m_last_update = Clock::now();
 };
 
 // usage: pulse(input, seconds)
 class PulseExpression : public FunctionExpression
 {
-  ArgumentValidation
-  ValidateArguments(const std::vector<std::unique_ptr<Expression>>& args) override
+  ArgumentValidation ValidateArguments() override
   {
-    if (args.size() == 2)
+    if (GetArgCount() == 2)
       return ArgumentsAreValid{};
     else
       return ExpectedArguments{"input, seconds"};
   }
 
-  ControlState GetValue() const override
+  ControlState GetValue() override
   {
     const auto now = Clock::now();
 
@@ -630,9 +689,9 @@ class PulseExpression : public FunctionExpression
   }
 
 private:
-  mutable bool m_released = false;
-  mutable bool m_state = false;
-  mutable Clock::time_point m_release_time = Clock::now();
+  bool m_released = false;
+  bool m_state = false;
+  Clock::time_point m_release_time = Clock::now();
 };
 
 std::unique_ptr<FunctionExpression> MakeFunctionExpression(std::string_view name)
@@ -641,6 +700,8 @@ std::unique_ptr<FunctionExpression> MakeFunctionExpression(std::string_view name
     return std::make_unique<NotExpression>();
   if (name == "if")
     return std::make_unique<IfExpression>();
+  if (name == "abs")
+    return std::make_unique<AbsExpression>();
   if (name == "sin")
     return std::make_unique<SinExpression>();
   if (name == "cos")
@@ -659,6 +720,14 @@ std::unique_ptr<FunctionExpression> MakeFunctionExpression(std::string_view name
     return std::make_unique<SqrtExpression>();
   if (name == "pow")
     return std::make_unique<PowExpression>();
+  if (name == "floor")
+    return std::make_unique<FloorExpression>();
+  if (name == "ceil")
+    return std::make_unique<CeilExpression>();
+  if (name == "round")
+    return std::make_unique<RoundExpression>();
+  if (name == "trunc")
+    return std::make_unique<TruncExpression>();
   if (name == "min")
     return std::make_unique<MinExpression>();
   if (name == "max")
@@ -671,6 +740,8 @@ std::unique_ptr<FunctionExpression> MakeFunctionExpression(std::string_view name
     return std::make_unique<ToggleExpression>();
   if (name == "minus")
     return std::make_unique<UnaryMinusExpression>();
+  if (name == "plus")
+    return std::make_unique<UnaryPlusExpression>();
   if (name == "deadzone")
     return std::make_unique<DeadzoneExpression>();
   if (name == "smooth")
@@ -703,20 +774,12 @@ void FunctionExpression::UpdateReferences(ControlEnvironment& env)
     arg->UpdateReferences(env);
 }
 
-FunctionExpression::ArgumentValidation
-FunctionExpression::SetArguments(std::vector<std::unique_ptr<Expression>>&& args)
+void FunctionExpression::SetArguments(std::vector<std::unique_ptr<Expression>>&& args)
 {
   m_args = std::move(args);
-
-  return ValidateArguments(m_args);
 }
 
 Expression& FunctionExpression::GetArg(u32 number)
-{
-  return *m_args[number];
-}
-
-const Expression& FunctionExpression::GetArg(u32 number) const
 {
   return *m_args[number];
 }

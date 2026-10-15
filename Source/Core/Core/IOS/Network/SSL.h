@@ -79,12 +79,12 @@ struct WII_SSL
   bool active = false;
 };
 
-class NetSSLDevice : public Device
+class NetSSLDevice : public EmulationDevice
 {
 public:
-  NetSSLDevice(Kernel& ios, const std::string& device_name);
+  NetSSLDevice(EmulationKernel& ios, const std::string& device_name);
 
-  virtual ~NetSSLDevice();
+  ~NetSSLDevice() override;
 
   std::optional<IPCReply> IOCtl(const IOCtlRequest& request) override;
   std::optional<IPCReply> IOCtlV(const IOCtlVRequest& request) override;

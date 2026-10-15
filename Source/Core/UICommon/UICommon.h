@@ -6,17 +6,23 @@
 #include <string>
 
 #include "Common/CommonTypes.h"
+#include "Common/HookableEvent.h"
+
+struct WindowSystemInfo;
 
 namespace UICommon
 {
 void Init();
 void Shutdown();
 
-#ifdef HAVE_X11
-void InhibitScreenSaver(unsigned long win, bool enable);
-#else
-void InhibitScreenSaver(bool enable);
-#endif
+// Triggered from the Host-thread on Android before a potential process termination.
+[[nodiscard]] Common::EventHook AddFlushUnsavedDataCallback(std::function<void()> callback);
+void FlushUnsavedData();
+
+void InitControllers(const WindowSystemInfo& wsi);
+void ShutdownControllers();
+
+void InhibitScreenSaver(bool inhibit);
 
 // Calls std::locale::global, selecting a fallback locale if the
 // requested locale isn't available

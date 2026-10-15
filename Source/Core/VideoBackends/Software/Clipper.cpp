@@ -76,7 +76,7 @@ enum
 static inline int CalcClipMask(const OutputVertexData* v)
 {
   int cmask = 0;
-  Vec4 pos = v->projectedPosition;
+  Common::Vec4 pos = v->projectedPosition;
 
   if (pos.w - pos.x < 0)
     cmask |= CLIP_POS_X_BIT;
@@ -287,11 +287,11 @@ static void ClipLine(int* indices)
 
 void ProcessTriangle(OutputVertexData* v0, OutputVertexData* v1, OutputVertexData* v2)
 {
-  INCSTAT(g_stats.this_frame.num_triangles_in)
+  INCSTAT(g_stats.this_frame.num_triangles_in);
 
   if (IsTriviallyRejected(v0, v1, v2))
   {
-    INCSTAT(g_stats.this_frame.num_triangles_rejected)
+    INCSTAT(g_stats.this_frame.num_triangles_rejected);
     // NOTE: The slope used by zfreeze shouldn't be updated if the triangle is
     // trivially rejected during clipping
     return;
@@ -301,27 +301,27 @@ void ProcessTriangle(OutputVertexData* v0, OutputVertexData* v1, OutputVertexDat
 
   if (!backface)
   {
-    if (bpmem.genMode.cullmode == CullMode::Back || bpmem.genMode.cullmode == CullMode::All)
+    if (bpmem.genMode.cull_mode == CullMode::Back || bpmem.genMode.cull_mode == CullMode::All)
     {
       // cull frontfacing - we still need to update the slope for zfreeze
       PerspectiveDivide(v0);
       PerspectiveDivide(v1);
       PerspectiveDivide(v2);
       Rasterizer::UpdateZSlope(v0, v1, v2, bpmem.scissorOffset.x * 2, bpmem.scissorOffset.y * 2);
-      INCSTAT(g_stats.this_frame.num_triangles_culled)
+      INCSTAT(g_stats.this_frame.num_triangles_culled);
       return;
     }
   }
   else
   {
-    if (bpmem.genMode.cullmode == CullMode::Front || bpmem.genMode.cullmode == CullMode::All)
+    if (bpmem.genMode.cull_mode == CullMode::Front || bpmem.genMode.cull_mode == CullMode::All)
     {
       // cull backfacing - we still need to update the slope for zfreeze
       PerspectiveDivide(v0);
       PerspectiveDivide(v2);
       PerspectiveDivide(v1);
       Rasterizer::UpdateZSlope(v0, v2, v1, bpmem.scissorOffset.x * 2, bpmem.scissorOffset.y * 2);
-      INCSTAT(g_stats.this_frame.num_triangles_culled)
+      INCSTAT(g_stats.this_frame.num_triangles_culled);
       return;
     }
   }
@@ -546,8 +546,8 @@ bool IsBackface(const OutputVertexData* v0, const OutputVertexData* v1, const Ou
 
 void PerspectiveDivide(OutputVertexData* vertex)
 {
-  Vec4& projected = vertex->projectedPosition;
-  Vec3& screen = vertex->screenPosition;
+  Common::Vec4& projected = vertex->projectedPosition;
+  Common::Vec3& screen = vertex->screenPosition;
 
   float wInverse = 1.0f / projected.w;
   screen.x = projected.x * wInverse * xfmem.viewport.wd + xfmem.viewport.xOrig;

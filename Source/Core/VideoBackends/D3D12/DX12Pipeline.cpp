@@ -14,11 +14,11 @@
 
 namespace DX12
 {
-DXPipeline::DXPipeline(ID3D12PipelineState* pipeline, ID3D12RootSignature* root_signature,
-                       AbstractPipelineUsage usage, D3D12_PRIMITIVE_TOPOLOGY primitive_topology,
-                       bool use_integer_rtv)
-    : m_pipeline(pipeline), m_root_signature(root_signature), m_usage(usage),
-      m_primitive_topology(primitive_topology), m_use_integer_rtv(use_integer_rtv)
+DXPipeline::DXPipeline(const AbstractPipelineConfig& config, ID3D12PipelineState* pipeline,
+                       ID3D12RootSignature* root_signature, AbstractPipelineUsage usage,
+                       D3D12_PRIMITIVE_TOPOLOGY primitive_topology, bool use_integer_rtv)
+    : AbstractPipeline(config), m_pipeline(pipeline), m_root_signature(root_signature),
+      m_usage(usage), m_primitive_topology(primitive_topology), m_use_integer_rtv(use_integer_rtv)
 {
 }
 
@@ -66,7 +66,7 @@ static void GetD3DRasterizerDesc(D3D12_RASTERIZER_DESC* desc, const Rasterizatio
       {D3D12_CULL_MODE_NONE, D3D12_CULL_MODE_BACK, D3D12_CULL_MODE_FRONT, D3D12_CULL_MODE_FRONT}};
 
   desc->FillMode = D3D12_FILL_MODE_SOLID;
-  desc->CullMode = cull_modes[u32(rs_state.cullmode.Value())];
+  desc->CullMode = cull_modes[u32(rs_state.cull_mode.Value())];
   desc->MultisampleEnable = fb_state.samples > 1;
 }
 
@@ -79,13 +79,14 @@ static void GetD3DDepthDesc(D3D12_DEPTH_STENCIL_DESC* desc, const DepthState& st
        D3D12_COMPARISON_FUNC_NOT_EQUAL, D3D12_COMPARISON_FUNC_LESS_EQUAL,
        D3D12_COMPARISON_FUNC_ALWAYS}};
 
-  desc->DepthEnable = state.testenable;
+  desc->DepthEnable = state.test_enable;
   desc->DepthFunc = compare_funcs[u32(state.func.Value())];
   desc->DepthWriteMask =
-      state.updateenable ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
+      state.update_enable ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
 }
 
-static void GetD3DBlendDesc(D3D12_BLEND_DESC* desc, const BlendingState& state)
+static void GetD3DBlendDesc(D3D12_BLEND_DESC* desc, const BlendingState& state,
+                            u8 render_target_count)
 {
   static constexpr std::array<D3D12_BLEND, 8> src_dual_src_factors = {
       {D3D12_BLEND_ZERO, D3D12_BLEND_ONE, D3D12_BLEND_DEST_COLOR, D3D12_BLEND_INV_DEST_COLOR,
@@ -115,44 +116,48 @@ static void GetD3DBlendDesc(D3D12_BLEND_DESC* desc, const BlendingState& state)
   desc->AlphaToCoverageEnable = FALSE;
   desc->IndependentBlendEnable = FALSE;
 
-  D3D12_RENDER_TARGET_BLEND_DESC* rtblend = &desc->RenderTarget[0];
-  if (state.colorupdate)
+  for (u8 i = 0; i < render_target_count; i++)
   {
-    rtblend->RenderTargetWriteMask |= D3D12_COLOR_WRITE_ENABLE_RED |
-                                      D3D12_COLOR_WRITE_ENABLE_GREEN |
-                                      D3D12_COLOR_WRITE_ENABLE_BLUE;
-  }
-  if (state.alphaupdate)
-  {
-    rtblend->RenderTargetWriteMask |= D3D12_COLOR_WRITE_ENABLE_ALPHA;
-  }
-
-  // blend takes precedence over logic op
-  rtblend->BlendEnable = state.blendenable;
-  if (state.blendenable)
-  {
-    rtblend->BlendOp = state.subtract ? D3D12_BLEND_OP_REV_SUBTRACT : D3D12_BLEND_OP_ADD;
-    rtblend->BlendOpAlpha = state.subtractAlpha ? D3D12_BLEND_OP_REV_SUBTRACT : D3D12_BLEND_OP_ADD;
-    if (state.usedualsrc)
+    D3D12_RENDER_TARGET_BLEND_DESC* rtblend = &desc->RenderTarget[i];
+    if (state.color_update)
     {
-      rtblend->SrcBlend = src_dual_src_factors[u32(state.srcfactor.Value())];
-      rtblend->SrcBlendAlpha = src_dual_src_factors[u32(state.srcfactoralpha.Value())];
-      rtblend->DestBlend = dst_dual_src_factors[u32(state.dstfactor.Value())];
-      rtblend->DestBlendAlpha = dst_dual_src_factors[u32(state.dstfactoralpha.Value())];
+      rtblend->RenderTargetWriteMask |= D3D12_COLOR_WRITE_ENABLE_RED |
+                                        D3D12_COLOR_WRITE_ENABLE_GREEN |
+                                        D3D12_COLOR_WRITE_ENABLE_BLUE;
+    }
+    if (state.alpha_update)
+    {
+      rtblend->RenderTargetWriteMask |= D3D12_COLOR_WRITE_ENABLE_ALPHA;
+    }
+
+    // blend takes precedence over logic op
+    rtblend->BlendEnable = state.blend_enable;
+    if (state.blend_enable)
+    {
+      rtblend->BlendOp = state.subtract ? D3D12_BLEND_OP_REV_SUBTRACT : D3D12_BLEND_OP_ADD;
+      rtblend->BlendOpAlpha =
+          state.subtract_alpha ? D3D12_BLEND_OP_REV_SUBTRACT : D3D12_BLEND_OP_ADD;
+      if (state.use_dual_src)
+      {
+        rtblend->SrcBlend = src_dual_src_factors[u32(state.src_factor.Value())];
+        rtblend->SrcBlendAlpha = src_dual_src_factors[u32(state.src_factor_alpha.Value())];
+        rtblend->DestBlend = dst_dual_src_factors[u32(state.dst_factor.Value())];
+        rtblend->DestBlendAlpha = dst_dual_src_factors[u32(state.dst_factor_alpha.Value())];
+      }
+      else
+      {
+        rtblend->SrcBlend = src_factors[u32(state.src_factor.Value())];
+        rtblend->SrcBlendAlpha = src_factors[u32(state.src_factor_alpha.Value())];
+        rtblend->DestBlend = dst_factors[u32(state.dst_factor.Value())];
+        rtblend->DestBlendAlpha = dst_factors[u32(state.dst_factor_alpha.Value())];
+      }
     }
     else
     {
-      rtblend->SrcBlend = src_factors[u32(state.srcfactor.Value())];
-      rtblend->SrcBlendAlpha = src_factors[u32(state.srcfactoralpha.Value())];
-      rtblend->DestBlend = dst_factors[u32(state.dstfactor.Value())];
-      rtblend->DestBlendAlpha = dst_factors[u32(state.dstfactoralpha.Value())];
+      rtblend->LogicOpEnable = state.logic_op_enable;
+      if (state.logic_op_enable)
+        rtblend->LogicOp = logic_ops[u32(state.logic_mode.Value())];
     }
-  }
-  else
-  {
-    rtblend->LogicOpEnable = state.logicopenable;
-    if (state.logicopenable)
-      rtblend->LogicOp = logic_ops[u32(state.logicmode.Value())];
   }
 }
 
@@ -165,6 +170,7 @@ std::unique_ptr<DXPipeline> DXPipeline::Create(const AbstractPipelineConfig& con
   switch (config.usage)
   {
   case AbstractPipelineUsage::GX:
+  case AbstractPipelineUsage::GXUber:
     desc.pRootSignature = g_dx_context->GetGXRootSignature();
     break;
   case AbstractPipelineUsage::Utility:
@@ -182,7 +188,8 @@ std::unique_ptr<DXPipeline> DXPipeline::Create(const AbstractPipelineConfig& con
   if (config.pixel_shader)
     desc.PS = static_cast<const DXShader*>(config.pixel_shader)->GetD3DByteCode();
 
-  GetD3DBlendDesc(&desc.BlendState, config.blending_state);
+  GetD3DBlendDesc(&desc.BlendState, config.blending_state,
+                  config.framebuffer_state.additional_color_attachment_count + 1);
   desc.SampleMask = 0xFFFFFFFF;
   GetD3DRasterizerDesc(&desc.RasterizerState, config.rasterization_state, config.framebuffer_state);
   GetD3DDepthDesc(&desc.DepthStencilState, config.depth_state);
@@ -194,9 +201,16 @@ std::unique_ptr<DXPipeline> DXPipeline::Create(const AbstractPipelineConfig& con
   desc.PrimitiveTopologyType = GetD3DTopologyType(config.rasterization_state);
   if (config.framebuffer_state.color_texture_format != AbstractTextureFormat::Undefined)
   {
-    desc.NumRenderTargets = 1;
+    desc.NumRenderTargets =
+        static_cast<u8>(config.framebuffer_state.additional_color_attachment_count) + 1;
     desc.RTVFormats[0] = D3DCommon::GetRTVFormatForAbstractFormat(
-        config.framebuffer_state.color_texture_format, config.blending_state.logicopenable);
+        config.framebuffer_state.color_texture_format, config.blending_state.logic_op_enable);
+    for (u8 i = 0; i < static_cast<u8>(config.framebuffer_state.additional_color_attachment_count);
+         i++)
+    {
+      // For now set all formats to be the same
+      desc.RTVFormats[i + 1] = desc.RTVFormats[0];
+    }
   }
   if (config.framebuffer_state.depth_texture_format != AbstractTextureFormat::Undefined)
     desc.DSVFormat =
@@ -216,8 +230,8 @@ std::unique_ptr<DXPipeline> DXPipeline::Create(const AbstractPipelineConfig& con
   }
 
   const bool use_integer_rtv =
-      !config.blending_state.blendenable && config.blending_state.logicopenable;
-  return std::make_unique<DXPipeline>(pso, desc.pRootSignature, config.usage,
+      !config.blending_state.blend_enable && config.blending_state.logic_op_enable;
+  return std::make_unique<DXPipeline>(config, pso, desc.pRootSignature, config.usage,
                                       GetD3DTopology(config.rasterization_state), use_integer_rtv);
 }
 

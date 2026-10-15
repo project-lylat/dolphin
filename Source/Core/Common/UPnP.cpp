@@ -16,7 +16,6 @@
 #include <thread>
 #include <upnpcommands.h>
 #include <upnperrors.h>
-#include <vector>
 
 static UPNPUrls s_urls;
 static IGDdatas s_data;
@@ -164,14 +163,14 @@ static void UnmapPortThread()
     UnmapPort(s_mapped);
 }
 
-void UPnP::TryPortmapping(u16 port)
+void Common::UPnP::TryPortmapping(u16 port)
 {
   if (s_thread.joinable())
     s_thread.join();
   s_thread = std::thread(&MapPortThread, port);
 }
 
-void UPnP::StopPortmapping()
+void Common::UPnP::StopPortmapping()
 {
   if (s_thread.joinable())
     s_thread.join();

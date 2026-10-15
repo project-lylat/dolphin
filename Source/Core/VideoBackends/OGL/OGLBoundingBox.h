@@ -4,7 +4,7 @@
 #pragma once
 
 #include "Common/CommonTypes.h"
-#include "Common/GL/GLUtil.h"
+#include "Common/GL/GLExtensions/GLExtensions.h"
 
 #include "VideoCommon/BoundingBox.h"
 
@@ -19,7 +19,7 @@ public:
 
 protected:
   std::vector<BBoxType> Read(u32 index, u32 length) override;
-  void Write(u32 index, const std::vector<BBoxType>& values) override;
+  void Write(u32 index, std::span<const BBoxType> values) override;
 
 private:
   GLuint m_buffer_id = 0;

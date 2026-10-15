@@ -40,7 +40,7 @@ DSPEmitter::DSPEmitter(DSPCore& dsp)
   m_stub_entry_point = CompileStub();
 
   // Clear all of the block references
-  std::fill(m_blocks.begin(), m_blocks.end(), (DSPCompiledCode)m_stub_entry_point);
+  std::ranges::fill(m_blocks, (DSPCompiledCode)m_stub_entry_point);
 }
 
 DSPEmitter::~DSPEmitter()
@@ -99,9 +99,9 @@ void DSPEmitter::ClearIRAMandDSPJITCodespaceReset()
   m_dsp_core.DSPState().reset_dspjit_codespace = false;
 }
 
-static void CheckExceptionsThunk(DSPCore& dsp)
+static u32 CheckExceptionsThunk(DSPCore& dsp)
 {
-  dsp.CheckExceptions();
+  return dsp.CheckExceptions() ? 1u : 0u;
 }
 
 // Must go out of block if exception is detected
@@ -109,15 +109,18 @@ void DSPEmitter::checkExceptions(u32 retval)
 {
   // Check for interrupts and exceptions
   TEST(8, M_SDSP_exceptions(), Imm8(0xff));
-  FixupBranch skipCheck = J_CC(CC_Z, true);
+  FixupBranch skipCheck = J_CC(CC_Z, Jump::Near);
 
   MOV(16, M_SDSP_pc(), Imm16(m_compile_pc));
 
   DSPJitRegCache c(m_gpr);
   m_gpr.SaveRegs();
   ABI_CallFunctionP(CheckExceptionsThunk, &m_dsp_core);
+  TEST(32, R(ABI_RETURN), R(ABI_RETURN));
+  FixupBranch skip_return = J_CC(CC_Z, Jump::Short);
   MOV(32, R(EAX), Imm32(retval));
-  JMP(m_return_dispatcher, true);
+  JMP(m_return_dispatcher);
+  SetJumpTarget(skip_return);
   m_gpr.LoadRegs(false);
   m_gpr.FlushRegs(c, false);
 
@@ -265,11 +268,11 @@ void DSPEmitter::Compile(u16 start_addr)
     {
       MOVZX(32, 16, EAX, M_SDSP_r_st(2));
       TEST(32, R(EAX), R(EAX));
-      FixupBranch rLoopAddressExit = J_CC(CC_LE, true);
+      FixupBranch rLoopAddressExit = J_CC(CC_LE, Jump::Near);
 
       MOVZX(32, 16, EAX, M_SDSP_r_st(3));
       TEST(32, R(EAX), R(EAX));
-      FixupBranch rLoopCounterExit = J_CC(CC_LE, true);
+      FixupBranch rLoopCounterExit = J_CC(CC_LE, Jump::Near);
 
       if (!opcode->branch)
       {
@@ -290,7 +293,7 @@ void DSPEmitter::Compile(u16 start_addr)
       {
         MOV(16, R(EAX), Imm16(m_block_size[start_addr]));
       }
-      JMP(m_return_dispatcher, true);
+      JMP(m_return_dispatcher);
       m_gpr.LoadRegs(false);
       m_gpr.FlushRegs(c, false);
 
@@ -313,7 +316,7 @@ void DSPEmitter::Compile(u16 start_addr)
         // look at g_dsp.pc if we actually branched
         MOV(16, R(AX), M_SDSP_pc());
         CMP(16, R(AX), Imm16(m_compile_pc));
-        FixupBranch rNoBranch = J_CC(CC_Z, true);
+        FixupBranch rNoBranch = J_CC(CC_Z, Jump::Near);
 
         DSPJitRegCache c(m_gpr);
         // don't update g_dsp.pc -- the branch insn already did
@@ -326,7 +329,7 @@ void DSPEmitter::Compile(u16 start_addr)
         {
           MOV(16, R(EAX), Imm16(m_block_size[start_addr]));
         }
-        JMP(m_return_dispatcher, true);
+        JMP(m_return_dispatcher);
         m_gpr.LoadRegs(false);
         m_gpr.FlushRegs(c, false);
 
@@ -389,7 +392,7 @@ void DSPEmitter::Compile(u16 start_addr)
   {
     MOV(16, R(EAX), Imm16(m_block_size[start_addr]));
   }
-  JMP(m_return_dispatcher, true);
+  JMP(m_return_dispatcher);
 }
 
 void DSPEmitter::CompileCurrent(DSPEmitter& emitter)
@@ -443,7 +446,7 @@ void DSPEmitter::CompileDispatcher()
   }
 
   // Check for DSP halt
-  TEST(8, M_SDSP_cr(), Imm8(CR_HALT));
+  TEST(8, M_SDSP_control_reg(), Imm8(CR_HALT));
   FixupBranch _halt = J_CC(CC_NE);
 
   // Execute block. Cycles executed returned in EAX.
@@ -484,9 +487,9 @@ Gen::OpArg DSPEmitter::M_SDSP_exceptions()
   return MDisp(R15, static_cast<int>(offsetof(SDSP, exceptions)));
 }
 
-Gen::OpArg DSPEmitter::M_SDSP_cr()
+Gen::OpArg DSPEmitter::M_SDSP_control_reg()
 {
-  return MDisp(R15, static_cast<int>(offsetof(SDSP, cr)));
+  return MDisp(R15, static_cast<int>(offsetof(SDSP, control_reg)));
 }
 
 Gen::OpArg DSPEmitter::M_SDSP_external_interrupt_waiting()

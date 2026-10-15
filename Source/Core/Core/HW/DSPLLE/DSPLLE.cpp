@@ -13,10 +13,8 @@
 #include "Common/Event.h"
 #include "Common/FileUtil.h"
 #include "Common/Logging/Log.h"
-#include "Common/MemoryUtil.h"
 #include "Common/Thread.h"
 #include "Core/Config/MainSettings.h"
-#include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/DSP/DSPAccelerator.h"
 #include "Core/DSP/DSPCaptureLogger.h"
@@ -26,7 +24,6 @@
 #include "Core/DSP/Interpreter/DSPInterpreter.h"
 #include "Core/DSP/Jit/DSPEmitterBase.h"
 #include "Core/HW/Memmap.h"
-#include "Core/Host.h"
 
 namespace DSP::LLE
 {
@@ -120,7 +117,7 @@ static bool FillDSPInitOptions(DSPInitOptions* opts)
     return false;
 
   opts->core_type = DSPInitOptions::CoreType::Interpreter;
-#ifdef _M_X86
+#ifdef _M_X86_64
   if (Config::Get(Config::MAIN_DSP_JIT))
     opts->core_type = DSPInitOptions::CoreType::JIT64;
 #endif
@@ -161,7 +158,6 @@ bool DSPLLE::Initialize(bool wii, bool dsp_thread)
     m_dsp_thread = std::thread(DSPThread, this);
   }
 
-  Host_RefreshDSPDebuggerWindow();
   return true;
 }
 
@@ -183,7 +179,7 @@ void DSPLLE::Shutdown()
 
 u16 DSPLLE::DSP_WriteControlRegister(u16 value)
 {
-  m_dsp_core.GetInterpreter().WriteCR(value);
+  m_dsp_core.GetInterpreter().WriteControlRegister(value);
 
   if ((value & CR_EXTERNAL_INT) != 0)
   {
@@ -207,7 +203,7 @@ u16 DSPLLE::DSP_WriteControlRegister(u16 value)
 
 u16 DSPLLE::DSP_ReadControlRegister()
 {
-  return m_dsp_core.GetInterpreter().ReadCR();
+  return m_dsp_core.GetInterpreter().ReadControlRegister();
 }
 
 u16 DSPLLE::DSP_ReadMailBoxHigh(bool cpu_mailbox)
@@ -288,22 +284,20 @@ u32 DSPLLE::DSP_UpdateRate()
   return 12600;  // TO BE TWEAKED
 }
 
-void DSPLLE::PauseAndLock(bool do_lock, bool unpause_on_unlock)
+void DSPLLE::PauseAndLock()
 {
-  if (do_lock)
-  {
-    m_dsp_thread_mutex.lock();
-  }
-  else
-  {
-    m_dsp_thread_mutex.unlock();
+  m_dsp_thread_mutex.lock();
+}
 
-    if (m_is_dsp_on_thread)
-    {
-      // Signal the DSP thread so it can perform any outstanding work now (if any)
-      m_ppc_event.Wait();
-      m_dsp_event.Set();
-    }
+void DSPLLE::UnpauseAndUnlock()
+{
+  m_dsp_thread_mutex.unlock();
+
+  if (m_is_dsp_on_thread)
+  {
+    // Signal the DSP thread so it can perform any outstanding work now (if any)
+    m_ppc_event.Wait();
+    m_dsp_event.Set();
   }
 }
 }  // namespace DSP::LLE

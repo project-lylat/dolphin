@@ -3,7 +3,9 @@
 
 #pragma once
 
-#include <vector>
+#ifdef HAS_LIBMGBA
+
+#include <span>
 
 #include "Core/Host.h"
 
@@ -18,11 +20,12 @@ class GBAHost : public GBAHostInterface
 {
 public:
   explicit GBAHost(std::weak_ptr<HW::GBA::Core> core);
-  ~GBAHost();
+  ~GBAHost() override;
   void GameChanged() override;
-  void FrameEnded(const std::vector<u32>& video_buffer) override;
+  void FrameEnded(std::span<const u32> video_buffer) override;
 
 private:
   GBAWidgetController* m_widget_controller{};
   std::weak_ptr<HW::GBA::Core> m_core;
 };
+#endif  // HAS_LIBMGBA

@@ -14,7 +14,7 @@
 #include <netdb.h>
 #endif
 
-#include "Common/ENetUtil.h"
+#include "Common/ENet.h"
 #include "Common/StringUtil.h"
 #include "Common/TraversalClient.h"
 #include "Common/Version.h"

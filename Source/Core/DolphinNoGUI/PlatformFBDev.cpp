@@ -5,23 +5,16 @@
 
 #include "DolphinNoGUI/Platform.h"
 
-#include "Common/MsgHandler.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/State.h"
+#include "Core/System.h"
 
-#include <climits>
 #include <cstdio>
+#include <thread>
 
 #include <fcntl.h>
-#include <linux/fb.h>
-#include <linux/kd.h>
-#include <linux/vt.h>
-#include <sys/ioctl.h>
-#include <sys/types.h>
-#include <termios.h>
 #include <unistd.h>
-#include "VideoCommon/RenderBase.h"
 
 namespace
 {
@@ -78,7 +71,7 @@ void PlatformFBDev::MainLoop()
   while (IsRunning())
   {
     UpdateRunningFlag();
-    Core::HostDispatchJobs();
+    Core::HostDispatchJobs(Core::System::GetInstance());
 
     // TODO: Is this sleep appropriate?
     std::this_thread::sleep_for(std::chrono::milliseconds(1));

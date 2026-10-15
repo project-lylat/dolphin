@@ -1,11 +1,14 @@
 // Copyright 2018 Dolphin Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
+#include <iterator>
 #include <memory>
 #include <vector>
 
 #include <jni.h>
 
+#include "Core/Config/MainSettings.h"
 #include "UICommon/GameFileCache.h"
 #include "jni/AndroidCommon/AndroidCommon.h"
 #include "jni/AndroidCommon/IDCache.h"
@@ -34,8 +37,22 @@ JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_model_GameFileCache_finali
 JNIEXPORT jobjectArray JNICALL Java_org_dolphinemu_dolphinemu_model_GameFileCache_getAllGamePaths(
     JNIEnv* env, jclass, jobjectArray folder_paths, jboolean recursive_scan)
 {
-  return VectorToJStringArray(
-      env, UICommon::FindAllGamePaths(JStringArrayToVector(env, folder_paths), recursive_scan));
+  const std::vector<std::string> paths = JStringArrayToVector(env, folder_paths);
+  std::vector<std::string_view> path_views;
+  std::ranges::copy(paths, std::back_inserter(path_views));
+  return SpanToJStringArray(env, UICommon::FindAllGamePaths(path_views, recursive_scan));
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_org_dolphinemu_dolphinemu_model_GameFileCache_getIsoPaths(JNIEnv* env, jclass)
+{
+  return SpanToJStringArray(env, Config::GetIsoPaths());
+}
+
+JNIEXPORT void JNICALL Java_org_dolphinemu_dolphinemu_model_GameFileCache_setIsoPaths(
+    JNIEnv* env, jclass, jobjectArray paths)
+{
+  Config::SetIsoPaths(JStringArrayToVector(env, paths));
 }
 
 JNIEXPORT jint JNICALL Java_org_dolphinemu_dolphinemu_model_GameFileCache_getSize(JNIEnv* env,
@@ -52,7 +69,9 @@ Java_org_dolphinemu_dolphinemu_model_GameFileCache_getAllGames(JNIEnv* env, jobj
       env->NewObjectArray(static_cast<jsize>(ptr->GetSize()), IDCache::GetGameFileClass(), nullptr);
   jsize i = 0;
   GetPointer(env, obj)->ForEach([env, array, &i](const auto& game_file) {
-    env->SetObjectArrayElement(array, i++, GameFileToJava(env, game_file));
+    jobject j_game_file = GameFileToJava(env, game_file);
+    env->SetObjectArrayElement(array, i++, j_game_file);
+    env->DeleteLocalRef(j_game_file);
   });
   return array;
 }

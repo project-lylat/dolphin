@@ -37,6 +37,8 @@ add_library(inputcommon
   ControllerEmu/ControlGroup/IMUCursor.h
   ControllerEmu/ControlGroup/IMUGyroscope.cpp
   ControllerEmu/ControlGroup/IMUGyroscope.h
+  ControllerEmu/ControlGroup/IRPassthrough.cpp
+  ControllerEmu/ControlGroup/IRPassthrough.h
   ControllerEmu/ControlGroup/MixedTriggers.cpp
   ControllerEmu/ControlGroup/MixedTriggers.h
   ControllerEmu/ControlGroup/ModifySettingsButton.cpp
@@ -56,6 +58,8 @@ add_library(inputcommon
   ControllerInterface/ControllerInterface.h
   ControllerInterface/CoreDevice.cpp
   ControllerInterface/CoreDevice.h
+  ControllerInterface/InputBackend.cpp
+  ControllerInterface/InputBackend.h
   ControllerInterface/MappingCommon.cpp
   ControllerInterface/MappingCommon.h
   ControllerInterface/Wiimote/WiimoteController.cpp
@@ -79,7 +83,8 @@ PUBLIC
 
 PRIVATE
   fmt::fmt
-  png
+  sfml-network
+  spng::spng
 )
 
 if(WIN32)
@@ -105,48 +110,42 @@ if(WIN32)
   )
 elseif(APPLE)
   target_sources(inputcommon PRIVATE
-    ControllerInterface/OSX/OSX.h
-    ControllerInterface/OSX/OSX.mm
-    ControllerInterface/OSX/OSXJoystick.h
-    ControllerInterface/OSX/OSXJoystick.mm
-    ControllerInterface/OSX/RunLoopStopper.h
     ControllerInterface/Quartz/Quartz.h
     ControllerInterface/Quartz/Quartz.mm
     ControllerInterface/Quartz/QuartzKeyboardAndMouse.h
     ControllerInterface/Quartz/QuartzKeyboardAndMouse.mm
-    ControllerInterface/ForceFeedback/ForceFeedbackDevice.cpp
-    ControllerInterface/ForceFeedback/ForceFeedbackDevice.h
   )
   target_link_libraries(inputcommon PRIVATE
     ${COREFOUNDATION_LIBRARY}
     ${CARBON_LIBRARY}
     ${COCOA_LIBRARY}
     ${FORCEFEEDBACK_LIBRARY}
-    ${IOK_LIBRARY}
+  )
+  target_compile_options(inputcommon PRIVATE
+    -fobjc-arc
   )
 elseif(X11_FOUND)
+  target_include_directories(inputcommon PUBLIC ${X11_INPUT_INCLUDE_DIRS})
   target_sources(inputcommon PRIVATE
     ControllerInterface/Xlib/XInput2.cpp
     ControllerInterface/Xlib/XInput2.h
   )
-  target_link_libraries(inputcommon PUBLIC
-    ${X11_LIBRARIES}
-    ${X11_INPUT_LIBRARIES}
-  )
+  target_link_libraries(inputcommon PRIVATE PkgConfig::X11_INPUT)
 elseif(ANDROID)
   target_compile_definitions(inputcommon PRIVATE -DCIFACE_USE_ANDROID)
   target_sources(inputcommon PRIVATE
     ControllerInterface/Android/Android.cpp
     ControllerInterface/Android/Android.h
-    ControllerInterface/Touch/ButtonManager.cpp
-    ControllerInterface/Touch/ButtonManager.h
-    ControllerInterface/Touch/Touchscreen.cpp
-    ControllerInterface/Touch/Touchscreen.h
+    ControllerInterface/Touch/InputOverrider.cpp
+    ControllerInterface/Touch/InputOverrider.h
+  )
+  target_link_libraries(inputcommon PRIVATE
+    androidcommon
   )
 endif()
 
 if(NOT ANDROID)
-  target_link_libraries(inputcommon PUBLIC ${LIBUSB_LIBRARIES})
+  target_link_libraries(inputcommon PUBLIC LibUSB::LibUSB)
 endif()
 
 if(LIBEVDEV_FOUND AND LIBUDEV_FOUND)
@@ -175,34 +174,26 @@ if(UNIX)
 endif()
 
 if(ENABLE_SDL)
-  find_package(SDL2)
-  if(SDL2_FOUND)
-    message(STATUS "Using shared SDL2")
-    set(SDL_TARGET SDL2::SDL2)
-  else()
-    # SDL2 not found, try SDL
-    find_package(SDL)
-    if(SDL_FOUND)
-      message(STATUS "Using shared SDL")
-      add_library(System_SDL INTERFACE)
-      target_include_directories(System_SDL INTERFACE ${SDL_INCLUDE_DIR})
-      target_link_libraries(System_SDL INTERFACE ${SDL_LIBRARY})
-      set(SDL_TARGET System_SDL)
-    endif()
-  endif()
-  if(SDL_TARGET AND TARGET ${SDL_TARGET})
-    target_sources(inputcommon PRIVATE
-      ControllerInterface/SDL/SDL.cpp
-      ControllerInterface/SDL/SDL.h
-    )
-    target_link_libraries(inputcommon PRIVATE ${SDL_TARGET})
-    target_compile_definitions(inputcommon PRIVATE "CIFACE_USE_SDL=1")
-  else()
-    message(STATUS "SDL NOT found, disabling SDL input")
-  endif()
+  target_sources(inputcommon PRIVATE
+    ControllerInterface/SDL/SDL.cpp
+    ControllerInterface/SDL/SDL.h
+    ControllerInterface/SDL/SDLGamepad.cpp
+    ControllerInterface/SDL/SDLGamepad.h
+  )
+  target_link_libraries(inputcommon PRIVATE SDL3::SDL3)
 endif()
 
 if(MSVC)
   # Add precompiled header
   target_link_libraries(inputcommon PRIVATE use_pch)
+endif()
+
+if(TARGET Hidapi::Hidapi)
+  target_sources(inputcommon
+  PRIVATE
+    ControllerInterface/SteamDeck/SteamDeck.cpp
+    ControllerInterface/SteamDeck/SteamDeck.h
+  )
+  target_link_libraries(inputcommon PUBLIC Hidapi::Hidapi)
+  target_compile_definitions(inputcommon PRIVATE -DHAVE_HIDAPI=1)
 endif()

@@ -20,9 +20,9 @@
 #include "Common/ScopeGuard.h"
 #include "Common/StringUtil.h"
 #include "Common/Thread.h"
-#include "Core/CoreTiming.h"
 #include "InputCommon/ControllerInterface/ControllerInterface.h"
 #include "InputCommon/ControllerInterface/DualShockUDPClient/DualShockUDPProto.h"
+#include "SFML/Network/IpAddress.hpp"
 
 namespace ciface::DualShockUDPClient
 {
@@ -70,11 +70,8 @@ private:
         : m_name(name), m_input(input), m_range(range), m_offset(offset)
     {
     }
-    std::string GetName() const final override { return m_name; }
-    ControlState GetState() const final override
-    {
-      return (ControlState(m_input) + m_offset) / m_range;
-    }
+    std::string GetName() const final { return m_name; }
+    ControlState GetState() const final { return (ControlState(m_input) + m_offset) / m_range; }
 
   private:
     const char* m_name;
@@ -128,9 +125,9 @@ private:
   };
 
 public:
-  void UpdateInput() override;
+  Core::DeviceRemoval UpdateInput() override;
 
-  Device(std::string name, int index, std::string server_address, u16 server_port);
+  Device(std::string name, int index, std::string server_address, u16 server_port, u32 client_uid);
 
   std::string GetName() const final override;
   std::string GetSource() const final override;
@@ -150,13 +147,15 @@ private:
   bool m_prev_touch_valid = false;
   int m_touch_x = 0;
   int m_touch_y = 0;
-  std::string m_server_address;
-  u16 m_server_port;
+  const std::string m_server_address;
+  const u16 m_server_port;
 
-  s16 m_touch_x_min;
-  s16 m_touch_y_min;
-  s16 m_touch_x_max;
-  s16 m_touch_y_max;
+  s16 m_touch_x_min = 0;
+  s16 m_touch_y_min = 0;
+  s16 m_touch_x_max = 0;
+  s16 m_touch_y_max = 0;
+
+  const u32 m_client_uid;
 };
 
 using MathUtil::GRAVITY_ACCELERATION;
@@ -180,7 +179,7 @@ struct Server
     m_description = std::move(other.m_description);
     m_address = std::move(other.m_address);
     m_port = other.m_port;
-    m_port_info = std::move(other.m_port_info);
+    m_port_info = other.m_port_info;
   }
 
   Server& operator=(const Server&) = delete;
@@ -190,19 +189,40 @@ struct Server
 
   std::string m_description;
   std::string m_address;
-  u16 m_port;
+  u16 m_port = 0;
   std::array<Proto::MessageType::PortInfo, Proto::PORT_COUNT> m_port_info{};
   sf::UdpSocket m_socket;
   SteadyClock::time_point m_disconnect_time = SteadyClock::now();
 };
 
-static bool s_has_init;
-static bool s_servers_enabled;
-static std::vector<Server> s_servers;
-static u32 s_client_uid;
-static SteadyClock::time_point s_next_listports_time;
-static std::thread s_hotplug_thread;
-static Common::Flag s_hotplug_thread_running;
+class InputBackend final : public ciface::InputBackend
+{
+public:
+  InputBackend(ControllerInterface* controller_interface);
+  ~InputBackend() override;
+  void PopulateDevices() override;
+
+private:
+  void ConfigChanged();
+  void Restart();
+
+  void HotplugThreadFunc();
+  void StartHotplugThread();
+  void StopHotplugThread();
+
+  bool m_servers_enabled = false;
+  std::vector<Server> m_servers;
+  u32 m_client_uid = 0;
+  SteadyClock::time_point m_next_listports_time;
+  std::thread m_hotplug_thread;
+  Common::Flag m_hotplug_thread_running;
+  Config::ConfigChangedCallbackID m_config_change_callback_id;
+};
+
+std::unique_ptr<ciface::InputBackend> CreateInputBackend(ControllerInterface* controller_interface)
+{
+  return std::make_unique<InputBackend>(controller_interface);
+}
 
 static bool IsSameController(const Proto::MessageType::PortInfo& a,
                              const Proto::MessageType::PortInfo& b)
@@ -212,50 +232,58 @@ static bool IsSameController(const Proto::MessageType::PortInfo& a,
          std::tie(b.pad_id, b.pad_state, b.model, b.connection_type, b.pad_mac_address);
 }
 
-static void HotplugThreadFunc()
+void InputBackend::HotplugThreadFunc()
 {
   Common::SetCurrentThreadName("DualShockUDPClient Hotplug Thread");
   INFO_LOG_FMT(CONTROLLERINTERFACE, "DualShockUDPClient hotplug thread started");
   Common::ScopeGuard thread_stop_guard{
       [] { INFO_LOG_FMT(CONTROLLERINTERFACE, "DualShockUDPClient hotplug thread stopped"); }};
 
-  std::vector<bool> timed_out_servers(s_servers.size(), false);
+  std::vector<bool> timed_out_servers(m_servers.size(), false);
 
-  while (s_hotplug_thread_running.IsSet())
+  while (m_hotplug_thread_running.IsSet())
   {
     using namespace std::chrono;
     using namespace std::chrono_literals;
 
     const auto now = SteadyClock::now();
-    if (now >= s_next_listports_time)
+    if (now >= m_next_listports_time)
     {
-      s_next_listports_time = now + SERVER_LISTPORTS_INTERVAL;
+      m_next_listports_time = now + SERVER_LISTPORTS_INTERVAL;
 
-      for (size_t i = 0; i < s_servers.size(); ++i)
+      for (size_t i = 0; i < m_servers.size(); ++i)
       {
-        auto& server = s_servers[i];
-        Proto::Message<Proto::MessageType::ListPorts> msg(s_client_uid);
+        auto& server = m_servers[i];
+        Proto::Message<Proto::MessageType::ListPorts> msg(m_client_uid);
         auto& list_ports = msg.m_message;
         // We ask for x possible devices. We will receive a message for every connected device.
         list_ports.pad_request_count = SERVER_ASKED_PADS;
         list_ports.pad_ids = {0, 1, 2, 3};
         msg.Finish();
-        if (server.m_socket.send(&list_ports, sizeof list_ports, server.m_address, server.m_port) !=
-            sf::Socket::Status::Done)
+        if (std::optional<sf::IpAddress> server_ip = sf::IpAddress::resolve(server.m_address))
         {
-          ERROR_LOG_FMT(CONTROLLERINTERFACE, "DualShockUDPClient HotplugThreadFunc send failed");
+          if (server.m_socket.send(&list_ports, sizeof list_ports, *server_ip, server.m_port) !=
+              sf::Socket::Status::Done)
+          {
+            ERROR_LOG_FMT(CONTROLLERINTERFACE, "DualShockUDPClient HotplugThreadFunc send failed");
+          }
+        }
+        else
+        {
+          ERROR_LOG_FMT(CONTROLLERINTERFACE, "DualShockUDPClient failed to resolve {}",
+                        server.m_address);
         }
         timed_out_servers[i] = true;
       }
     }
 
     sf::SocketSelector selector;
-    for (auto& server : s_servers)
+    for (auto& server : m_servers)
     {
       selector.add(server.m_socket);
     }
 
-    auto timeout = duration_cast<milliseconds>(s_next_listports_time - SteadyClock::now());
+    auto timeout = duration_cast<milliseconds>(m_next_listports_time - SteadyClock::now());
 
     // Receive controller port info within a time from our request.
     // Run this even if we sent no new requests, to disconnect devices,
@@ -271,9 +299,9 @@ static void HotplugThreadFunc()
       if (selector.wait(sf::milliseconds(current_timeout.count())))
       {
         // Now check all the servers because we don't know which one(s) sent a reply
-        for (size_t i = 0; i < s_servers.size(); ++i)
+        for (size_t i = 0; i < m_servers.size(); ++i)
         {
-          auto& server = s_servers[i];
+          auto& server = m_servers[i];
           if (!selector.isReady(server.m_socket))
           {
             continue;
@@ -281,7 +309,7 @@ static void HotplugThreadFunc()
 
           Proto::Message<Proto::MessageType::FromServer> msg;
           std::size_t received_bytes;
-          sf::IpAddress sender;
+          std::optional<sf::IpAddress> sender;
           u16 port;
           if (server.m_socket.receive(&msg, sizeof(msg), received_bytes, sender, port) !=
               sf::Socket::Status::Done)
@@ -302,20 +330,20 @@ static void HotplugThreadFunc()
             {
               server.m_port_info[port_info->pad_id] = *port_info;
               // Just remove and re-add all the devices for simplicity
-              g_controller_interface.PlatformPopulateDevices([] { PopulateDevices(); });
+              GetControllerInterface().PlatformPopulateDevices([this] { PopulateDevices(); });
             }
           }
         }
       }
-      if (!s_hotplug_thread_running.IsSet())  // Avoid hanging the thread for too long
+      if (!m_hotplug_thread_running.IsSet())  // Avoid hanging the thread for too long
         return;
     } while (timeout > 0ms);
 
     // If we have failed to receive any information from the server (or even send it),
     // disconnect all devices from it (after enough time has elapsed, to avoid false positives).
-    for (size_t i = 0; i < s_servers.size(); ++i)
+    for (size_t i = 0; i < m_servers.size(); ++i)
     {
-      auto& server = s_servers[i];
+      auto& server = m_servers[i];
       if (timed_out_servers[i] && SteadyClock::now() >= server.m_disconnect_time)
       {
         bool any_connected = false;
@@ -328,49 +356,49 @@ static void HotplugThreadFunc()
         }
         // We can't only remove devices added by this server as we wouldn't know which they are
         if (any_connected)
-          g_controller_interface.PlatformPopulateDevices([] { PopulateDevices(); });
+          GetControllerInterface().PlatformPopulateDevices([this] { PopulateDevices(); });
       }
     }
   }
 }
 
-static void StartHotplugThread()
+void InputBackend::StartHotplugThread()
 {
   // Mark the thread as running.
-  if (!s_hotplug_thread_running.TestAndSet())
+  if (!m_hotplug_thread_running.TestAndSet())
   {
     // It was already running.
     return;
   }
 
-  s_hotplug_thread = std::thread(HotplugThreadFunc);
+  m_hotplug_thread = std::thread(&InputBackend::HotplugThreadFunc, this);
 }
 
-static void StopHotplugThread()
+void InputBackend::StopHotplugThread()
 {
   // Tell the hotplug thread to stop.
-  if (!s_hotplug_thread_running.TestAndClear())
+  if (!m_hotplug_thread_running.TestAndClear())
   {
     // It wasn't running, we're done.
     return;
   }
 
-  s_hotplug_thread.join();
+  m_hotplug_thread.join();
 
-  for (auto& server : s_servers)
+  for (auto& server : m_servers)
   {
     server.m_socket.unbind();  // interrupt blocking socket
   }
 }
 
 // Also just start
-static void Restart()
+void InputBackend::Restart()
 {
   INFO_LOG_FMT(CONTROLLERINTERFACE, "DualShockUDPClient Restart");
 
   StopHotplugThread();
 
-  for (auto& server : s_servers)
+  for (auto& server : m_servers)
   {
     for (size_t port_index = 0; port_index < server.m_port_info.size(); port_index++)
     {
@@ -380,37 +408,34 @@ static void Restart()
   }
 
   // Only removes devices as servers have been cleaned
-  g_controller_interface.PlatformPopulateDevices([] { PopulateDevices(); });
+  GetControllerInterface().PlatformPopulateDevices([this] { PopulateDevices(); });
 
-  s_client_uid = Common::Random::GenerateValue<u32>();
-  s_next_listports_time = SteadyClock::now();
+  m_client_uid = Common::Random::GenerateValue<u32>();
+  m_next_listports_time = SteadyClock::now();
 
-  if (s_servers_enabled && !s_servers.empty())
+  if (m_servers_enabled && !m_servers.empty())
     StartHotplugThread();
 }
 
-static void ConfigChanged()
+void InputBackend::ConfigChanged()
 {
-  if (!s_has_init)
-    return;
-
   const bool servers_enabled = Config::Get(Settings::SERVERS_ENABLED);
   const std::string servers_setting = Config::Get(Settings::SERVERS);
 
   std::string new_servers_setting;
-  for (const auto& server : s_servers)
+  for (const auto& server : m_servers)
   {
     new_servers_setting +=
         fmt::format("{}:{}:{};", server.m_description, server.m_address, server.m_port);
   }
 
-  if (servers_enabled != s_servers_enabled || servers_setting != new_servers_setting)
+  if (servers_enabled != m_servers_enabled || servers_setting != new_servers_setting)
   {
-    // Stop the thread before writing to s_servers
+    // Stop the thread before writing to m_servers
     StopHotplugThread();
 
-    s_servers_enabled = servers_enabled;
-    s_servers.clear();
+    m_servers_enabled = servers_enabled;
+    m_servers.clear();
 
     const auto server_details = SplitString(servers_setting, ';');
     for (const auto& server_detail : server_details)
@@ -428,17 +453,15 @@ static void ConfigChanged()
       }
       u16 server_port = static_cast<u16>(port);
 
-      s_servers.emplace_back(description, server_address, server_port);
+      m_servers.emplace_back(description, server_address, server_port);
     }
     Restart();
   }
 }
 
-void Init()
+InputBackend::InputBackend(ControllerInterface* controller_interface)
+    : ciface::InputBackend(controller_interface)
 {
-  // Does not support multiple init calls
-  s_has_init = true;
-
   // The following is added for backwards compatibility
   const auto server_address_setting = Config::Get(Settings::SERVER_ADDRESS);
   const auto server_port_setting = Config::Get(Settings::SERVER_PORT);
@@ -454,29 +477,30 @@ void Init()
     Config::SetBase(Settings::SERVER_PORT, 0);
   }
 
-  // It would be much better to unbind from this callback on DeInit but it's not possible as of now
-  Config::AddConfigChangedCallback(ConfigChanged);
-  ConfigChanged();  // Call it immediately to load settings
+  m_config_change_callback_id =
+      Config::AddConfigChangedCallback(std::bind(&InputBackend::ConfigChanged, this));
+  // Call it immediately to load settings
+  ConfigChanged();
 }
 
 // This can be called by the host thread as well as the hotplug thread, concurrently.
 // So use PlatformPopulateDevices().
-// s_servers is already safe because it can only be modified when the DSU thread is not running,
+// m_servers is already safe because it can only be modified when the DSU thread is not running,
 // from the main thread
-void PopulateDevices()
+void InputBackend::PopulateDevices()
 {
   INFO_LOG_FMT(CONTROLLERINTERFACE, "DualShockUDPClient PopulateDevices");
 
-  // s_servers has already been updated so we can't use it to know which devices we removed,
+  // m_servers has already been updated so we can't use it to know which devices we removed,
   // also it's good to remove all of them before adding new ones so that their id will be set
   // correctly if they have the same name
-  g_controller_interface.RemoveDevice(
+  GetControllerInterface().RemoveDevice(
       [](const auto* dev) { return dev->GetSource() == DUALSHOCKUDP_SOURCE_NAME; });
 
   // Users might have created more than one server on the same IP/Port.
   // Devices might end up being duplicated (if the server responds two all requests)
   // but they won't conflict.
-  for (const auto& server : s_servers)
+  for (const auto& server : m_servers)
   {
     for (size_t port_index = 0; port_index < server.m_port_info.size(); port_index++)
     {
@@ -484,24 +508,23 @@ void PopulateDevices()
       if (port_info.pad_state != Proto::DsState::Connected)
         continue;
 
-      g_controller_interface.AddDevice(std::make_shared<Device>(
-          server.m_description, static_cast<int>(port_index), server.m_address, server.m_port));
+      GetControllerInterface().AddDevice(
+          std::make_shared<Device>(server.m_description, static_cast<int>(port_index),
+                                   server.m_address, server.m_port, m_client_uid));
     }
   }
 }
 
-void DeInit()
+InputBackend::~InputBackend()
 {
+  Config::RemoveConfigChangedCallback(m_config_change_callback_id);
   StopHotplugThread();
-
-  s_has_init = false;
-  s_servers_enabled = false;
-  s_servers.clear();
 }
 
-Device::Device(std::string name, int index, std::string server_address, u16 server_port)
+Device::Device(std::string name, int index, std::string server_address, u16 server_port,
+               u32 client_uid)
     : m_name{std::move(name)}, m_index{index}, m_server_address{std::move(server_address)},
-      m_server_port{server_port}
+      m_server_port{server_port}, m_client_uid(client_uid)
 {
   m_socket.setBlocking(false);
 
@@ -596,7 +619,7 @@ std::string Device::GetSource() const
   return std::string(DUALSHOCKUDP_SOURCE_NAME);
 }
 
-void Device::UpdateInput()
+Core::DeviceRemoval Device::UpdateInput()
 {
   // Regularly tell the UDP server to feed us controller data
   const auto now = SteadyClock::now();
@@ -604,13 +627,13 @@ void Device::UpdateInput()
   {
     m_next_reregister = now + SERVER_REREGISTER_INTERVAL;
 
-    Proto::Message<Proto::MessageType::PadDataRequest> msg(s_client_uid);
+    Proto::Message<Proto::MessageType::PadDataRequest> msg(m_client_uid);
     auto& data_req = msg.m_message;
     data_req.register_flags = Proto::RegisterFlags::PadID;
     data_req.pad_id_to_register = m_index;
     msg.Finish();
-    if (m_socket.send(&data_req, sizeof(data_req), m_server_address, m_server_port) !=
-        sf::Socket::Status::Done)
+    if (m_socket.send(&data_req, sizeof(data_req), sf::IpAddress::resolve(m_server_address).value(),
+                      m_server_port) != sf::Socket::Status::Done)
     {
       ERROR_LOG_FMT(CONTROLLERINTERFACE, "DualShockUDPClient UpdateInput send failed");
     }
@@ -619,7 +642,7 @@ void Device::UpdateInput()
   // Receive and handle controller data
   Proto::Message<Proto::MessageType::FromServer> msg;
   std::size_t received_bytes;
-  sf::IpAddress sender;
+  std::optional<sf::IpAddress> sender;
   u16 port;
   while (m_socket.receive(&msg, sizeof msg, received_bytes, sender, port) ==
          sf::Socket::Status::Done)
@@ -642,6 +665,8 @@ void Device::UpdateInput()
       m_prev_touch_valid = true;
     }
   }
+
+  return Core::DeviceRemoval::Keep;
 }
 
 std::optional<int> Device::GetPreferredId() const

@@ -2,12 +2,8 @@ add_library(videosoftware
   Clipper.cpp
   Clipper.h
   CopyRegion.h
-  DebugUtil.cpp
-  DebugUtil.h
   EfbCopy.cpp
   EfbCopy.h
-  EfbInterface.cpp
-  EfbInterface.h
   NativeVertexFormat.h
   Rasterizer.cpp
   Rasterizer.h
@@ -16,10 +12,12 @@ add_library(videosoftware
   SWmain.cpp
   SWBoundingBox.cpp
   SWBoundingBox.h
+  SWEfbInterface.cpp
+  SWEfbInterface.h
+  SWGfx.cpp
+  SWGfx.h
   SWOGLWindow.cpp
   SWOGLWindow.h
-  SWRenderer.cpp
-  SWRenderer.h
   SWTexture.cpp
   SWTexture.h
   SWVertexLoader.cpp
@@ -32,7 +30,6 @@ add_library(videosoftware
   TextureSampler.h
   TransformUnit.cpp
   TransformUnit.h
-  Vec3.h
   VideoBackend.h
 )
 

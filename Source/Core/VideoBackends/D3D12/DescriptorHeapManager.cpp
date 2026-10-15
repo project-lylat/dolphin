@@ -25,7 +25,6 @@ bool DescriptorHeapManager::Create(ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_T
     return false;
 
   m_heap_base_cpu = m_descriptor_heap->GetCPUDescriptorHandleForHeapStart();
-  m_heap_base_gpu = m_descriptor_heap->GetGPUDescriptorHandleForHeapStart();
   m_num_descriptors = num_descriptors;
   m_descriptor_increment_size = device->GetDescriptorHandleIncrementSize(type);
 
@@ -60,7 +59,7 @@ bool DescriptorHeapManager::Allocate(DescriptorHandle* handle)
 
     handle->index = index;
     handle->cpu_handle.ptr = m_heap_base_cpu.ptr + index * m_descriptor_increment_size;
-    handle->gpu_handle.ptr = m_heap_base_gpu.ptr + index * m_descriptor_increment_size;
+    handle->gpu_handle.ptr = 0;
     return true;
   }
 
@@ -129,10 +128,10 @@ static void GetD3DSamplerDesc(D3D12_SAMPLER_DESC* desc, const SamplerState& stat
   desc->MipLODBias = static_cast<s32>(state.tm0.lod_bias) / 256.f;
   desc->ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
 
-  if (state.tm0.anisotropic_filtering)
+  if (state.tm0.anisotropic_filtering != 0)
   {
     desc->Filter = D3D12_FILTER_ANISOTROPIC;
-    desc->MaxAnisotropy = 1u << g_ActiveConfig.iMaxAnisotropy;
+    desc->MaxAnisotropy = 1u << state.tm0.anisotropic_filtering;
   }
 }
 

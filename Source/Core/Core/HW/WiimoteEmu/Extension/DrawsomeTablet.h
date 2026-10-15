@@ -27,7 +27,8 @@ class DrawsomeTablet : public Extension3rdParty
 public:
   DrawsomeTablet();
 
-  void Update() override;
+  void BuildDesiredExtensionState(DesiredExtensionState* target_state) override;
+  void Update(const DesiredExtensionState& target_state) override;
   void Reset() override;
 
   ControllerEmu::ControlGroup* GetGroup(DrawsomeTabletGroup group);
@@ -49,8 +50,9 @@ public:
       BitField<3, 5, u8> status;
     };
   };
-
   static_assert(6 == sizeof(DataFormat), "Wrong size.");
+
+  using DesiredState = DataFormat;
 
 private:
   ControllerEmu::AnalogStick* m_stylus;

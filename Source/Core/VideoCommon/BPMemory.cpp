@@ -3,7 +3,7 @@
 
 #include "VideoCommon/BPMemory.h"
 
-#include "Common/BitUtils.h"
+#include <bit>
 
 // BP state
 // STATE_TO_SAVE
@@ -11,12 +11,12 @@ BPMemory bpmem;
 
 bool BlendMode::UseLogicOp() const
 {
-  // Logicop bit has lowest priority.
-  if (subtract || blendenable || !logicopenable)
+  // Blending overrides the logicop bit.
+  if (blend_enable || !logic_op_enable)
     return false;
 
   // Fast path for Kirby's Return to Dreamland, they use it with dstAlpha.
-  if (logicmode == LogicOp::NoOp)
+  if (logic_mode == LogicOp::NoOp)
     return false;
 
   return true;
@@ -50,14 +50,14 @@ float FogParam0::FloatValue() const
 {
   // scale mantissa from 11 to 23 bits
   const u32 integral = (sign << 31) | (exp << 23) | (mant << 12);
-  return Common::BitCast<float>(integral);
+  return std::bit_cast<float>(integral);
 }
 
 float FogParam3::FloatValue() const
 {
   // scale mantissa from 11 to 23 bits
   const u32 integral = (c_sign << 31) | (c_exp << 23) | (c_mant << 12);
-  return Common::BitCast<float>(integral);
+  return std::bit_cast<float>(integral);
 }
 
 float FogParams::GetA() const

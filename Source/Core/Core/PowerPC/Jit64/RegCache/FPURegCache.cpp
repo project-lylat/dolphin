@@ -13,29 +13,71 @@ FPURegCache::FPURegCache(Jit64& jit) : RegCache{jit}
 {
 }
 
-void FPURegCache::StoreRegister(preg_t preg, const OpArg& new_loc)
+bool FPURegCache::IsImm(preg_t preg) const
 {
-  ASSERT_MSG(DYNA_REC, m_regs[preg].IsBound(), "Unbound register - {}", preg);
-  m_emitter->MOVAPD(new_loc, m_regs[preg].Location()->GetSimpleReg());
+  return false;
+}
+
+u32 FPURegCache::Imm32(preg_t preg) const
+{
+  ASSERT_MSG(DYNA_REC, false, "FPURegCache doesn't support immediates");
+  return 0;
+}
+
+s32 FPURegCache::SImm32(preg_t preg) const
+{
+  ASSERT_MSG(DYNA_REC, false, "FPURegCache doesn't support immediates");
+  return 0;
+}
+
+OpArg FPURegCache::R(preg_t preg) const
+{
+  if (m_regs[preg].IsInHostRegister())
+  {
+    return ::Gen::R(m_regs[preg].GetHostRegister());
+  }
+  else
+  {
+    ASSERT_MSG(DYNA_REC, m_regs[preg].IsInDefaultLocation(), "FPR {} missing!", preg);
+    return m_regs[preg].GetDefaultLocation();
+  }
+}
+
+void FPURegCache::StoreRegister(preg_t preg, const OpArg& new_loc,
+                                IgnoreDiscardedRegisters ignore_discarded_registers)
+{
+  if (m_regs[preg].IsInHostRegister())
+  {
+    m_emitter->MOVAPD(new_loc, m_regs[preg].GetHostRegister());
+  }
+  else
+  {
+    ASSERT_MSG(DYNA_REC, ignore_discarded_registers != IgnoreDiscardedRegisters::No,
+               "FPR {} not in host register", preg);
+  }
 }
 
 void FPURegCache::LoadRegister(preg_t preg, X64Reg new_loc)
 {
-  ASSERT_MSG(DYNA_REC, !m_regs[preg].IsDiscarded(), "Discarded register - {}", preg);
-  m_emitter->MOVAPD(new_loc, m_regs[preg].Location().value());
+  ASSERT_MSG(DYNA_REC, m_regs[preg].IsInDefaultLocation(), "FPR {} not in default location", preg);
+  m_emitter->MOVAPD(new_loc, m_regs[preg].GetDefaultLocation());
 }
 
-const X64Reg* FPURegCache::GetAllocationOrder(size_t* count) const
+void FPURegCache::DiscardImm(preg_t preg)
 {
-  static const X64Reg allocation_order[] = {XMM6,  XMM7,  XMM8,  XMM9, XMM10, XMM11, XMM12,
-                                            XMM13, XMM14, XMM15, XMM2, XMM3,  XMM4,  XMM5};
-  *count = sizeof(allocation_order) / sizeof(X64Reg);
+  // FPURegCache doesn't support immediates, so no need to do anything
+}
+
+std::span<const X64Reg> FPURegCache::GetAllocationOrder() const
+{
+  static constexpr X64Reg allocation_order[] = {XMM6,  XMM7,  XMM8,  XMM9, XMM10, XMM11, XMM12,
+                                                XMM13, XMM14, XMM15, XMM2, XMM3,  XMM4,  XMM5};
   return allocation_order;
 }
 
 OpArg FPURegCache::GetDefaultLocation(preg_t preg) const
 {
-  return PPCSTATE(ps[preg].ps0);
+  return PPCSTATE_PS0(preg);
 }
 
 BitSet32 FPURegCache::GetRegUtilization() const

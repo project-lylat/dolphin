@@ -11,12 +11,12 @@ namespace DSP::HLE
 struct AXPBWii;
 class DSPHLE;
 
-class AXWiiUCode : public AXUCode
+class AXWiiUCode final : public AXUCode
 {
 public:
   AXWiiUCode(DSPHLE* dsphle, u32 crc);
-  ~AXWiiUCode() override;
 
+  void Initialize() override;
   void DoState(PointerWrap& p) override;
 
 protected:
@@ -38,25 +38,23 @@ protected:
   // Are we implementing an old version of AXWii which still has updates?
   bool m_old_axwii = false;
 
+  // Late AXWii versions support Wiimote filtering and a biquad filter.
+  bool m_new_filter = false;
+
   // Last volume values for MAIN and AUX. Used to generate volume ramps to
   // interpolate nicely between old and new volume values.
   u16 m_last_main_volume = 0;
   u16 m_last_aux_volumes[3]{};
 
-  // If needed, extract the updates related fields from a PB. We need to
-  // reinject them afterwards so that the correct PB typs is written to RAM.
-  bool ExtractUpdatesFields(AXPBWii& pb, u16* num_updates, u16* updates, u32* updates_addr);
-  void ReinjectUpdatesFields(AXPBWii& pb, u16* num_updates, u32 updates_addr);
-
   // Convert a mixer_control bitfield to our internal representation for that
   // value. Required because that bitfield has a different meaning in some
   // versions of AX.
-  AXMixControl ConvertMixerControl(u32 mixer_control);
+  static AXMixControl ConvertMixerControl(u32 mixer_control);
 
   // Generate a volume ramp from vol1 to vol2, interpolating n volume values.
   // Uses floating point arithmetic, which isn't exactly what the UCode does,
   // but this gives better precision and nicer code.
-  void GenerateVolumeRamp(u16* output, u16 vol1, u16 vol2, size_t nvals);
+  static void GenerateVolumeRamp(u16* output, u16 vol1, u16 vol2, size_t nvals);
 
   void HandleCommandList() override;
 
@@ -70,6 +68,9 @@ protected:
   void OutputWMSamples(u32* addresses);  // 4 addresses
 
 private:
+  void ReadPB(Memory::MemoryManager& memory, u32 addr, AXPBWii& pb);
+  void WritePB(Memory::MemoryManager& memory, u32 addr, const AXPBWii& pb);
+
   enum CmdType
   {
     CMD_SETUP = 0x00,

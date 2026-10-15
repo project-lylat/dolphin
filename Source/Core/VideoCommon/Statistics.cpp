@@ -8,11 +8,21 @@
 
 #include <imgui.h>
 
+#include "Core/DolphinAnalytics.h"
+#include "Core/HW/SystemTimers.h"
+#include "Core/System.h"
+
 #include "VideoCommon/BPFunctions.h"
 #include "VideoCommon/VideoCommon.h"
 #include "VideoCommon/VideoConfig.h"
+#include "VideoCommon/VideoEvents.h"
+#include "VideoCommon/XFMemory.h"
 
 Statistics g_stats;
+
+static Common::EventHook s_before_frame_event;
+static Common::EventHook s_after_frame_event;
+
 static bool clear_scissors;
 
 void Statistics::ResetFrame()
@@ -54,52 +64,53 @@ void Statistics::Display() const
     ImGui::NextColumn();
   };
 
-  if (g_ActiveConfig.backend_info.api_type == APIType::Nothing)
+  if (g_backend_info.api_type == APIType::Nothing)
   {
-    draw_statistic("Objects", "%d", this_frame.num_drawn_objects);
-    draw_statistic("Vertices Loaded", "%d", this_frame.num_vertices_loaded);
-    draw_statistic("Triangles Input", "%d", this_frame.num_triangles_in);
-    draw_statistic("Triangles Rejected", "%d", this_frame.num_triangles_rejected);
-    draw_statistic("Triangles Culled", "%d", this_frame.num_triangles_culled);
-    draw_statistic("Triangles Clipped", "%d", this_frame.num_triangles_clipped);
-    draw_statistic("Triangles Drawn", "%d", this_frame.num_triangles_drawn);
-    draw_statistic("Rasterized Pix", "%d", this_frame.rasterized_pixels);
-    draw_statistic("TEV Pix In", "%d", this_frame.tev_pixels_in);
-    draw_statistic("TEV Pix Out", "%d", this_frame.tev_pixels_out);
+    draw_statistic("Objects", "%u", this_frame.num_drawn_objects);
+    draw_statistic("Vertices Loaded", "%u", this_frame.num_vertices_loaded);
+    draw_statistic("Triangles Input", "%u", this_frame.num_triangles_in);
+    draw_statistic("Triangles Rejected", "%u", this_frame.num_triangles_rejected);
+    draw_statistic("Triangles Culled", "%u", this_frame.num_triangles_culled);
+    draw_statistic("Triangles Clipped", "%u", this_frame.num_triangles_clipped);
+    draw_statistic("Triangles Drawn", "%u", this_frame.num_triangles_drawn);
+    draw_statistic("Rasterized Pix", "%u", this_frame.rasterized_pixels);
+    draw_statistic("TEV Pix In", "%u", this_frame.tev_pixels_in);
+    draw_statistic("TEV Pix Out", "%u", this_frame.tev_pixels_out);
   }
 
-  draw_statistic("Textures created", "%d", num_textures_created);
-  draw_statistic("Textures uploaded", "%d", num_textures_uploaded);
-  draw_statistic("Textures alive", "%d", num_textures_alive);
-  draw_statistic("pshaders created", "%d", num_pixel_shaders_created);
-  draw_statistic("pshaders alive", "%d", num_pixel_shaders_alive);
-  draw_statistic("vshaders created", "%d", num_vertex_shaders_created);
-  draw_statistic("vshaders alive", "%d", num_vertex_shaders_alive);
-  draw_statistic("shaders changes", "%d", this_frame.num_shader_changes);
-  draw_statistic("dlists called", "%d", this_frame.num_dlists_called);
-  draw_statistic("Primitive joins", "%d", this_frame.num_primitive_joins);
-  draw_statistic("Draw calls", "%d", this_frame.num_draw_calls);
-  draw_statistic("Primitives", "%d", this_frame.num_prims);
-  draw_statistic("Primitives (DL)", "%d", this_frame.num_dl_prims);
-  draw_statistic("XF loads", "%d", this_frame.num_xf_loads);
-  draw_statistic("XF loads (DL)", "%d", this_frame.num_xf_loads_in_dl);
-  draw_statistic("CP loads", "%d", this_frame.num_cp_loads);
-  draw_statistic("CP loads (DL)", "%d", this_frame.num_cp_loads_in_dl);
-  draw_statistic("BP loads", "%d", this_frame.num_bp_loads);
-  draw_statistic("BP loads (DL)", "%d", this_frame.num_bp_loads_in_dl);
-  draw_statistic("Vertex streamed", "%i kB", this_frame.bytes_vertex_streamed / 1024);
-  draw_statistic("Index streamed", "%i kB", this_frame.bytes_index_streamed / 1024);
-  draw_statistic("Uniform streamed", "%i kB", this_frame.bytes_uniform_streamed / 1024);
-  draw_statistic("Vertex Loaders", "%d", num_vertex_loaders);
-  draw_statistic("EFB peeks:", "%d", this_frame.num_efb_peeks);
-  draw_statistic("EFB pokes:", "%d", this_frame.num_efb_pokes);
+  draw_statistic("Textures created", "%u", num_textures_created);
+  draw_statistic("Textures uploaded", "%u", num_textures_uploaded);
+  draw_statistic("Textures alive", "%u", num_textures_alive);
+  draw_statistic("pshaders created", "%u", num_pixel_shaders_created);
+  draw_statistic("pshaders alive", "%u", num_pixel_shaders_alive);
+  draw_statistic("vshaders created", "%u", num_vertex_shaders_created);
+  draw_statistic("vshaders alive", "%u", num_vertex_shaders_alive);
+  draw_statistic("shaders changes", "%u", this_frame.num_shader_changes);
+  draw_statistic("dlists called", "%u", this_frame.num_dlists_called);
+  draw_statistic("Primitive joins", "%u", this_frame.num_primitive_joins);
+  draw_statistic("Draw calls", "%u", this_frame.num_draw_calls);
+  draw_statistic("Primitives", "%u", this_frame.num_prims);
+  draw_statistic("Primitives (DL)", "%u", this_frame.num_dl_prims);
+  draw_statistic("XF loads", "%u", this_frame.num_xf_loads);
+  draw_statistic("XF loads (DL)", "%u", this_frame.num_xf_loads_in_dl);
+  draw_statistic("CP loads", "%u", this_frame.num_cp_loads);
+  draw_statistic("CP loads (DL)", "%u", this_frame.num_cp_loads_in_dl);
+  draw_statistic("BP loads", "%u", this_frame.num_bp_loads);
+  draw_statistic("BP loads (DL)", "%u", this_frame.num_bp_loads_in_dl);
+  draw_statistic("Vertex streamed", "%u kB", this_frame.bytes_vertex_streamed / 1024);
+  draw_statistic("Index streamed", "%u kB", this_frame.bytes_index_streamed / 1024);
+  draw_statistic("Uniform streamed", "%u kB", this_frame.bytes_uniform_streamed / 1024);
+  draw_statistic("Vertex Loaders", "%u", num_vertex_loaders);
+  draw_statistic("EFB peeks:", "%u", this_frame.num_efb_peeks);
+  draw_statistic("EFB pokes:", "%u", this_frame.num_efb_pokes);
+  draw_statistic("Draw dones:", "%u", this_frame.num_draw_done);
+  draw_statistic("Tokens:", "%u/%u", this_frame.num_token, this_frame.num_token_int);
 
   ImGui::Columns(1);
 
   ImGui::End();
 }
 
-// Is this really needed?
 void Statistics::DisplayProj() const
 {
   if (!ImGui::Begin("Projection Statistics", nullptr, ImGuiWindowFlags_NoNavInputs))
@@ -126,6 +137,9 @@ void Statistics::DisplayProj() const
   ImGui::Text("Projection 13: %f (%f)", gproj[13], g2proj[13]);
   ImGui::Text("Projection 14: %f (%f)", gproj[14], g2proj[14]);
   ImGui::Text("Projection 15: %f (%f)", gproj[15], g2proj[15]);
+  ImGui::NewLine();
+  ImGui::Text("Avg Projection Viewport Ratio Persp(3D): %f", avg_persp_proj_viewport_ratio);
+  ImGui::Text("Avg Projection Viewport Ratio Ortho(2D): %f", avg_ortho_proj_viewport_ratio);
 
   ImGui::End();
 }
@@ -138,7 +152,8 @@ void Statistics::AddScissorRect()
     clear_scissors = false;
   }
 
-  BPFunctions::ScissorResult scissor = BPFunctions::ComputeScissorRects();
+  BPFunctions::ScissorResult scissor = BPFunctions::ComputeScissorRects(
+      bpmem.scissorTL, bpmem.scissorBR, bpmem.scissorOffset, xfmem.viewport);
   bool add;
   if (scissors.empty())
   {
@@ -153,7 +168,7 @@ void Statistics::AddScissorRect()
     }
     else
     {
-      add = std::find_if(scissors.begin(), scissors.end(), [&](auto& s) {
+      add = std::ranges::find_if(scissors, [&](auto& s) {
               return s.Matches(scissor, show_scissors, show_viewports);
             }) == scissors.end();
     }
@@ -288,19 +303,19 @@ void Statistics::DisplayScissor()
       draw_rect(info.viewport_left, info.viewport_top, info.viewport_right, info.viewport_bottom,
                 col);
     }
-    for (size_t i = 0; i < info.m_result.size(); i++)
+    for (size_t i = 0; i < info.rectangles.size(); i++)
     {
       // The last entry in the sorted list of results is the one that is used by hardware backends
-      const u8 new_alpha = (i == info.m_result.size() - 1) ? 0x40 : 0x80;
+      const u8 new_alpha = (i == info.rectangles.size() - 1) ? 0x40 : 0x80;
       const ImU32 new_col = (col & ~IM_COL32_A_MASK) | (new_alpha << IM_COL32_A_SHIFT);
 
-      const auto& r = info.m_result[i];
+      const auto& r = info.rectangles[i];
       draw_list->AddRectFilled(vec(r.rect.left + r.x_off, r.rect.top + r.y_off),
                                vec(r.rect.right + r.x_off, r.rect.bottom + r.y_off), new_col);
     }
   };
   constexpr auto NUM_SCISSOR_COLUMNS = 8;
-  const auto draw_scissor_table_header = [&]() {
+  const auto draw_scissor_table_header = [&] {
     ImGui::TableSetupColumn("#");
     ImGui::TableSetupColumn("x0");
     ImGui::TableSetupColumn("y0");
@@ -336,44 +351,45 @@ void Statistics::DisplayScissor()
 
     // Visualization of where things are updated on screen with this specific scissor
     ImGui::TableNextColumn();
-    float scale = ImGui::GetTextLineHeight() / EFB_HEIGHT;
+    float scale_height = ImGui::GetTextLineHeight() / EFB_HEIGHT;
     if (show_raw_scissors)
-      scale += ImGui::GetTextLineHeightWithSpacing() / EFB_HEIGHT;
+      scale_height += ImGui::GetTextLineHeightWithSpacing() / EFB_HEIGHT;
     ImVec2 p2 = ImGui::GetCursorScreenPos();
     // Use a height of 1 since we want this to span two table rows (if possible)
-    ImGui::Dummy(ImVec2(EFB_WIDTH * scale, 1));
-    for (size_t i = 0; i < info.m_result.size(); i++)
+    ImGui::Dummy(ImVec2(EFB_WIDTH * scale_height, 1));
+    for (size_t i = 0; i < info.rectangles.size(); i++)
     {
       // The last entry in the sorted list of results is the one that is used by hardware backends
-      const u8 new_alpha = (i == info.m_result.size() - 1) ? 0x80 : 0x40;
+      const u8 new_alpha = (i == info.rectangles.size() - 1) ? 0x80 : 0x40;
       const ImU32 col = ImGui::GetColorU32(COLORS[index % COLORS.size()]);
       const ImU32 new_col = (col & ~IM_COL32_A_MASK) | (new_alpha << IM_COL32_A_SHIFT);
 
-      const auto& r = info.m_result[i];
-      draw_list->AddRectFilled(ImVec2(p2.x + r.rect.left * scale, p2.y + r.rect.top * scale),
-                               ImVec2(p2.x + r.rect.right * scale, p2.y + r.rect.bottom * scale),
-                               new_col);
+      const auto& r = info.rectangles[i];
+      draw_list->AddRectFilled(
+          ImVec2(p2.x + r.rect.left * scale_height, p2.y + r.rect.top * scale_height),
+          ImVec2(p2.x + r.rect.right * scale_height, p2.y + r.rect.bottom * scale_height), new_col);
     }
-    draw_list->AddRect(p2, ImVec2(p2.x + EFB_WIDTH * scale, p2.y + EFB_HEIGHT * scale), light_grey);
+    draw_list->AddRect(
+        p2, ImVec2(p2.x + EFB_WIDTH * scale_height, p2.y + EFB_HEIGHT * scale_height), light_grey);
     ImGui::SameLine();
-    ImGui::Text("%d", int(info.m_result.size()));
+    ImGui::Text("%zu", info.rectangles.size());
 
     if (show_raw_scissors)
     {
       ImGui::TableNextColumn();
       ImGui::TextColored(COLORS[index % COLORS.size()], "Raw");
       ImGui::TableNextColumn();
-      ImGui::Text("%d", info.scissor_tl.x_full.Value());
+      ImGui::Text("%u", info.scissor_tl.x_full.Value());
       ImGui::TableNextColumn();
-      ImGui::Text("%d", info.scissor_tl.y_full.Value());
+      ImGui::Text("%u", info.scissor_tl.y_full.Value());
       ImGui::TableNextColumn();
-      ImGui::Text("%d", info.scissor_br.x_full.Value());
+      ImGui::Text("%u", info.scissor_br.x_full.Value());
       ImGui::TableNextColumn();
-      ImGui::Text("%d", info.scissor_br.y_full.Value());
+      ImGui::Text("%u", info.scissor_br.y_full.Value());
       ImGui::TableNextColumn();
-      ImGui::Text("%d", info.scissor_off.x_full.Value());
+      ImGui::Text("%u", info.scissor_off.x_full.Value());
       ImGui::TableNextColumn();
-      ImGui::Text("%d", info.scissor_off.y_full.Value());
+      ImGui::Text("%u", info.scissor_off.y_full.Value());
       ImGui::TableNextColumn();
     }
   };
@@ -389,7 +405,7 @@ void Statistics::DisplayScissor()
     }
   };
   constexpr auto NUM_VIEWPORT_COLUMNS = 5;
-  const auto draw_viewport_table_header = [&]() {
+  const auto draw_viewport_table_header = [&] {
     ImGui::TableSetupColumn("#");
     ImGui::TableSetupColumn("vx0");
     ImGui::TableSetupColumn("vy0");
@@ -428,7 +444,7 @@ void Statistics::DisplayScissor()
           draw_scissor_table_header();
           for (size_t i = 0; i < scissors.size(); i++)
             draw_scissor_table_row(i);
-          for (size_t i = scissors.size(); i < scissor_expected_count; i++)
+          for (size_t i = scissors.size(); i < static_cast<size_t>(scissor_expected_count); i++)
             scissor_table_skip_row(i);
           ImGui::EndTable();
         }
@@ -440,7 +456,7 @@ void Statistics::DisplayScissor()
           draw_viewport_table_header();
           for (size_t i = 0; i < scissors.size(); i++)
             draw_viewport_table_row(i);
-          for (size_t i = scissors.size(); i < scissor_expected_count; i++)
+          for (size_t i = scissors.size(); i < static_cast<size_t>(scissor_expected_count); i++)
             viewport_table_skip_row(i);
           ImGui::EndTable();
         }
@@ -480,4 +496,23 @@ void Statistics::DisplayScissor()
   }
 
   ImGui::End();
+}
+
+void Statistics::Init()
+{
+  s_before_frame_event = GetVideoEvents().before_frame_event.Register([] { g_stats.ResetFrame(); });
+
+  s_after_frame_event = GetVideoEvents().after_frame_event.Register([](const Core::System& system) {
+    DolphinAnalytics::Instance().ReportPerformanceInfo({
+        .speed_ratio = system.GetSystemTimers().GetEstimatedEmulationPerformance(),
+        .num_prims = g_stats.this_frame.num_prims + g_stats.this_frame.num_dl_prims,
+        .num_draw_calls = g_stats.this_frame.num_draw_calls,
+    });
+  });
+}
+
+void Statistics::Shutdown()
+{
+  s_before_frame_event.reset();
+  s_after_frame_event.reset();
 }

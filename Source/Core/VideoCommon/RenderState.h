@@ -4,11 +4,21 @@
 #pragma once
 
 #include "Common/BitField.h"
+#include "Common/CommonTypes.h"
 
-#include "VideoCommon/BPMemory.h"
-#include "VideoCommon/BPStructs.h"
+struct BPMemory;
 
 enum class AbstractTextureFormat : u32;
+
+enum class CompareMode : u32;
+enum class CullMode : u32;
+enum class DstBlendFactor : u32;
+enum class FilterMode : u32;
+enum class LODType : u32;
+enum class LogicOp : u32;
+enum class PixelFormat : u32;
+enum class SrcBlendFactor : u32;
+enum class WrapMode : u32;
 
 enum class PrimitiveType : u32
 {
@@ -37,13 +47,12 @@ union RasterizationState
   }
 
   bool operator==(const RasterizationState& rhs) const { return hex == rhs.hex; }
-  bool operator!=(const RasterizationState& rhs) const { return !operator==(rhs); }
   bool operator<(const RasterizationState& rhs) const { return hex < rhs.hex; }
 
-  BitField<0, 2, CullMode> cullmode;
+  BitField<0, 2, CullMode> cull_mode;
   BitField<3, 2, PrimitiveType> primitive;
 
-  u32 hex;
+  u32 hex = 0;
 };
 
 union FramebufferState
@@ -63,14 +72,19 @@ union FramebufferState
   }
 
   bool operator==(const FramebufferState& rhs) const { return hex == rhs.hex; }
-  bool operator!=(const FramebufferState& rhs) const { return !operator==(rhs); }
 
   BitField<0, 8, AbstractTextureFormat> color_texture_format;
   BitField<8, 8, AbstractTextureFormat> depth_texture_format;
   BitField<16, 8, u32> samples;
   BitField<24, 1, u32> per_sample_shading;
 
-  u32 hex;
+  // Note: all additional color attachments
+  // have the same format as `color_texture_format`
+  // TODO: in the future improve this so every attachment
+  // can specify its own format
+  BitField<25, 3, u32> additional_color_attachment_count;
+
+  u32 hex = 0;
 };
 
 union DepthState
@@ -92,14 +106,13 @@ union DepthState
   }
 
   bool operator==(const DepthState& rhs) const { return hex == rhs.hex; }
-  bool operator!=(const DepthState& rhs) const { return !operator==(rhs); }
   bool operator<(const DepthState& rhs) const { return hex < rhs.hex; }
 
-  BitField<0, 1, u32> testenable;
-  BitField<1, 1, u32> updateenable;
+  BitField<0, 1, u32> test_enable;
+  BitField<1, 1, u32> update_enable;
   BitField<2, 3, CompareMode> func;
 
-  u32 hex;
+  u32 hex = 0;
 };
 
 union BlendingState
@@ -109,6 +122,8 @@ union BlendingState
   // HACK: Replaces logical operations with blend operations.
   // Will not be bit-correct, and in some cases not even remotely in the same ballpark.
   void ApproximateLogicOpWithBlending();
+  bool LogicOpApproximationIsExact();
+  bool LogicOpApproximationWantsShaderHelp();
 
   BlendingState() = default;
   BlendingState(const BlendingState&) = default;
@@ -125,24 +140,24 @@ union BlendingState
   }
 
   bool operator==(const BlendingState& rhs) const { return hex == rhs.hex; }
-  bool operator!=(const BlendingState& rhs) const { return !operator==(rhs); }
   bool operator<(const BlendingState& rhs) const { return hex < rhs.hex; }
 
-  BitField<0, 1, u32> blendenable;
-  BitField<1, 1, u32> logicopenable;
-  BitField<2, 1, u32> dstalpha;
-  BitField<3, 1, u32> colorupdate;
-  BitField<4, 1, u32> alphaupdate;
+  BitField<0, 1, u32> blend_enable;
+  BitField<1, 1, u32> logic_op_enable;
+  BitField<3, 1, u32> color_update;
+  BitField<4, 1, u32> alpha_update;
   BitField<5, 1, u32> subtract;
-  BitField<6, 1, u32> subtractAlpha;
-  BitField<7, 1, u32> usedualsrc;
-  BitField<8, 3, DstBlendFactor> dstfactor;
-  BitField<11, 3, SrcBlendFactor> srcfactor;
-  BitField<14, 3, DstBlendFactor> dstfactoralpha;
-  BitField<17, 3, SrcBlendFactor> srcfactoralpha;
-  BitField<20, 4, LogicOp> logicmode;
+  BitField<6, 1, u32> subtract_alpha;
+  BitField<7, 1, u32> use_dual_src;
+  BitField<8, 3, DstBlendFactor> dst_factor;
+  BitField<11, 3, SrcBlendFactor> src_factor;
+  BitField<14, 3, DstBlendFactor> dst_factor_alpha;
+  BitField<17, 3, SrcBlendFactor> src_factor_alpha;
+  BitField<20, 4, LogicOp> logic_mode;
 
-  u32 hex;
+  bool RequiresDualSrc() const;
+
+  u32 hex = 0;
 };
 
 struct SamplerState
@@ -166,7 +181,6 @@ struct SamplerState
   }
 
   bool operator==(const SamplerState& rhs) const { return Hex() == rhs.Hex(); }
-  bool operator!=(const SamplerState& rhs) const { return !operator==(rhs); }
   bool operator<(const SamplerState& rhs) const { return Hex() < rhs.Hex(); }
 
   constexpr u64 Hex() const { return tm0.hex | (static_cast<u64>(tm1.hex) << 32); }
@@ -186,32 +200,29 @@ struct SamplerState
     BitField<7, 1, LODType> diag_lod;
     BitField<8, 16, s32> lod_bias;         // multiplied by 256, higher precision than normal
     BitField<24, 1, bool, u32> lod_clamp;  // TODO: This isn't currently implemented
-    BitField<25, 1, bool, u32> anisotropic_filtering;  // TODO: This doesn't use the BP one yet
-    u32 hex;
+    BitField<25, 4, u32> anisotropic_filtering;
+    u32 hex = 0;
   };
   union TM1
   {
     // Min is guaranteed to be less than or equal to max
     BitField<0, 8, u32> min_lod;  // multiplied by 16
     BitField<8, 8, u32> max_lod;  // multiplied by 16
-    u32 hex;
+    u32 hex = 0;
   };
 
   TM0 tm0;
   TM1 tm1;
 };
 
-namespace std
-{
 template <>
-struct hash<SamplerState>
+struct std::hash<SamplerState>
 {
-  std::size_t operator()(SamplerState const& state) const noexcept
+  std::size_t operator()(const SamplerState& state) const noexcept
   {
     return std::hash<u64>{}(state.Hex());
   }
 };
-}  // namespace std
 
 namespace RenderState
 {

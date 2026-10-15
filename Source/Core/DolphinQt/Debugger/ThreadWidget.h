@@ -19,7 +19,7 @@ class ThreadWidget : public QDockWidget
   Q_OBJECT
 public:
   explicit ThreadWidget(QWidget* parent = nullptr);
-  ~ThreadWidget();
+  ~ThreadWidget() override;
 
 signals:
   void RequestBreakpoint(u32 addr);
@@ -47,7 +47,8 @@ private:
 
   void Update();
   void UpdateThreadContext(const Common::Debug::PartialContext& context);
-  void UpdateThreadCallstack(const Common::Debug::PartialContext& context);
+  void UpdateThreadCallstack(const Core::CPUThreadGuard& guard,
+                             const Common::Debug::PartialContext& context);
   void OnSelectionChanged(int row);
 
   QGroupBox* m_state;

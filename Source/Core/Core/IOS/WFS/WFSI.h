@@ -4,12 +4,13 @@
 #pragma once
 
 #include <functional>
+#include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
-#include <mbedtls/aes.h>
-
 #include "Common/CommonTypes.h"
+#include "Common/Crypto/AES.h"
 #include "Core/IOS/Device.h"
 #include "Core/IOS/ES/Formats.h"
 #include "Core/IOS/IOS.h"
@@ -22,19 +23,19 @@ public:
   ARCUnpacker() { Reset(); }
   void Reset();
 
-  void AddBytes(const std::vector<u8>& bytes);
+  void AddBytes(std::span<const u8> bytes);
 
-  using WriteCallback = std::function<void(const std::string&, const std::vector<u8>&)>;
+  using WriteCallback = std::function<void(const std::string&, std::span<const u8>)>;
   void Extract(const WriteCallback& callback);
 
 private:
   std::vector<u8> m_whole_file;
 };
 
-class WFSIDevice : public Device
+class WFSIDevice : public EmulationDevice
 {
 public:
-  WFSIDevice(Kernel& ios, const std::string& device_name);
+  WFSIDevice(EmulationKernel& ios, const std::string& device_name);
 
   std::optional<IPCReply> IOCtl(const IOCtlRequest& request) override;
 
@@ -50,8 +51,7 @@ private:
 
   std::string m_device_name;
 
-  mbedtls_aes_context m_aes_ctx{};
-  u8 m_aes_key[0x10] = {};
+  std::unique_ptr<Common::AES::Context> m_aes_ctx{};
   u8 m_aes_iv[0x10] = {};
 
   ES::TMDReader m_tmd;

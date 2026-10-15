@@ -7,7 +7,8 @@
 #include <string>
 #include <vector>
 
-#include "Common/Logging/Log.h"
+#include <fmt/format.h>
+
 #include "Core/DSP/DSPTables.h"
 
 namespace DSP
@@ -42,22 +43,28 @@ void LabelMap::RegisterDefaults()
   }
 }
 
-void LabelMap::RegisterLabel(std::string label, u16 lval, LabelType type)
+bool LabelMap::RegisterLabel(std::string label, u16 lval, LabelType type)
 {
   const std::optional<u16> old_value = GetLabelValue(label);
-  if (old_value && old_value != lval)
+  if (old_value)
   {
-    WARN_LOG_FMT(AUDIO, "Redefined label {} to {:04x} - old value {:04x}\n", label, lval,
-                 *old_value);
-    DeleteLabel(label);
+    if (old_value != lval)
+    {
+      fmt::print("Attempted to redefine label {} from {:04x} to {:04x}\n", label, lval, *old_value);
+      return false;
+    }
+    else
+    {
+      return true;
+    }
   }
   labels.emplace_back(std::move(label), lval, type);
+  return true;
 }
 
 void LabelMap::DeleteLabel(std::string_view label)
 {
-  const auto iter = std::find_if(labels.cbegin(), labels.cend(),
-                                 [&label](const auto& entry) { return entry.name == label; });
+  const auto iter = std::ranges::find(labels, label, &Label::name);
 
   if (iter == labels.cend())
     return;
@@ -77,7 +84,7 @@ std::optional<u16> LabelMap::GetLabelValue(std::string_view name, LabelType type
       }
       else
       {
-        WARN_LOG_FMT(AUDIO, "Wrong label type requested. {}\n", name);
+        fmt::print("Wrong label type requested. {}\n", name);
       }
     }
   }

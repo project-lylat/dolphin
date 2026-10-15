@@ -8,6 +8,7 @@
 #include <QAbstractEventDispatcher>
 #include <QApplication>
 #include <QLocale>
+#include <QThread>
 
 #include <imgui.h>
 
@@ -15,16 +16,14 @@
 #include <windows.h>
 #endif
 
-#include "Common/Common.h"
-
 #include "Core/Config/MainSettings.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/Debugger/PPCDebugInterface.h"
 #include "Core/Host.h"
 #include "Core/NetPlayProto.h"
-#include "Core/PowerPC/PowerPC.h"
 #include "Core/State.h"
+#include "Core/System.h"
 
 #ifdef HAS_LIBMGBA
 #include "DolphinQt/GBAWidget.h"
@@ -36,11 +35,10 @@
 
 #include "UICommon/DiscordPresence.h"
 
-#include "VideoCommon/Fifo.cpp"
-#include "VideoCommon/RenderBase.h"
+#include "VideoCommon/AbstractGfx.h"
+#include "VideoCommon/Fifo.h"
+#include "VideoCommon/Present.h"
 #include "VideoCommon/VideoConfig.h"
-
-static thread_local bool tls_is_host_thread = false;
 
 Host::Host()
 {
@@ -58,16 +56,6 @@ Host* Host::GetInstance()
   return s_instance;
 }
 
-void Host::DeclareAsHostThread()
-{
-  tls_is_host_thread = true;
-}
-
-bool Host::IsHostThread()
-{
-  return tls_is_host_thread;
-}
-
 void Host::SetRenderHandle(void* handle)
 {
   m_render_to_main = Config::Get(Config::MAIN_RENDER_TO_MAIN);
@@ -76,9 +64,9 @@ void Host::SetRenderHandle(void* handle)
     return;
 
   m_render_handle = handle;
-  if (g_renderer)
+  if (g_presenter)
   {
-    g_renderer->ChangeSurface(handle);
+    g_presenter->ChangeSurface(handle);
     g_controller_interface.ChangeWindow(handle);
   }
 }
@@ -88,7 +76,7 @@ void Host::SetMainWindowHandle(void* handle)
   m_main_window_handle = handle;
 }
 
-static void RunWithGPUThreadInactive(std::function<void()> f)
+static void RunWithGPUThreadInactive(const std::function<void()>& f)
 {
   // Potentially any thread which shows panic alerts can be blocked on this returning.
   // This means that, in order to avoid deadlocks, we need to be careful with how we
@@ -113,16 +101,18 @@ static void RunWithGPUThreadInactive(std::function<void()> f)
     // (Note that this case cannot be reached in single core mode, because in single core mode,
     // the CPU and GPU threads are the same thread, and we already checked for the GPU thread.)
 
-    const bool was_running = Core::GetState() == Core::State::Running;
-    Fifo::PauseAndLock(true, was_running);
+    auto& system = Core::System::GetInstance();
+    const bool was_running = Core::GetState(system) == Core::State::Running;
+    auto& fifo = system.GetFifo();
+    fifo.PauseAndLock();
     f();
-    Fifo::PauseAndLock(false, was_running);
+    fifo.RestoreState(was_running);
   }
   else
   {
-    // If we reach here, we can call Core::PauseAndLock (which we do using RunAsCPUThread).
-
-    Core::RunAsCPUThread(std::move(f));
+    // If we reach here, we can call Core::PauseAndLock (which we do using a CPUThreadGuard).
+    const Core::CPUThreadGuard guard(Core::System::GetInstance());
+    f();
   }
 }
 
@@ -147,11 +137,11 @@ bool Host::GetRenderFullFocus()
 void Host::SetRenderFocus(bool focus)
 {
   m_render_focus = focus;
-  if (g_renderer && m_render_fullscreen && g_ActiveConfig.ExclusiveFullscreenEnabled())
+  if (g_gfx && m_render_fullscreen && g_ActiveConfig.ExclusiveFullscreenEnabled())
   {
     RunWithGPUThreadInactive([focus] {
       if (!Config::Get(Config::MAIN_RENDER_TO_MAIN))
-        g_renderer->SetFullscreen(focus);
+        g_gfx->SetFullscreen(focus);
     });
   }
 }
@@ -170,6 +160,11 @@ bool Host::GetGBAFocus()
 #endif
 }
 
+bool Host::GetTASInputFocus() const
+{
+  return m_tas_input_focus;
+}
+
 bool Host::GetRenderFullscreen()
 {
   return m_render_fullscreen;
@@ -179,17 +174,21 @@ void Host::SetRenderFullscreen(bool fullscreen)
 {
   m_render_fullscreen = fullscreen;
 
-  if (g_renderer && g_renderer->IsFullscreen() != fullscreen &&
-      g_ActiveConfig.ExclusiveFullscreenEnabled())
+  if (g_gfx && g_gfx->IsFullscreen() != fullscreen && g_ActiveConfig.ExclusiveFullscreenEnabled())
   {
-    RunWithGPUThreadInactive([fullscreen] { g_renderer->SetFullscreen(fullscreen); });
+    RunWithGPUThreadInactive([fullscreen] { g_gfx->SetFullscreen(fullscreen); });
   }
+}
+
+void Host::SetTASInputFocus(const bool focus)
+{
+  m_tas_input_focus = focus;
 }
 
 void Host::ResizeSurface(int new_width, int new_height)
 {
-  if (g_renderer)
-    g_renderer->ResizeSurface();
+  if (g_presenter)
+    g_presenter->ResizeSurface();
 }
 
 std::vector<std::string> Host_GetPreferredLocales()
@@ -237,31 +236,44 @@ bool Host_RendererIsFullscreen()
   return Host::GetInstance()->GetRenderFullscreen();
 }
 
+bool Host_TASInputHasFocus()
+{
+  return Host::GetInstance()->GetTASInputFocus();
+}
+
 void Host_YieldToUI()
 {
-  qApp->processEvents(QEventLoop::ExcludeUserInputEvents);
+  if (qApp->thread() == QThread::currentThread())
+    qApp->processEvents(QEventLoop::ExcludeUserInputEvents);
 }
 
 void Host_UpdateDisasmDialog()
 {
+  if (Settings::Instance().GetIsContinuouslyFrameStepping())
+    return;
+
   QueueOnObject(QApplication::instance(), [] { emit Host::GetInstance()->UpdateDisasmDialog(); });
 }
 
-void Host::RequestNotifyMapLoaded()
+void Host_JitCacheInvalidation()
 {
-  QueueOnObject(QApplication::instance(), [this] { emit NotifyMapLoaded(); });
+  QueueOnObject(QApplication::instance(), [] { emit Host::GetInstance()->JitCacheInvalidation(); });
 }
 
-void Host_NotifyMapLoaded()
+void Host_JitProfileDataWiped()
 {
-  Host::GetInstance()->RequestNotifyMapLoaded();
+  QueueOnObject(QApplication::instance(), [] { emit Host::GetInstance()->JitProfileDataWiped(); });
 }
 
-// We ignore these, and their purpose should be questioned individually.
-// In particular, RequestRenderWindowSize, RequestFullscreen, and
-// UpdateMainFrame should almost certainly be removed.
-void Host_UpdateMainFrame()
+void Host_PPCSymbolsChanged()
 {
+  QueueOnObject(QApplication::instance(), [] { emit Host::GetInstance()->PPCSymbolsChanged(); });
+}
+
+void Host_PPCBreakpointsChanged()
+{
+  QueueOnObject(QApplication::instance(),
+                [] { emit Host::GetInstance()->PPCBreakpointsChanged(); });
 }
 
 void Host_RequestRenderWindowSize(int w, int h)
@@ -271,11 +283,9 @@ void Host_RequestRenderWindowSize(int w, int h)
 
 bool Host_UIBlocksControllerState()
 {
-  return ImGui::GetCurrentContext() && ImGui::GetIO().WantCaptureKeyboard;
-}
-
-void Host_RefreshDSPDebuggerWindow()
-{
+  // TODO: Remove the Paused check once async presentation is implemented.
+  return ImGui::GetCurrentContext() && ImGui::GetIO().WantCaptureKeyboard &&
+         Core::GetState(Core::System::GetInstance()) != Core::State::Paused;
 }
 
 void Host_TitleChanged()
@@ -284,6 +294,30 @@ void Host_TitleChanged()
   // TODO: Not sure if the NetPlay check is needed.
   if (!NetPlay::IsNetPlayRunning())
     Discord::UpdateDiscordPresence();
+#endif
+}
+
+void Host_UpdateDiscordClientID(const std::string& client_id)
+{
+#ifdef USE_DISCORD_PRESENCE
+  Discord::UpdateClientID(client_id);
+#endif
+}
+
+bool Host_UpdateDiscordPresenceRaw(const std::string& details, const std::string& state,
+                                   const std::string& large_image_key,
+                                   const std::string& large_image_text,
+                                   const std::string& small_image_key,
+                                   const std::string& small_image_text,
+                                   const int64_t start_timestamp, const int64_t end_timestamp,
+                                   const int party_size, const int party_max)
+{
+#ifdef USE_DISCORD_PRESENCE
+  return Discord::UpdateDiscordPresenceRaw(details, state, large_image_key, large_image_text,
+                                           small_image_key, small_image_text, start_timestamp,
+                                           end_timestamp, party_size, party_max);
+#else
+  return false;
 #endif
 }
 

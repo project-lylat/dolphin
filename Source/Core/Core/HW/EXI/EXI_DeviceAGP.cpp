@@ -4,7 +4,6 @@
 #include "Core/HW/EXI/EXI_DeviceAGP.h"
 
 #include <algorithm>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -19,7 +18,7 @@
 
 namespace ExpansionInterface
 {
-CEXIAgp::CEXIAgp(Slot slot)
+CEXIAgp::CEXIAgp(Core::System& system, Slot slot) : IEXIDevice(system)
 {
   ASSERT(IsMemcardSlot(slot));
   m_slot = slot;
@@ -41,7 +40,8 @@ CEXIAgp::~CEXIAgp()
   SplitPath(Config::Get(Config::GetInfoForAGPCartPath(m_slot)), &path, &filename, &ext);
   gbapath = path + filename;
 
-  SaveFileFromEEPROM(gbapath + ".sav");
+  if (!gbapath.empty())
+    SaveFileFromEEPROM(gbapath + ".sav");
 }
 
 void CEXIAgp::CRC8(const u8* data, u32 size)
@@ -344,10 +344,10 @@ void CEXIAgp::ImmWrite(u32 _uData, u32 _uSize)
   case 0xAE010000:
   case 0xAE090000:                  // start DMA
     m_eeprom_write_status = false;  // ToDo: Verify with hardware which commands disable EEPROM CS
-  // Fall-through intentional
+    [[fallthrough]];
   case 0xAE0A0000:  // end DMA
     m_eeprom_pos = 0;
-  // Fall-through intentional
+    [[fallthrough]];
   default:
     m_current_cmd = _uData;
     m_return_pos = 0;

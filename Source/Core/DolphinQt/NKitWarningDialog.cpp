@@ -20,14 +20,14 @@ bool NKitWarningDialog::ShowUnlessDisabled(QWidget* parent)
 {
   if (Config::Get(Config::MAIN_SKIP_NKIT_WARNING))
     return true;
-  else
-    return NKitWarningDialog(parent).exec() == QDialog::Accepted;
+
+  NKitWarningDialog dialog(parent);
+  return dialog.exec() == QDialog::Accepted;
 }
 
 NKitWarningDialog::NKitWarningDialog(QWidget* parent) : QDialog(parent)
 {
   setWindowTitle(tr("NKit Warning"));
-  setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
   setWindowIcon(Resources::GetAppIcon());
 
   QVBoxLayout* main_layout = new QVBoxLayout;
@@ -77,8 +77,13 @@ NKitWarningDialog::NKitWarningDialog(QWidget* parent) : QDialog(parent)
   connect(cancel, &QPushButton::clicked, this, &QDialog::reject);
 
   ok->setEnabled(false);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+  connect(checkbox_accept, &QCheckBox::checkStateChanged,
+          [ok](Qt::CheckState state) { ok->setEnabled(state == Qt::Checked); });
+#else
   connect(checkbox_accept, &QCheckBox::stateChanged,
           [ok](int state) { ok->setEnabled(state == Qt::Checked); });
+#endif
 
   connect(this, &QDialog::accepted, [checkbox_skip] {
     Config::SetBase(Config::MAIN_SKIP_NKIT_WARNING, checkbox_skip->isChecked());

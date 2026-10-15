@@ -4,14 +4,14 @@
 #include "DolphinQt/ConvertDialog.h"
 
 #include <algorithm>
-#include <functional>
+#include <filesystem>
 #include <future>
 #include <memory>
 #include <utility>
 
 #include <QCheckBox>
 #include <QComboBox>
-#include <QGridLayout>
+#include <QFormLayout>
 #include <QGroupBox>
 #include <QLabel>
 #include <QList>
@@ -22,6 +22,7 @@
 
 #include "Common/Assert.h"
 #include "Common/Logging/Log.h"
+#include "Common/StringUtil.h"
 #include "DiscIO/Blob.h"
 #include "DiscIO/DiscUtils.h"
 #include "DiscIO/ScrubbedBlob.h"
@@ -39,49 +40,37 @@ ConvertDialog::ConvertDialog(QList<std::shared_ptr<const UICommon::GameFile>> fi
   ASSERT(!m_files.empty());
 
   setWindowTitle(tr("Convert"));
-  setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
-  QGridLayout* grid_layout = new QGridLayout;
-  grid_layout->setColumnStretch(1, 1);
+  auto* const form_layout = new QFormLayout;
+  form_layout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
 
   m_format = new QComboBox;
   m_format->addItem(QStringLiteral("ISO"), static_cast<int>(DiscIO::BlobType::PLAIN));
   m_format->addItem(QStringLiteral("GCZ"), static_cast<int>(DiscIO::BlobType::GCZ));
   m_format->addItem(QStringLiteral("WIA"), static_cast<int>(DiscIO::BlobType::WIA));
   m_format->addItem(QStringLiteral("RVZ"), static_cast<int>(DiscIO::BlobType::RVZ));
-  if (std::all_of(m_files.begin(), m_files.end(),
-                  [](const auto& file) { return file->GetBlobType() == DiscIO::BlobType::PLAIN; }))
+  if (std::ranges::all_of(
+          m_files, [](const auto& file) { return file->GetBlobType() == DiscIO::BlobType::PLAIN; }))
   {
     m_format->setCurrentIndex(m_format->count() - 1);
   }
-  grid_layout->addWidget(new QLabel(tr("Format:")), 0, 0);
-  grid_layout->addWidget(m_format, 0, 1);
+  form_layout->addRow(tr("Format:"), m_format);
 
   m_block_size = new QComboBox;
-  grid_layout->addWidget(new QLabel(tr("Block Size:")), 1, 0);
-  grid_layout->addWidget(m_block_size, 1, 1);
+  form_layout->addRow(tr("Block Size:"), m_block_size);
 
   m_compression = new QComboBox;
-  grid_layout->addWidget(new QLabel(tr("Compression:")), 2, 0);
-  grid_layout->addWidget(m_compression, 2, 1);
+  form_layout->addRow(tr("Compression:"), m_compression);
 
   m_compression_level = new QComboBox;
-  grid_layout->addWidget(new QLabel(tr("Compression Level:")), 3, 0);
-  grid_layout->addWidget(m_compression_level, 3, 1);
+  form_layout->addRow(tr("Compression Level:"), m_compression_level);
 
   m_scrub = new QCheckBox;
-  grid_layout->addWidget(new QLabel(tr("Remove Junk Data (Irreversible):")), 4, 0);
-  grid_layout->addWidget(m_scrub, 4, 1);
+  form_layout->addRow(tr("Remove Junk Data (Irreversible):"), m_scrub);
 
-  QPushButton* convert_button = new QPushButton(tr("Convert..."));
+  auto* const convert_button = new QPushButton(tr("Convert..."));
 
-  QVBoxLayout* options_layout = new QVBoxLayout;
-  options_layout->addLayout(grid_layout);
-  options_layout->addWidget(convert_button);
-  QGroupBox* options_group = new QGroupBox(tr("Options"));
-  options_group->setLayout(options_layout);
-
-  QLabel* info_text = new QLabel(
+  auto* const info_text = new QLabel(
       tr("ISO: A simple and robust format which is supported by many programs. It takes up more "
          "space than any other format.\n\n"
          "GCZ: A basic compressed format which is compatible with most versions of Dolphin and "
@@ -93,21 +82,23 @@ ConvertDialog::ConvertDialog(QList<std::shared_ptr<const UICommon::GameFile>> fi
          "RVZ: An advanced compressed format which is compatible with Dolphin 5.0-12188 and later. "
          "It can efficiently compress both junk data and encrypted Wii data."));
   info_text->setWordWrap(true);
+  info_text->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum);
 
-  QVBoxLayout* info_layout = new QVBoxLayout;
+  auto* const options_group = new QGroupBox(tr("Options"));
+  auto* const options_layout = new QVBoxLayout{options_group};
+  options_layout->addLayout(form_layout);
+  options_layout->addWidget(convert_button);
+
+  auto* const info_group = new QGroupBox(tr("Info"));
+  auto* const info_layout = new QVBoxLayout{info_group};
   info_layout->addWidget(info_text);
-  QGroupBox* info_group = new QGroupBox(tr("Info"));
-  info_group->setLayout(info_layout);
 
-  QVBoxLayout* main_layout = new QVBoxLayout;
+  auto* const main_layout = new QVBoxLayout{this};
   main_layout->addWidget(options_group);
-  main_layout->addWidget(info_group);
+  main_layout->addWidget(info_group, 1);
 
-  setLayout(main_layout);
-
-  connect(m_format, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-          &ConvertDialog::OnFormatChanged);
-  connect(m_compression, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+  connect(m_format, &QComboBox::currentIndexChanged, this, &ConvertDialog::OnFormatChanged);
+  connect(m_compression, &QComboBox::currentIndexChanged, this,
           &ConvertDialog::OnCompressionChanged);
   connect(convert_button, &QPushButton::clicked, this, &ConvertDialog::Convert);
 
@@ -151,7 +142,7 @@ void ConvertDialog::OnFormatChanged()
     // To support legacy versions of dolphin, we have to check the GCZ block size
     // See DiscIO::IsGCZBlockSizeLegacyCompatible() for details
     const auto block_size_ok = [this](int block_size) {
-      return std::all_of(m_files.begin(), m_files.end(), [block_size](const auto& file) {
+      return std::ranges::all_of(m_files, [block_size](const auto& file) {
         return DiscIO::IsGCZBlockSizeLegacyCompatible(block_size, file->GetVolumeSize());
       });
     };
@@ -246,9 +237,8 @@ void ConvertDialog::OnFormatChanged()
   m_compression->setEnabled(m_compression->count() > 1);
 
   // Block scrubbing of RVZ containers and Datel discs
-  const bool scrubbing_allowed =
-      format != DiscIO::BlobType::RVZ &&
-      std::none_of(m_files.begin(), m_files.end(), std::mem_fn(&UICommon::GameFile::IsDatelDisc));
+  const bool scrubbing_allowed = format != DiscIO::BlobType::RVZ &&
+                                 std::ranges::none_of(m_files, &UICommon::GameFile::IsDatelDisc);
 
   m_scrub->setEnabled(scrubbing_allowed);
   if (!scrubbing_allowed)
@@ -306,7 +296,7 @@ void ConvertDialog::Convert()
   }
 
   if (!scrub && format == DiscIO::BlobType::GCZ &&
-      std::any_of(m_files.begin(), m_files.end(), [](const auto& file) {
+      std::ranges::any_of(m_files, [](const auto& file) {
         return file->GetPlatform() == DiscIO::Platform::WiiDisc && !file->IsDatelDisc();
       }))
   {
@@ -318,7 +308,7 @@ void ConvertDialog::Convert()
     }
   }
 
-  if (std::any_of(m_files.begin(), m_files.end(), std::mem_fn(&UICommon::GameFile::IsNKit)))
+  if (std::ranges::any_of(m_files, &UICommon::GameFile::IsNKit))
   {
     if (!ShowAreYouSureDialog(
             tr("Dolphin can't convert NKit files to non-NKit files. Converting an NKit file in "
@@ -364,7 +354,7 @@ void ConvertDialog::Convert()
   if (m_files.size() > 1)
   {
     dst_dir = DolphinFileDialog::getExistingDirectory(
-        this, tr("Select where you want to save the converted images"),
+        this, tr("Save Converted Images"),
         QFileInfo(QString::fromStdString(m_files[0]->GetFilePath())).dir().absolutePath());
 
     if (dst_dir.isEmpty())
@@ -373,7 +363,7 @@ void ConvertDialog::Convert()
   else
   {
     dst_path = DolphinFileDialog::getSaveFileName(
-        this, tr("Select where you want to save the converted image"),
+        this, tr("Save Converted Image"),
         QFileInfo(QString::fromStdString(m_files[0]->GetFilePath()))
             .dir()
             .absoluteFilePath(
@@ -384,6 +374,8 @@ void ConvertDialog::Convert()
     if (dst_path.isEmpty())
       return;
   }
+
+  int success_count = 0;
 
   for (const auto& file : m_files)
   {
@@ -407,6 +399,21 @@ void ConvertDialog::Convert()
 
         if (confirm_replace.exec() == QMessageBox::No)
           continue;
+      }
+    }
+
+    if (std::filesystem::exists(StringToPath(dst_path.toStdString())))
+    {
+      std::error_code ec;
+      if (std::filesystem::equivalent(StringToPath(dst_path.toStdString()),
+                                      StringToPath(original_path), ec))
+      {
+        ModalMessageBox::critical(
+            this, tr("Error"),
+            tr("The destination file cannot be the same as the source file\n\n"
+               "Please select another destination path for \"%1\"")
+                .arg(QString::fromStdString(original_path)));
+        continue;
       }
     }
 
@@ -507,11 +514,13 @@ void ConvertDialog::Convert()
                                   tr("Dolphin failed to complete the requested action."));
         return;
       }
+
+      success_count++;
     }
   }
 
   ModalMessageBox::information(this, tr("Success"),
-                               tr("Successfully converted %n image(s).", "", m_files.size()));
+                               tr("Successfully converted %n image(s).", "", success_count));
 
   close();
 }

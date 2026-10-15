@@ -12,17 +12,16 @@
 #include "Common/IOFile.h"
 #include "Common/MsgHandler.h"
 #include "Core/Config/MainSettings.h"
+#include "Core/ConfigManager.h"
 #include "Core/HW/Memmap.h"
+#include "Core/System.h"
 
-enum
-{
-  FILE_ID = 0x0d01f1f0,
-  VERSION_NUMBER = 5,
-  MIN_LOADER_VERSION = 1,
-  // This value is only used if the DFF file was created with overridden RAM sizes.
-  // If the MIN_LOADER_VERSION ever exceeds this, it's alright to remove it.
-  MIN_LOADER_VERSION_FOR_RAM_OVERRIDE = 5,
-};
+constexpr u32 FILE_ID = 0x0d01f1f0;
+constexpr u32 VERSION_NUMBER = 6;
+constexpr u32 MIN_LOADER_VERSION = 1;
+// This value is only used if the DFF file was created with overridden RAM sizes.
+// If the MIN_LOADER_VERSION ever exceeds this, it's alright to remove it.
+constexpr u32 MIN_LOADER_VERSION_FOR_RAM_OVERRIDE = 5;
 
 #pragma pack(push, 1)
 
@@ -44,13 +43,15 @@ struct FileHeader
   u32 flags;
   u64 texMemOffset;
   u32 texMemSize;
-  // These are for overriden RAM sizes.  Otherwise the FIFO Player
+  // These are for overridden RAM sizes.  Otherwise the FIFO Player
   // will crash and burn with mismatched settings.  See PR #8722.
   u32 mem1_size;
   u32 mem2_size;
-  u8 reserved[32];
+  char gameid[8];
+  u8 reserved[24];
 };
 static_assert(sizeof(FileHeader) == 128, "FileHeader should be 128 bytes");
+static_assert(DEFAULT_GAME_ID.size() == sizeof(FileHeader::gameid), "Default game id size changed");
 
 struct FileFrameInfo
 {
@@ -81,7 +82,7 @@ FifoDataFile::FifoDataFile() = default;
 
 FifoDataFile::~FifoDataFile() = default;
 
-bool FifoDataFile::ShouldGenerateFakeVIUpdates() const
+bool FifoDataFile::ShouldGenerateFakeVIUpdates()
 {
   return true;
 }
@@ -138,8 +139,9 @@ bool FifoDataFile::Save(const std::string& filename)
   FileHeader header;
   header.fileId = FILE_ID;
   header.file_version = VERSION_NUMBER;
-  // Maintain backwards compatability so long as the RAM sizes aren't overridden.
-  if (Config::Get(Config::MAIN_RAM_OVERRIDE_ENABLE))
+  // Maintain backwards compatibility so long as the RAM sizes aren't overridden.
+  if (Config::Get(Config::MAIN_RAM_OVERRIDE_ENABLE) ||
+      SConfig::GetInstance().GetSimulatedMemorySize() > Memory::MEM1_SIZE_RETAIL)
     header.min_loader_version = MIN_LOADER_VERSION_FOR_RAM_OVERRIDE;
   else
     header.min_loader_version = MIN_LOADER_VERSION;
@@ -164,8 +166,21 @@ bool FifoDataFile::Save(const std::string& filename)
 
   header.flags = m_Flags;
 
-  header.mem1_size = Memory::GetRamSizeReal();
-  header.mem2_size = Memory::GetExRamSizeReal();
+  auto& system = Core::System::GetInstance();
+  auto& memory = system.GetMemory();
+  header.mem1_size = memory.GetRamSizeReal();
+  header.mem2_size = memory.GetExRamSizeReal();
+
+  const auto gameid = SConfig::GetInstance().GetGameID();
+  if (gameid.size() > DEFAULT_GAME_ID.size())
+  {
+    // Custom game id?  Won't fit, just use default
+    std::memcpy(header.gameid, DEFAULT_GAME_ID.data(), DEFAULT_GAME_ID.size());
+  }
+  else
+  {
+    std::strncpy(header.gameid, gameid.c_str(), DEFAULT_GAME_ID.size());
+  }
 
   file.Seek(0, File::SeekOrigin::Begin);
   file.WriteBytes(&header, sizeof(FileHeader));
@@ -209,7 +224,7 @@ std::unique_ptr<FifoDataFile> FifoDataFile::Load(const std::string& filename, bo
   if (!file)
     return nullptr;
 
-  auto panic_failed_to_read = []() {
+  auto panic_failed_to_read = [] {
     CriticalAlertFmtT("Failed to read DFF file.");
     return nullptr;
   };
@@ -253,6 +268,17 @@ std::unique_ptr<FifoDataFile> FifoDataFile::Load(const std::string& filename, bo
   dataFile->m_Flags = header.flags;
   dataFile->m_Version = header.file_version;
 
+  // Official support for game id was added in version 6
+  if (header.file_version < 6)
+  {
+    dataFile->m_game_id = DEFAULT_GAME_ID;
+  }
+  else
+  {
+    const size_t gameid_length = strnlen(header.gameid, DEFAULT_GAME_ID.size());
+    dataFile->m_game_id = std::string{header.gameid, gameid_length};
+  }
+
   if (flagsOnly)
   {
     // Force settings to match those used when the DFF was created.  This is sort of a hack.
@@ -270,14 +296,15 @@ std::unique_ptr<FifoDataFile> FifoDataFile::Load(const std::string& filename, bo
   // It should be noted, however, that Dolphin *will still crash* from the nullptr being returned
   // in a non-flagsOnly context, so if this code becomes necessary, it should be moved above the
   // prior conditional.
-  if (header.mem1_size != Memory::GetRamSizeReal() ||
-      header.mem2_size != Memory::GetExRamSizeReal())
+  auto& system = Core::System::GetInstance();
+  auto& memory = system.GetMemory();
+  if (header.mem1_size != memory.GetRamSizeReal() || header.mem2_size != memory.GetExRamSizeReal())
   {
     CriticalAlertFmtT("Emulated memory size mismatch!\n"
                       "Current: MEM1 {0:08X} ({1} MiB), MEM2 {2:08X} ({3} MiB)\n"
                       "DFF: MEM1 {4:08X} ({5} MiB), MEM2 {6:08X} ({7} MiB)",
-                      Memory::GetRamSizeReal(), Memory::GetRamSizeReal() / 0x100000,
-                      Memory::GetExRamSizeReal(), Memory::GetExRamSizeReal() / 0x100000,
+                      memory.GetRamSizeReal(), memory.GetRamSizeReal() / 0x100000,
+                      memory.GetExRamSizeReal(), memory.GetExRamSizeReal() / 0x100000,
                       header.mem1_size, header.mem1_size / 0x100000, header.mem2_size,
                       header.mem2_size / 0x100000);
     return nullptr;
@@ -363,8 +390,7 @@ bool FifoDataFile::GetFlag(u32 flag) const
   return !!(m_Flags & flag);
 }
 
-u64 FifoDataFile::WriteMemoryUpdates(const std::vector<MemoryUpdate>& memUpdates,
-                                     File::IOFile& file)
+u64 FifoDataFile::WriteMemoryUpdates(std::span<const MemoryUpdate> memUpdates, File::IOFile& file)
 {
   // Add space for memory update list
   u64 updateListOffset = file.Tell();
@@ -384,7 +410,7 @@ u64 FifoDataFile::WriteMemoryUpdates(const std::vector<MemoryUpdate>& memUpdates
     dstUpdate.dataOffset = dataOffset;
     dstUpdate.dataSize = static_cast<u32>(srcUpdate.data.size());
     dstUpdate.fifoPosition = srcUpdate.fifoPosition;
-    dstUpdate.type = srcUpdate.type;
+    dstUpdate.type = static_cast<u8>(srcUpdate.type);
 
     u64 updateOffset = updateListOffset + (i * sizeof(FileMemoryUpdate));
     file.Seek(updateOffset, File::SeekOrigin::Begin);

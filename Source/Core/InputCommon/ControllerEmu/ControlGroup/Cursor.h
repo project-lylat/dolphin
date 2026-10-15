@@ -6,8 +6,8 @@
 #include <chrono>
 #include <string>
 
+#include "InputCommon/ControllerEmu/ControlGroup/ControlGroup.h"
 #include "InputCommon/ControllerEmu/StickGate.h"
-#include "InputCommon/ControllerInterface/CoreDevice.h"
 
 namespace ControllerEmu
 {
@@ -24,11 +24,12 @@ public:
 
   Cursor(std::string name, std::string ui_name);
 
-  ReshapeData GetReshapableState(bool adjusted) const final override;
+  ReshapeData GetReshapableState(bool adjusted) const final;
   ControlState GetGateRadiusAtAngle(double ang) const override;
 
   // Modifies the state
   StateData GetState(bool adjusted);
+  StateData GetState(bool adjusted, const ControllerEmu::InputOverrideFunction& override_func);
 
   // Yaw movement in radians.
   ControlState GetTotalYaw() const;
@@ -39,7 +40,11 @@ public:
   // Vertical offset in meters.
   ControlState GetVerticalOffset() const;
 
+  void SetRelativeInput(bool enabled);
+
 private:
+  Cursor::StateData UpdateState(Cursor::ReshapeData input);
+
   // This is used to reduce the cursor speed for relative input
   // to something that makes sense with the default range.
   static constexpr double STEP_PER_SEC = 0.01 * 200;

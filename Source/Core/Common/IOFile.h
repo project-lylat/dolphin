@@ -20,6 +20,12 @@ enum class SeekOrigin
   End,
 };
 
+enum class SharedAccess
+{
+  Default,
+  Read,
+};
+
 // simple wrapper for cstdlib file functions to
 // hopefully will make error checking easier
 // and make forgetting an fclose() harder
@@ -28,7 +34,8 @@ class IOFile
 public:
   IOFile();
   IOFile(std::FILE* file);
-  IOFile(const std::string& filename, const char openmode[]);
+  IOFile(const std::string& filename, const char openmode[],
+         SharedAccess sh = SharedAccess::Default);
 
   ~IOFile();
 
@@ -40,10 +47,12 @@ public:
 
   void Swap(IOFile& other) noexcept;
 
-  bool Open(const std::string& filename, const char openmode[]);
+  bool Open(const std::string& filename, const char openmode[],
+            SharedAccess sh = SharedAccess::Default);
   bool Close();
 
   template <typename T>
+  requires(std::is_trivially_copyable_v<T>)
   bool ReadArray(T* elements, size_t count, size_t* num_read = nullptr)
   {
     size_t read_count = 0;
@@ -57,6 +66,7 @@ public:
   }
 
   template <typename T>
+  requires(std::is_trivially_copyable_v<T>)
   bool WriteArray(const T* elements, size_t count)
   {
     if (!IsOpen() || count != std::fwrite(elements, sizeof(T), count, m_file))
@@ -77,14 +87,11 @@ public:
     return WriteArray(elements.data(), elements.size());
   }
 
-  bool ReadBytes(void* data, size_t length)
-  {
-    return ReadArray(reinterpret_cast<char*>(data), length);
-  }
+  bool ReadBytes(void* data, size_t length) { return ReadArray(static_cast<char*>(data), length); }
 
   bool WriteBytes(const void* data, size_t length)
   {
-    return WriteArray(reinterpret_cast<const char*>(data), length);
+    return WriteArray(static_cast<const char*>(data), length);
   }
 
   bool WriteString(std::string_view str) { return WriteBytes(str.data(), str.size()); }
@@ -106,7 +113,8 @@ public:
   void ClearError()
   {
     m_good = true;
-    std::clearerr(m_file);
+    if (IsOpen())
+      std::clearerr(m_file);
   }
 
 private:

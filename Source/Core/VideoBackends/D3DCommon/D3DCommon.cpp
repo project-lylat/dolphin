@@ -3,9 +3,9 @@
 
 #include "VideoBackends/D3DCommon/D3DCommon.h"
 
-#include <d3d11.h>
+#include <d3d11_4.h>
 #include <d3d12.h>
-#include <dxgi1_3.h>
+#include <dxgi1_6.h>
 #include <wrl/client.h>
 
 #include "Common/Assert.h"
@@ -81,13 +81,13 @@ Microsoft::WRL::ComPtr<IDXGIFactory> CreateDXGIFactory(bool debug_device)
   // Use Win8.1 version if available.
   if (create_dxgi_factory2 &&
       SUCCEEDED(create_dxgi_factory2(debug_device ? DXGI_CREATE_FACTORY_DEBUG : 0,
-                                     IID_PPV_ARGS(factory.GetAddressOf()))))
+                                     IID_PPV_ARGS(&factory))))
   {
     return factory;
   }
 
   // Fallback to original version, without debug support.
-  HRESULT hr = create_dxgi_factory(IID_PPV_ARGS(factory.ReleaseAndGetAddressOf()));
+  HRESULT hr = create_dxgi_factory(IID_PPV_ARGS(&factory));
   if (FAILED(hr))
   {
     PanicAlertFmt("CreateDXGIFactory() failed: {}", Common::HRWrap(hr));
@@ -100,14 +100,14 @@ Microsoft::WRL::ComPtr<IDXGIFactory> CreateDXGIFactory(bool debug_device)
 std::vector<std::string> GetAdapterNames()
 {
   Microsoft::WRL::ComPtr<IDXGIFactory> factory;
-  HRESULT hr = create_dxgi_factory(IID_PPV_ARGS(factory.GetAddressOf()));
+  HRESULT hr = create_dxgi_factory(IID_PPV_ARGS(&factory));
   if (FAILED(hr))
     return {};
 
   std::vector<std::string> adapters;
   Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
-  while (factory->EnumAdapters(static_cast<UINT>(adapters.size()),
-                               adapter.ReleaseAndGetAddressOf()) != DXGI_ERROR_NOT_FOUND)
+  while (factory->EnumAdapters(static_cast<UINT>(adapters.size()), &adapter) !=
+         DXGI_ERROR_NOT_FOUND)
   {
     std::string name;
     DXGI_ADAPTER_DESC desc;
@@ -136,6 +136,10 @@ DXGI_FORMAT GetDXGIFormatForAbstractFormat(AbstractTextureFormat format, bool ty
     return typeless ? DXGI_FORMAT_R8G8B8A8_TYPELESS : DXGI_FORMAT_R8G8B8A8_UNORM;
   case AbstractTextureFormat::BGRA8:
     return typeless ? DXGI_FORMAT_B8G8R8A8_TYPELESS : DXGI_FORMAT_B8G8R8A8_UNORM;
+  case AbstractTextureFormat::RGB10_A2:
+    return typeless ? DXGI_FORMAT_R10G10B10A2_TYPELESS : DXGI_FORMAT_R10G10B10A2_UNORM;
+  case AbstractTextureFormat::RGBA16F:
+    return typeless ? DXGI_FORMAT_R16G16B16A16_TYPELESS : DXGI_FORMAT_R16G16B16A16_FLOAT;
   case AbstractTextureFormat::R16:
     return typeless ? DXGI_FORMAT_R16_TYPELESS : DXGI_FORMAT_R16_UNORM;
   case AbstractTextureFormat::R32F:
@@ -169,6 +173,10 @@ DXGI_FORMAT GetSRVFormatForAbstractFormat(AbstractTextureFormat format)
     return DXGI_FORMAT_R8G8B8A8_UNORM;
   case AbstractTextureFormat::BGRA8:
     return DXGI_FORMAT_B8G8R8A8_UNORM;
+  case AbstractTextureFormat::RGB10_A2:
+    return DXGI_FORMAT_R10G10B10A2_UNORM;
+  case AbstractTextureFormat::RGBA16F:
+    return DXGI_FORMAT_R16G16B16A16_FLOAT;
   case AbstractTextureFormat::R16:
     return DXGI_FORMAT_R16_UNORM;
   case AbstractTextureFormat::R32F:
@@ -195,6 +203,10 @@ DXGI_FORMAT GetRTVFormatForAbstractFormat(AbstractTextureFormat format, bool int
     return integer ? DXGI_FORMAT_R8G8B8A8_UINT : DXGI_FORMAT_R8G8B8A8_UNORM;
   case AbstractTextureFormat::BGRA8:
     return DXGI_FORMAT_B8G8R8A8_UNORM;
+  case AbstractTextureFormat::RGB10_A2:
+    return DXGI_FORMAT_R10G10B10A2_UNORM;
+  case AbstractTextureFormat::RGBA16F:
+    return DXGI_FORMAT_R16G16B16A16_FLOAT;
   case AbstractTextureFormat::R16:
     return integer ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R16_UNORM;
   case AbstractTextureFormat::R32F:
@@ -234,6 +246,14 @@ AbstractTextureFormat GetAbstractFormatForDXGIFormat(DXGI_FORMAT format)
   case DXGI_FORMAT_B8G8R8A8_UNORM:
   case DXGI_FORMAT_B8G8R8A8_TYPELESS:
     return AbstractTextureFormat::BGRA8;
+
+  case DXGI_FORMAT_R10G10B10A2_UNORM:
+  case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+    return AbstractTextureFormat::RGB10_A2;
+
+  case DXGI_FORMAT_R16G16B16A16_FLOAT:
+  case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+    return AbstractTextureFormat::RGBA16F;
 
   case DXGI_FORMAT_R16_UINT:
   case DXGI_FORMAT_R16_UNORM:
@@ -277,12 +297,12 @@ void SetDebugObjectName(IUnknown* resource, std::string_view name)
 
   Microsoft::WRL::ComPtr<ID3D11DeviceChild> child11;
   Microsoft::WRL::ComPtr<ID3D12DeviceChild> child12;
-  if (SUCCEEDED(resource->QueryInterface(IID_PPV_ARGS(child11.GetAddressOf()))))
+  if (SUCCEEDED(resource->QueryInterface(IID_PPV_ARGS(&child11))))
   {
     child11->SetPrivateData(WKPDID_D3DDebugObjectName, static_cast<UINT>(name.length()),
                             name.data());
   }
-  else if (SUCCEEDED(resource->QueryInterface(IID_PPV_ARGS(child12.GetAddressOf()))))
+  else if (SUCCEEDED(resource->QueryInterface(IID_PPV_ARGS(&child12))))
   {
     child12->SetPrivateData(WKPDID_D3DDebugObjectName, static_cast<UINT>(name.length()),
                             name.data());

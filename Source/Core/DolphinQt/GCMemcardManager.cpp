@@ -30,8 +30,6 @@
 #include "Common/CommonPaths.h"
 #include "Common/Config/Config.h"
 #include "Common/FileUtil.h"
-#include "Common/MsgHandler.h"
-#include "Common/StringUtil.h"
 #include "Common/VariantUtil.h"
 
 #include "Core/Config/MainSettings.h"
@@ -64,7 +62,7 @@ Slot OtherSlot(Slot slot)
 {
   return slot == Slot::A ? Slot::B : Slot::A;
 }
-};  // namespace
+}  // namespace
 
 struct GCMemcardManager::IconAnimationData
 {
@@ -97,7 +95,6 @@ GCMemcardManager::GCMemcardManager(QWidget* parent) : QDialog(parent)
   resize(650, 500);
 
   setWindowTitle(tr("GameCube Memory Card Manager"));
-  setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 }
 
 GCMemcardManager::~GCMemcardManager() = default;
@@ -136,6 +133,8 @@ void GCMemcardManager::CreateWidgets()
     m_slot_create_button[slot] = new NonDefaultQPushButton(tr("&Create..."));
     m_slot_table[slot] = new QTableWidget;
     m_slot_table[slot]->setTabKeyNavigation(false);
+    m_slot_table[slot]->setHorizontalScrollMode(QAbstractItemView::ScrollMode::ScrollPerPixel);
+    m_slot_table[slot]->setVerticalScrollMode(QAbstractItemView::ScrollMode::ScrollPerPixel);
     m_slot_stat_label[slot] = new QLabel;
 
     m_slot_table[slot]->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -228,7 +227,8 @@ void GCMemcardManager::LoadDefaultMemcards()
       continue;
     }
 
-    const QString path = QString::fromStdString(Config::Get(Config::GetInfoForMemcardPath(slot)));
+    const QString path = QString::fromStdString(
+        Config::GetMemcardPath(slot, Config::Get(Config::MAIN_FALLBACK_REGION)));
     SetSlotFile(slot, path);
   }
 }
@@ -243,7 +243,6 @@ void GCMemcardManager::SetActiveSlot(Slot slot)
 
   m_active_slot = slot;
 
-  UpdateSlotTable(slot);
   UpdateActions();
 }
 
@@ -329,7 +328,7 @@ void GCMemcardManager::UpdateActions()
   m_fix_checksums_button->setEnabled(have_memcard);
 }
 
-void GCMemcardManager::SetSlotFile(Slot slot, QString path)
+void GCMemcardManager::SetSlotFile(Slot slot, const QString& path)
 {
   auto [error_code, memcard] = Memcard::GCMemcard::Open(path.toStdString());
 
@@ -354,8 +353,8 @@ void GCMemcardManager::SetSlotFileInteractive(Slot slot)
 {
   QString path = QDir::toNativeSeparators(
       DolphinFileDialog::getOpenFileName(this,
-                                         slot == Slot::A ? tr("Set memory card file for Slot A") :
-                                                           tr("Set memory card file for Slot B"),
+                                         slot == Slot::A ? tr("Set Memory Card File for Slot A") :
+                                                           tr("Set Memory Card File for Slot B"),
                                          QString::fromStdString(File::GetUserPath(D_GCUSER_IDX)),
                                          QStringLiteral("%1 (*.raw *.gcp);;%2 (*)")
                                              .arg(tr("GameCube Memory Cards"), tr("All Files"))));
@@ -400,7 +399,7 @@ static QString GetFormatDescription(Memcard::SavefileFormat format)
   case Memcard::SavefileFormat::SAV:
     return QObject::tr("Datel MaxDrive/Pro files");
   default:
-    ASSERT(0);
+    ASSERT(false);
     return QObject::tr("Native GCI File");
   }
 }
@@ -501,7 +500,7 @@ void GCMemcardManager::ExportFiles(Memcard::SavefileFormat format)
   }
 }
 
-void GCMemcardManager::ImportFiles(Slot slot, const std::vector<Memcard::Savefile>& savefiles)
+void GCMemcardManager::ImportFiles(Slot slot, std::span<const Memcard::Savefile> savefiles)
 {
   auto& card = m_slot_memcard[slot];
   if (!card)

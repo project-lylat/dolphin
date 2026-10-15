@@ -43,22 +43,22 @@ enum V5Requests
 
 struct V5CtrlMessage final : CtrlMessage
 {
-  V5CtrlMessage(Kernel& ios, const IOCtlVRequest& ioctlv);
+  V5CtrlMessage(EmulationKernel& ios, const IOCtlVRequest& ioctlv);
 };
 
 struct V5BulkMessage final : BulkMessage
 {
-  V5BulkMessage(Kernel& ios, const IOCtlVRequest& ioctlv);
+  V5BulkMessage(EmulationKernel& ios, const IOCtlVRequest& ioctlv);
 };
 
 struct V5IntrMessage final : IntrMessage
 {
-  V5IntrMessage(Kernel& ios, const IOCtlVRequest& ioctlv);
+  V5IntrMessage(EmulationKernel& ios, const IOCtlVRequest& ioctlv);
 };
 
 struct V5IsoMessage final : IsoMessage
 {
-  V5IsoMessage(Kernel& ios, const IOCtlVRequest& cmd_buffer);
+  V5IsoMessage(EmulationKernel& ios, const IOCtlVRequest& cmd_buffer);
 };
 }  // namespace USB
 
@@ -82,7 +82,8 @@ protected:
   IPCReply SuspendResume(USBV5Device& device, const IOCtlRequest& request);
 
   using Handler = std::function<std::optional<IPCReply>(USBV5Device&)>;
-  std::optional<IPCReply> HandleDeviceIOCtl(const IOCtlRequest& request, Handler handler);
+  std::optional<IPCReply> HandleDeviceIOCtl(const IOCtlRequest& request, const Handler& handler);
+  IPCReply GetUSBVersion(const IOCtlRequest& request) const;
 
   void OnDeviceChange(ChangeEvent event, std::shared_ptr<USB::Device> device) override;
   void OnDeviceChangeEnd() override;

@@ -8,14 +8,23 @@
 #include <QTableWidget>
 
 #include "Common/CommonTypes.h"
+#include "Core/Debugger/CodeTrace.h"
 
+class QFont;
 class QKeyEvent;
 class QMouseEvent;
 class QResizeEvent;
 class QShowEvent;
 
+namespace Core
+{
+class CPUThreadGuard;
+class System;
+}  // namespace Core
+
 struct CodeViewBranch;
 class BranchDisplayDelegate;
+class PPCSymbolDB;
 
 class CodeViewWidget : public QTableWidget
 {
@@ -32,12 +41,14 @@ public:
   ~CodeViewWidget() override;
 
   u32 GetAddress() const;
+  void OnLockAddress(bool lock);
   u32 GetContextAddress() const;
   void SetAddress(u32 address, SetAddressUpdate update);
 
   // Set tighter row height. Set BP column sizing. This needs to run when font type changes.
   void FontBasedSizing();
   void Update();
+  void Update(const Core::CPUThreadGuard* guard);
 
   void ToggleBreakpoint();
   void AddBreakpoint();
@@ -45,11 +56,10 @@ public:
   u32 AddressForRow(int row) const;
 
 signals:
-  void RequestPPCComparison(u32 addr);
+  void RequestPPCComparison(u32 address, bool translate_address);
   void ShowMemory(u32 address);
-  void SymbolsChanged();
-  void BreakpointsChanged();
   void UpdateCodeWidget();
+  void ActivateSearch();
 
 private:
   enum class ReplaceWith
@@ -68,6 +78,8 @@ private:
 
   void OnContextMenu();
 
+  void AutoStep(CodeTrace::AutoStop option = CodeTrace::AutoStop::Always);
+  void OnDebugFontChanged(const QFont& font);
   void OnFollowBranch();
   void OnCopyAddress();
   void OnCopyTargetAddress();
@@ -76,23 +88,31 @@ private:
   void OnCopyFunction();
   void OnCopyCode();
   void OnCopyHex();
-  void OnRenameSymbol();
   void OnSelectionChanged();
-  void OnSetSymbolSize();
-  void OnSetSymbolEndAddress();
   void OnRunToHere();
   void OnAddFunction();
+  void OnEditSymbol();
+  void OnDeleteSymbol();
+  void OnAddNote();
   void OnPPCComparison();
+  void OnEditNote();
+  void OnDeleteNote();
   void OnInsertBLR();
   void OnInsertNOP();
   void OnReplaceInstruction();
+  void OnAssembleInstruction();
+  void DoPatchInstruction(bool assemble);
   void OnRestoreInstruction();
 
   void CalculateBranchIndentation();
 
+  Core::System& m_system;
+  PPCSymbolDB& m_ppc_symbol_db;
+
   bool m_updating = false;
 
   u32 m_address = 0;
+  bool m_lock_address = false;
   u32 m_context_address = 0;
 
   std::vector<CodeViewBranch> m_branches;

@@ -3,8 +3,11 @@
 
 #pragma once
 
+#ifdef HAS_LIBMGBA
+
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -34,10 +37,10 @@ class GBAWidget : public QWidget
 public:
   explicit GBAWidget(std::weak_ptr<HW::GBA::Core> core, const HW::GBA::CoreInfo& info,
                      const std::optional<NetPlay::PadDetails>& netplay_pad);
-  ~GBAWidget();
+  ~GBAWidget() override;
 
   void GameChanged(const HW::GBA::CoreInfo& info);
-  void SetVideoBuffer(std::vector<u32> video_buffer);
+  void SetVideoBuffer(std::span<const u32> video_buffer);
 
   void SetVolume(int volume);
   void VolumeDown();
@@ -102,12 +105,13 @@ class GBAWidgetController : public QObject
   Q_OBJECT
 public:
   explicit GBAWidgetController() = default;
-  ~GBAWidgetController();
+  ~GBAWidgetController() override;
 
   void Create(std::weak_ptr<HW::GBA::Core> core, const HW::GBA::CoreInfo& info);
   void GameChanged(const HW::GBA::CoreInfo& info);
-  void FrameEnded(std::vector<u32> video_buffer);
+  void FrameEnded(std::span<const u32> video_buffer);
 
 private:
   GBAWidget* m_widget{};
 };
+#endif  // HAS_LIBMGBA

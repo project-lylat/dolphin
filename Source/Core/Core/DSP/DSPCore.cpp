@@ -109,7 +109,18 @@ public:
 protected:
   u8 ReadMemory(u32 address) override { return Host::ReadHostMemory(address); }
   void WriteMemory(u32 address, u8 value) override { Host::WriteHostMemory(value, address); }
-  void OnEndException() override { m_dsp.SetException(ExceptionType::AcceleratorOverflow); }
+  void OnRawReadEndException() override
+  {
+    m_dsp.SetException(ExceptionType::AcceleratorRawReadOverflow);
+  }
+  void OnRawWriteEndException() override
+  {
+    m_dsp.SetException(ExceptionType::AcceleratorRawWriteOverflow);
+  }
+  void OnSampleReadEndException() override
+  {
+    m_dsp.SetException(ExceptionType::AcceleratorSampleReadOverflow);
+  }
 
 private:
   SDSP& m_dsp;
@@ -143,25 +154,25 @@ bool SDSP::Initialize(const DSPInitOptions& opts)
 
   std::memset(&r, 0, sizeof(r));
 
-  std::fill(std::begin(reg_stack_ptrs), std::end(reg_stack_ptrs), 0);
+  std::ranges::fill(reg_stack_ptrs, 0);
 
   for (auto& stack : reg_stacks)
-    std::fill(std::begin(stack), std::end(stack), 0);
+    std::ranges::fill(stack, 0);
 
   // Fill IRAM with HALT opcodes.
-  std::fill(iram, iram + DSP_IRAM_SIZE, 0x0021);
+  std::ranges::fill_n(iram, DSP_IRAM_SIZE, 0x0021);
 
   // Just zero out DRAM.
-  std::fill(dram, dram + DSP_DRAM_SIZE, 0);
+  std::ranges::fill_n(dram, DSP_DRAM_SIZE, 0);
 
   // Copied from a real console after the custom UCode has been loaded.
   // These are the indexing wrapping registers.
-  std::fill(std::begin(r.wr), std::end(r.wr), 0xffff);
+  std::ranges::fill(r.wr, 0xffff);
 
   r.sr |= SR_INT_ENABLE;
   r.sr |= SR_EXT_INT_ENABLE;
 
-  cr = CR_INIT | CR_HALT;
+  control_reg = CR_INIT | CR_HALT;
   InitializeIFX();
   // Mostly keep IRAM write protected. We unprotect only when DMA-ing
   // in new ucodes.
@@ -172,7 +183,7 @@ bool SDSP::Initialize(const DSPInitOptions& opts)
 void SDSP::Reset()
 {
   pc = DSP_RESET_VECTOR;
-  std::fill(std::begin(r.wr), std::end(r.wr), 0xffff);
+  std::ranges::fill(r.wr, 0xffff);
 }
 
 void SDSP::Shutdown()
@@ -210,14 +221,14 @@ void SDSP::CheckExternalInterrupt()
   // Signal the SPU about new mail
   SetException(ExceptionType::ExternalInterrupt);
 
-  cr &= ~CR_EXTERNAL_INT;
+  control_reg &= ~CR_EXTERNAL_INT;
 }
 
-void SDSP::CheckExceptions()
+bool SDSP::CheckExceptions()
 {
   // Early out to skip the loop in the common case.
   if (exceptions == 0)
-    return;
+    return false;
 
   for (int i = 7; i > 0; i--)
   {
@@ -236,7 +247,7 @@ void SDSP::CheckExceptions()
           r.sr &= ~SR_EXT_INT_ENABLE;
         else
           r.sr &= ~SR_INT_ENABLE;
-        break;
+        return true;
       }
       else
       {
@@ -246,6 +257,8 @@ void SDSP::CheckExceptions()
       }
     }
   }
+
+  return false;
 }
 
 u16 SDSP::ReadRegister(size_t reg) const
@@ -378,7 +391,8 @@ void SDSP::DoState(PointerWrap& p)
 {
   p.Do(r);
   p.Do(pc);
-  p.Do(cr);
+  p.Do(control_reg);
+  p.Do(control_reg_init_code_clear_time);
   p.Do(reg_stack_ptrs);
   p.Do(exceptions);
   p.Do(external_interrupt_waiting);
@@ -414,8 +428,6 @@ bool DSPCore::Initialize(const DSPInitOptions& opts)
 {
   if (!m_dsp.Initialize(opts))
     return false;
-
-  m_init_hax = false;
 
   // Initialize JIT, if necessary
   if (opts.core_type == DSPInitOptions::CoreType::JIT64)
@@ -468,8 +480,6 @@ int DSPCore::RunCycles(int cycles)
 
       m_dsp_interpreter->Step();
       cycles--;
-
-      Host::UpdateDebugger();
       break;
     case State::Stopped:
       break;
@@ -505,8 +515,6 @@ void DSPCore::SetState(State new_state)
   // kick the event, in case we are waiting
   if (new_state == State::Running)
     m_step_event.Set();
-
-  Host::UpdateDebugger();
 }
 
 State DSPCore::GetState() const
@@ -529,9 +537,9 @@ void DSPCore::CheckExternalInterrupt()
   m_dsp.CheckExternalInterrupt();
 }
 
-void DSPCore::CheckExceptions()
+bool DSPCore::CheckExceptions()
 {
-  m_dsp.CheckExceptions();
+  return m_dsp.CheckExceptions();
 }
 
 u16 DSPCore::ReadRegister(size_t reg) const
@@ -592,7 +600,6 @@ bool DSPCore::IsJITCreated() const
 void DSPCore::DoState(PointerWrap& p)
 {
   m_dsp.DoState(p);
-  p.Do(m_init_hax);
 
   if (m_dsp_jit)
     m_dsp_jit->DoState(p);

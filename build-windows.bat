@@ -1,6 +1,7 @@
 @echo off
+rem Release x64 build with CMake and Ninja (upstream removed the Visual Studio solution).
+rem Run from an "x64 Native Tools Command Prompt for VS 2022".
+rem The program ends up in Build\x64\Binaries.
 
-SET PATH=%PATH%;C:\Program Files\7-Zip;C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin;C:\Python27\;C:\Python27\Scripts;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja;C:\Program Files\Microsoft VS Code\bin;C:\Program Files\Git\cmd
-
-cd Source
-msbuild.exe /v:m /p:Platform=x64 /p:Configuration=Release dolphin-emu.sln
+cmake -S . -B Build\x64 -G Ninja -DCMAKE_BUILD_TYPE=Release || exit /b 1
+cmake --build Build\x64 || exit /b 1

@@ -11,6 +11,10 @@
 
 class PointerWrap;
 
+namespace Core
+{
+class System;
+}
 namespace Memcard
 {
 struct HeaderData;
@@ -26,23 +30,24 @@ enum class EXIDeviceType : int
   AD16,
   Microphone,
   Ethernet,
-  // Was used for Triforce in the past, but the implementation is no longer in Dolphin.
-  // It's kept here so that values below will stay constant.
-  AMBaseboard,
+  Baseboard,
   Gecko,
   // Only used when creating a device by EXIDevice_Create.
   // Converted to MemoryCard internally.
   MemoryCardFolder,
   AGP,
   EthernetXLink,
-  // Only used on Apple devices.
   EthernetTapServer,
+  EthernetBuiltIn,
+  ModemTapServer,
+  EthernetIPC,
   None = 0xFF
 };
 
 class IEXIDevice
 {
 public:
+  explicit IEXIDevice(Core::System& system);
   virtual ~IEXIDevice() = default;
 
   // Immediate copy functions
@@ -58,7 +63,6 @@ public:
   virtual bool IsPresent() const;
   virtual void SetCS(int cs);
   virtual void DoState(PointerWrap& p);
-  virtual void PauseAndLock(bool do_lock, bool resume_on_unlock = true);
 
   // Is generating interrupt ?
   virtual bool IsInterruptSet();
@@ -68,18 +72,22 @@ public:
   // such.
   EXIDeviceType m_device_type = EXIDeviceType::None;
 
+protected:
+  Core::System& m_system;
+
 private:
   // Byte transfer function for this device
   virtual void TransferByte(u8& byte);
 };
 
-std::unique_ptr<IEXIDevice> EXIDevice_Create(EXIDeviceType device_type, int channel_num,
+std::unique_ptr<IEXIDevice> EXIDevice_Create(Core::System& system, EXIDeviceType device_type,
+                                             int channel_num,
                                              const Memcard::HeaderData& memcard_header_data);
 }  // namespace ExpansionInterface
 
 template <>
 struct fmt::formatter<ExpansionInterface::EXIDeviceType>
-    : EnumFormatter<ExpansionInterface::EXIDeviceType::EthernetTapServer>
+    : EnumFormatter<ExpansionInterface::EXIDeviceType::EthernetIPC>
 {
   static constexpr array_type names = {
       _trans("Dummy"),
@@ -89,18 +97,21 @@ struct fmt::formatter<ExpansionInterface::EXIDeviceType>
       _trans("AD16"),
       _trans("Microphone"),
       _trans("Broadband Adapter (TAP)"),
-      _trans("Triforce AM Baseboard"),
+      _trans("Triforce Baseboard"),
       _trans("USB Gecko"),
       _trans("GCI Folder"),
       _trans("Advance Game Port"),
       _trans("Broadband Adapter (XLink Kai)"),
       _trans("Broadband Adapter (tapserver)"),
+      _trans("Broadband Adapter (HLE)"),
+      _trans("Modem Adapter (tapserver)"),
+      _trans("Broadband Adapter (IPC)"),
   };
 
   constexpr formatter() : EnumFormatter(names) {}
 
   template <typename FormatContext>
-  auto format(const ExpansionInterface::EXIDeviceType& e, FormatContext& ctx)
+  auto format(const ExpansionInterface::EXIDeviceType& e, FormatContext& ctx) const
   {
     if (e != ExpansionInterface::EXIDeviceType::None)
     {

@@ -23,17 +23,20 @@
 #include <QTextBrowser>
 
 #include <algorithm>
-#include <sstream>
+#include <utility>
 
-#include "Common/CommonPaths.h"
+#ifdef HAS_LIBMGBA
+#include <fmt/ranges.h>
+#endif
+
 #include "Common/Config/Config.h"
-#include "Common/HttpRequest.h"
 #include "Common/Logging/Log.h"
 #include "Common/TraversalClient.h"
+#include "Core/NetPlayCommon.h"
+#include "Core/NetPlayProto.h"
 
 #include "Core/Boot/Boot.h"
 #include "Core/Config/GraphicsSettings.h"
-#include "Core/Config/MainSettings.h"
 #include "Core/Config/NetplaySettings.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
@@ -43,10 +46,12 @@
 #include "Core/IOS/FS/FileSystem.h"
 #include "Core/NetPlayServer.h"
 #include "Core/SyncIdentifier.h"
+#include "Core/System.h"
 
 #include "DolphinQt/NetPlay/ChunkedProgressDialog.h"
+#include "DolphinQt/NetPlay/ClickBlurLabel.h"
+#include "DolphinQt/NetPlay/GameDigestDialog.h"
 #include "DolphinQt/NetPlay/GameListDialog.h"
-#include "DolphinQt/NetPlay/MD5Dialog.h"
 #include "DolphinQt/NetPlay/PadMappingDialog.h"
 #include "DolphinQt/QtUtils/ModalMessageBox.h"
 #include "DolphinQt/QtUtils/QueueOnObject.h"
@@ -61,12 +66,10 @@
 
 #include "VideoCommon/NetPlayChatUI.h"
 #include "VideoCommon/NetPlayGolfUI.h"
-#include "VideoCommon/RenderBase.h"
-#include "VideoCommon/VideoConfig.h"
 
 namespace
 {
-QString InetAddressToString(const TraversalInetAddress& addr)
+QString InetAddressToString(const Common::TraversalInetAddress& addr)
 {
   QString ip;
 
@@ -94,13 +97,11 @@ NetPlayDialog::NetPlayDialog(const GameListModel& game_list_model,
     : QDialog(parent), m_game_list_model(game_list_model),
       m_start_game_callback(std::move(start_game_callback))
 {
-  setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
-
   setWindowTitle(tr("NetPlay"));
   setWindowIcon(Resources::GetAppIcon());
 
   m_pad_mapping = new PadMappingDialog(this);
-  m_md5_dialog = new MD5Dialog(this);
+  m_game_digest_dialog = new GameDigestDialog(this);
   m_chunked_progress_dialog = new ChunkedProgressDialog(this);
 
   ResetExternalIP();
@@ -110,7 +111,7 @@ NetPlayDialog::NetPlayDialog(const GameListModel& game_list_model,
   LoadSettings();
   ConnectWidgets();
 
-  auto& settings = Settings::Instance().GetQSettings();
+  const auto& settings = Settings::Instance().GetQSettings();
 
   restoreGeometry(settings.value(QStringLiteral("netplaydialog/geometry")).toByteArray());
   m_splitter->restoreState(settings.value(QStringLiteral("netplaydialog/splitter")).toByteArray());
@@ -130,6 +131,7 @@ void NetPlayDialog::CreateMainLayout()
   m_game_button = new QPushButton;
   m_start_button = new QPushButton(tr("Start"));
   m_buffer_size_box = new QSpinBox;
+  m_buffer_size_box->setMaximum(NetPlay::MAX_TARGET_PAD_BUFFER_SIZE);
   m_buffer_label = new QLabel(tr("Buffer:"));
   m_quit_button = new QPushButton(tr("Quit"));
   m_splitter = new QSplitter(Qt::Horizontal);
@@ -141,20 +143,48 @@ void NetPlayDialog::CreateMainLayout()
 
   m_data_menu = m_menu_bar->addMenu(tr("Data"));
   m_data_menu->setToolTipsVisible(true);
-  m_write_save_data_action = m_data_menu->addAction(tr("Write Save Data"));
-  m_write_save_data_action->setCheckable(true);
+
+  m_savedata_none_action = m_data_menu->addAction(tr("No Save Data"));
+  m_savedata_none_action->setToolTip(
+      tr("Netplay will start without any save data, and any created save data will be discarded at "
+         "the end of the Netplay session."));
+  m_savedata_none_action->setCheckable(true);
+  m_savedata_load_only_action = m_data_menu->addAction(tr("Load Host's Save Data Only"));
+  m_savedata_load_only_action->setToolTip(tr(
+      "Netplay will start using the Host's save data, but any save data created or modified during "
+      "the Netplay session will be discarded at the end of the session."));
+  m_savedata_load_only_action->setCheckable(true);
+  m_savedata_load_and_write_action = m_data_menu->addAction(tr("Load and Write Host's Save Data"));
+  m_savedata_load_and_write_action->setToolTip(
+      tr("Netplay will start using the Host's save data, and any save data created or modified "
+         "during the Netplay session will remain in the Host's local saves."));
+  m_savedata_load_and_write_action->setCheckable(true);
+
+  m_savedata_style_group = new QActionGroup(this);
+  m_savedata_style_group->setExclusive(true);
+  m_savedata_style_group->addAction(m_savedata_none_action);
+  m_savedata_style_group->addAction(m_savedata_load_only_action);
+  m_savedata_style_group->addAction(m_savedata_load_and_write_action);
+
+  m_data_menu->addSeparator();
+
+  m_savedata_all_wii_saves_action = m_data_menu->addAction(tr("Use All Wii Save Data"));
+  m_savedata_all_wii_saves_action->setToolTip(tr(
+      "If checked, all Wii saves will be used instead of only the save of the game being started. "
+      "Useful when switching games mid-session. Has no effect if No Save Data is selected."));
+  m_savedata_all_wii_saves_action->setCheckable(true);
   m_use_preloaded_saves_action = m_data_menu->addAction(tr("Load Preloaded Saves"));
   m_use_preloaded_saves_action->setToolTip(
-      tr("If enabled, dolphin will load preloaded save files instead of empty saves. \nIf you desync on start, try turning this off and turning Load Wii Save + Sync All Wii Saves On instead."));
+      tr("If enabled, dolphin will load preloaded save files instead of empty saves. \n"
+         "If you "
+         "desync on start, try turning this off and turning Load Host's Save Data + Use All Wii "
+         "Save Data on instead."));
   m_use_preloaded_saves_action->setCheckable(true);
-  m_load_wii_action = m_data_menu->addAction(tr("Load Wii Save"));
-  m_load_wii_action->setCheckable(true);
-  m_sync_save_data_action = m_data_menu->addAction(tr("Sync Saves"));
-  m_sync_save_data_action->setCheckable(true);
+
+  m_data_menu->addSeparator();
+
   m_sync_codes_action = m_data_menu->addAction(tr("Sync AR/Gecko Codes"));
   m_sync_codes_action->setCheckable(true);
-  m_sync_all_wii_saves_action = m_data_menu->addAction(tr("Sync All Wii Saves"));
-  m_sync_all_wii_saves_action->setCheckable(true);
   m_strict_settings_sync_action = m_data_menu->addAction(tr("Strict Settings Sync"));
   m_strict_settings_sync_action->setToolTip(
       tr("This will sync additional graphics settings, and force everyone to the same internal "
@@ -190,19 +220,20 @@ void NetPlayDialog::CreateMainLayout()
   m_network_mode_group->addAction(m_golf_mode_action);
   m_fixed_delay_action->setChecked(true);
 
-  m_md5_menu = m_menu_bar->addMenu(tr("Checksum"));
-  m_md5_menu->addAction(tr("Current game"), this, [this] {
-    Settings::Instance().GetNetPlayServer()->ComputeMD5(m_current_game_identifier);
+  m_game_digest_menu = m_menu_bar->addMenu(tr("Checksum"));
+  m_game_digest_menu->addAction(tr("Current game"), this, [this] {
+    Settings::Instance().GetNetPlayServer()->ComputeGameDigest(m_current_game_identifier);
   });
-  m_md5_menu->addAction(tr("Other game..."), this, [this] {
+  m_game_digest_menu->addAction(tr("Other game..."), this, [this] {
     GameListDialog gld(m_game_list_model, this);
 
     if (gld.exec() != QDialog::Accepted)
       return;
-    Settings::Instance().GetNetPlayServer()->ComputeMD5(gld.GetSelectedGame().GetSyncIdentifier());
+    Settings::Instance().GetNetPlayServer()->ComputeGameDigest(
+        gld.GetSelectedGame().GetSyncIdentifier());
   });
-  m_md5_menu->addAction(tr("SD Card"), this, [] {
-    Settings::Instance().GetNetPlayServer()->ComputeMD5(
+  m_game_digest_menu->addAction(tr("SD Card"), this, [] {
+    Settings::Instance().GetNetPlayServer()->ComputeGameDigest(
         NetPlay::NetPlayClient::GetSDCardIdentifier());
   });
 
@@ -228,7 +259,7 @@ void NetPlayDialog::CreateMainLayout()
   m_game_button->setDefault(false);
   m_game_button->setAutoDefault(false);
 
-  m_sync_save_data_action->setChecked(true);
+  m_savedata_load_only_action->setChecked(true);
   m_sync_codes_action->setChecked(true);
 
   m_main_layout->setMenuBar(m_menu_bar);
@@ -280,7 +311,7 @@ void NetPlayDialog::CreatePlayersLayout()
 {
   m_players_box = new QGroupBox(tr("Players"));
   m_room_box = new QComboBox;
-  m_hostcode_label = new QLabel;
+  m_hostcode_label = new ClickBlurLabel;
   m_hostcode_action_button = new QPushButton(tr("Copy"));
   m_players_list = new QTableWidget;
   m_kick_button = new QPushButton(tr("Kick Player"));
@@ -311,21 +342,20 @@ void NetPlayDialog::CreatePlayersLayout()
 void NetPlayDialog::ConnectWidgets()
 {
   // Players
-  connect(m_room_box, qOverload<int>(&QComboBox::currentIndexChanged), this,
-          &NetPlayDialog::UpdateGUI);
+  connect(m_room_box, &QComboBox::currentIndexChanged, this, &NetPlayDialog::UpdateGUI);
   connect(m_hostcode_action_button, &QPushButton::clicked, [this] {
     if (m_is_copy_button_retry)
-      g_TraversalClient->ReconnectToServer();
+      Common::g_TraversalClient->ReconnectToServer();
     else
       QApplication::clipboard()->setText(m_hostcode_label->text());
   });
   connect(m_players_list, &QTableWidget::itemSelectionChanged, [this] {
-    int row = m_players_list->currentRow();
+    const int row = m_players_list->currentRow();
     m_kick_button->setEnabled(row > 0 &&
                               !m_players_list->currentItem()->data(Qt::UserRole).isNull());
   });
   connect(m_kick_button, &QPushButton::clicked, [this] {
-    auto id = m_players_list->currentItem()->data(Qt::UserRole).toInt();
+    const auto id = m_players_list->currentItem()->data(Qt::UserRole).toInt();
     Settings::Instance().GetNetPlayServer()->KickPlayer(id);
   });
   connect(m_assign_ports_button, &QPushButton::clicked, [this] {
@@ -347,12 +377,12 @@ void NetPlayDialog::ConnectWidgets()
   });
 
   // Other
-  connect(m_buffer_size_box, qOverload<int>(&QSpinBox::valueChanged), [this](int value) {
+  connect(m_buffer_size_box, &QSpinBox::valueChanged, [this](int value) {
     if (value == m_buffer_size)
       return;
 
-    auto client = Settings::Instance().GetNetPlayClient();
-    auto server = Settings::Instance().GetNetPlayServer();
+    const auto client = Settings::Instance().GetNetPlayClient();
+    const auto server = Settings::Instance().GetNetPlayServer();
     if (server && !m_host_input_authority)
       server->AdjustPadBufferSize(value);
     else
@@ -362,7 +392,7 @@ void NetPlayDialog::ConnectWidgets()
   const auto hia_function = [this](bool enable) {
     if (m_host_input_authority != enable)
     {
-      auto server = Settings::Instance().GetNetPlayServer();
+      const auto server = Settings::Instance().GetNetPlayServer();
       if (server)
         server->SetHostInputAuthority(enable);
     }
@@ -399,7 +429,7 @@ void NetPlayDialog::ConnectWidgets()
     }
   });
 
-  connect(&Settings::Instance(), &Settings::EmulationStateChanged, this, [=](Core::State state) {
+  connect(&Settings::Instance(), &Settings::EmulationStateChanged, this, [this](Core::State state) {
     if (isVisible())
     {
       GameStatusChanged(state != Core::State::Uninitialized);
@@ -413,22 +443,18 @@ void NetPlayDialog::ConnectWidgets()
     }
   });
 
-  connect(m_sync_save_data_action, &QAction::toggled, this,
-          [this](bool checked) { m_sync_all_wii_saves_action->setEnabled(checked); });
-
   // SaveSettings() - Save Hosting-Dialog Settings
 
-  connect(m_buffer_size_box, qOverload<int>(&QSpinBox::valueChanged), this,
-          &NetPlayDialog::SaveSettings);
-  connect(m_write_save_data_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
+  connect(m_buffer_size_box, &QSpinBox::valueChanged, this, &NetPlayDialog::SaveSettings);
+  connect(m_savedata_none_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
+  connect(m_savedata_load_only_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
+  connect(m_savedata_load_and_write_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
+  connect(m_savedata_all_wii_saves_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_use_preloaded_saves_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
-  connect(m_load_wii_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
-  connect(m_sync_save_data_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_sync_codes_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_record_input_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_strict_settings_sync_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_host_input_authority_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
-  connect(m_sync_all_wii_saves_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_golf_mode_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_golf_mode_overlay_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
   connect(m_fixed_delay_action, &QAction::toggled, this, &NetPlayDialog::SaveSettings);
@@ -451,7 +477,7 @@ void NetPlayDialog::OnChat()
     return;
   }
   QueueOnObject(this, [this] {
-    auto msg = m_chat_type_edit->text().toStdString();
+    const auto msg = m_chat_type_edit->text().toStdString();
 
     if (msg.empty())
       return;
@@ -520,7 +546,7 @@ void NetPlayDialog::reject()
 
 void NetPlayDialog::show(std::string nickname, bool use_traversal)
 {
-  m_nickname = nickname;
+  m_nickname = std::move(nickname);
   m_use_traversal = use_traversal;
   m_buffer_size = 0;
   m_old_player_count = 0;
@@ -529,8 +555,8 @@ void NetPlayDialog::show(std::string nickname, bool use_traversal)
   m_chat_edit->clear();
   m_chat_type_edit->clear();
 
-  bool is_hosting = Settings::Instance().GetNetPlayServer() != nullptr;
-  bool auto_start = Config::GetBase(Config::NETPLAY_ENABLE_AUTO_START_GAME);
+  const bool is_hosting = Settings::Instance().GetNetPlayServer() != nullptr;
+  const bool auto_start = Config::GetBase(Config::NETPLAY_ENABLE_AUTO_START_GAME);
 
   if (is_hosting)
   {
@@ -547,7 +573,7 @@ void NetPlayDialog::show(std::string nickname, bool use_traversal)
 
   m_data_menu->menuAction()->setVisible(is_hosting);
   m_network_menu->menuAction()->setVisible(is_hosting);
-  m_md5_menu->menuAction()->setVisible(is_hosting);
+  m_game_digest_menu->menuAction()->setVisible(is_hosting);
 #ifdef HAS_LIBMGBA
   m_hide_remote_gbas_action->setVisible(is_hosting);
 #else
@@ -571,17 +597,8 @@ void NetPlayDialog::show(std::string nickname, bool use_traversal)
 
 void NetPlayDialog::ResetExternalIP()
 {
-  m_external_ip_address = Common::Lazy<std::string>([]() -> std::string {
-    Common::HttpRequest request;
-    // ENet does not support IPv6, so IPv4 has to be used
-    request.UseIPv4();
-    Common::HttpRequest::Response response =
-        request.Get("https://ip.dolphin-emu.org/", {{"X-Is-Dolphin", "1"}});
-
-    if (response.has_value())
-      return std::string(response->begin(), response->end());
-    return "";
-  });
+  m_external_ip_address =
+      Common::Lazy<std::string>([]() -> std::string { return NetPlay::GetExternalIPAddress(); });
 }
 
 void NetPlayDialog::UpdateDiscordPresence()
@@ -591,19 +608,19 @@ void NetPlayDialog::UpdateDiscordPresence()
   if (m_player_count == 0 || m_current_game_name.empty())
     return;
 
-  const auto use_default = [this]() {
+  const auto use_default = [this] {
     Discord::UpdateDiscordPresence(m_player_count, Discord::SecretType::Empty, "",
                                    m_current_game_name);
   };
 
-  if (Core::IsRunning())
+  if (Core::IsRunning(Core::System::GetInstance()))
     return use_default();
 
   if (IsHosting())
   {
-    if (g_TraversalClient)
+    if (Common::g_TraversalClient)
     {
-      const auto host_id = g_TraversalClient->GetHostID();
+      const auto host_id = Common::g_TraversalClient->GetHostID();
       if (host_id[0] == '\0')
         return use_default();
 
@@ -631,8 +648,8 @@ void NetPlayDialog::UpdateDiscordPresence()
 
 void NetPlayDialog::UpdateGUI()
 {
-  auto client = Settings::Instance().GetNetPlayClient();
-  auto server = Settings::Instance().GetNetPlayServer();
+  const auto client = Settings::Instance().GetNetPlayClient();
+  const auto server = Settings::Instance().GetNetPlayServer();
   if (!client)
     return;
 
@@ -644,9 +661,9 @@ void NetPlayDialog::UpdateGUI()
 
   m_player_count = static_cast<int>(players.size());
 
-  int selection_pid = m_players_list->currentItem() ?
-                          m_players_list->currentItem()->data(Qt::UserRole).toInt() :
-                          -1;
+  const int selection_pid = m_players_list->currentItem() ?
+                                m_players_list->currentItem()->data(Qt::UserRole).toInt() :
+                                -1;
 
   m_players_list->clear();
   m_players_list->setHorizontalHeaderLabels(
@@ -679,8 +696,9 @@ void NetPlayDialog::UpdateGUI()
 
     auto* name_item = new QTableWidgetItem(QString::fromStdString(p->name));
     name_item->setToolTip(name_item->text());
-    const auto& status_info = player_status.count(p->game_status) ?
-                                  player_status.at(p->game_status) :
+    const auto it = player_status.find(p->game_status);
+    const auto& status_info = it != player_status.end() ?
+                                  it->second :
                                   std::make_pair(QStringLiteral("?"), QStringLiteral("?"));
     auto* status_item = new QTableWidgetItem(status_info.first);
     status_item->setToolTip(status_info.second);
@@ -735,26 +753,27 @@ void NetPlayDialog::UpdateGUI()
   }
   else if (m_use_traversal)
   {
-    switch (g_TraversalClient->GetState())
+    switch (Common::g_TraversalClient->GetState())
     {
-    case TraversalClient::State::Connecting:
+    case Common::TraversalClient::State::Connecting:
       m_hostcode_label->setText(tr("Connecting"));
       m_hostcode_action_button->setEnabled(false);
       m_hostcode_action_button->setText(tr("..."));
       break;
-    case TraversalClient::State::Connected:
+    case Common::TraversalClient::State::Connected:
     {
       if (m_room_box->currentIndex() == 0)
       {
         // Display Room ID.
-        const auto host_id = g_TraversalClient->GetHostID();
+        const auto host_id = Common::g_TraversalClient->GetHostID();
         m_hostcode_label->setText(
             QString::fromStdString(std::string(host_id.begin(), host_id.end())));
       }
       else
       {
         // Externally mapped IP and port are known when using the traversal server.
-        m_hostcode_label->setText(InetAddressToString(g_TraversalClient->GetExternalAddress()));
+        m_hostcode_label->setText(
+            InetAddressToString(Common::g_TraversalClient->GetExternalAddress()));
       }
 
       m_hostcode_action_button->setEnabled(true);
@@ -762,7 +781,7 @@ void NetPlayDialog::UpdateGUI()
       m_is_copy_button_retry = false;
       break;
     }
-    case TraversalClient::State::Failure:
+    case Common::TraversalClient::State::Failure:
       m_hostcode_label->setText(tr("Error"));
       m_hostcode_action_button->setText(tr("Retry"));
       m_hostcode_action_button->setEnabled(true);
@@ -792,7 +811,7 @@ void NetPlayDialog::UpdateGUI()
 
   if(IsHosting() && m_start_game_on_update && Settings::Instance().GetNetPlayClient()->DoAllPlayersHaveGame()){
     m_start_game_on_update = false;
-    if (Core::IsRunning())
+    if (Core::IsRunning(Core::System::GetInstance()))
       return;
     // Wait for a bit to allow client to update
     std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -841,12 +860,15 @@ void NetPlayDialog::DisplayMessage(const QString& msg, const std::string& color,
                             .arg(QString::fromStdString(color), msg.toHtmlEscaped()));
   });
 
-  QColor c(color.empty() ? QStringLiteral("white") : QString::fromStdString(color));
+  const QColor c(color.empty() ? QStringLiteral("white") : QString::fromStdString(color));
 
-  if (g_ActiveConfig.bShowNetPlayMessages && Core::IsRunning())
+  if (Config::Get(Config::GFX_SHOW_NETPLAY_MESSAGES) &&
+      Core::IsRunning(Core::System::GetInstance()))
+  {
     g_netplay_chat_ui->AppendChat(msg.toStdString(),
                                   {static_cast<float>(c.redF()), static_cast<float>(c.greenF()),
                                    static_cast<float>(c.blueF())});
+  }
 }
 
 void NetPlayDialog::AppendChat(const std::string& msg)
@@ -895,15 +917,15 @@ void NetPlayDialog::SetOptionsEnabled(bool enabled)
   {
     m_start_button->setEnabled(enabled);
     m_game_button->setEnabled(enabled);
+    m_savedata_none_action->setEnabled(enabled);
+    m_savedata_load_only_action->setEnabled(enabled);
+    m_savedata_load_and_write_action->setEnabled(enabled);
+    m_savedata_all_wii_saves_action->setEnabled(enabled);
     m_use_preloaded_saves_action->setEnabled(enabled);
-    m_load_wii_action->setEnabled(enabled);
-    m_write_save_data_action->setEnabled(enabled);
-    m_sync_save_data_action->setEnabled(enabled);
     m_sync_codes_action->setEnabled(enabled);
     m_assign_ports_button->setEnabled(enabled);
     m_strict_settings_sync_action->setEnabled(enabled);
     m_host_input_authority_action->setEnabled(enabled);
-    m_sync_all_wii_saves_action->setEnabled(enabled && m_sync_save_data_action->isChecked());
     m_golf_mode_action->setEnabled(enabled);
     m_fixed_delay_action->setEnabled(enabled);
   }
@@ -918,18 +940,17 @@ void NetPlayDialog::OnMsgStartGame()
   g_netplay_chat_ui =
       std::make_unique<NetPlayChatUI>([this](const std::string& message) { SendMessage(message); });
 
-  if (m_host_input_authority &&
-      Settings::Instance().GetNetPlayClient()->GetNetSettings().m_GolfMode)
+  if (m_host_input_authority && Settings::Instance().GetNetPlayClient()->GetNetSettings().golf_mode)
   {
     g_netplay_golf_ui = std::make_unique<NetPlayGolfUI>(Settings::Instance().GetNetPlayClient());
   }
 
   QueueOnObject(this, [this] {
-    auto client = Settings::Instance().GetNetPlayClient();
+    const auto client = Settings::Instance().GetNetPlayClient();
 
     if (client)
     {
-      if (auto game = FindGameFile(m_current_game_identifier))
+      if (const auto game = FindGameFile(m_current_game_identifier))
         client->StartGame(game->GetFilePath());
       else
         PanicAlertFmtT("Selected game doesn't exist in game list!");
@@ -947,7 +968,7 @@ void NetPlayDialog::OnMsgStopGame()
 
 void NetPlayDialog::OnMsgPowerButton()
 {
-  if (!Core::IsRunning())
+  if (!Core::IsRunning(Core::System::GetInstance()))
     return;
   QueueOnObject(this, [] { UICommon::TriggerSTMPowerEvent(); });
 }
@@ -957,7 +978,7 @@ void NetPlayDialog::OnPlayerConnect(const std::string& player)
   DisplayMessage(tr("%1 has joined").arg(QString::fromStdString(player)), "darkcyan");
 
   if(m_player_count >= 1 && m_auto_start_game_action->isChecked() && IsHosting()) {
-    if (Core::IsRunning())
+    if (Core::IsRunning(Core::System::GetInstance()))
       return;
     m_start_game_on_update = true;
   }
@@ -1035,35 +1056,35 @@ void NetPlayDialog::OnConnectionError(const std::string& message)
   });
 }
 
-void NetPlayDialog::OnTraversalError(TraversalClient::FailureReason error)
+void NetPlayDialog::OnTraversalError(Common::TraversalClient::FailureReason error)
 {
   QueueOnObject(this, [this, error] {
     switch (error)
     {
-    case TraversalClient::FailureReason::BadHost:
+    case Common::TraversalClient::FailureReason::BadHost:
       ModalMessageBox::critical(this, tr("Traversal Error"), tr("Couldn't look up central server"));
       QDialog::reject();
       break;
-    case TraversalClient::FailureReason::VersionTooOld:
+    case Common::TraversalClient::FailureReason::VersionTooOld:
       ModalMessageBox::critical(this, tr("Traversal Error"),
                                 tr("Dolphin is too old for traversal server"));
       QDialog::reject();
       break;
-    case TraversalClient::FailureReason::ServerForgotAboutUs:
-    case TraversalClient::FailureReason::SocketSendError:
-    case TraversalClient::FailureReason::ResendTimeout:
+    case Common::TraversalClient::FailureReason::ServerForgotAboutUs:
+    case Common::TraversalClient::FailureReason::SocketSendError:
+    case Common::TraversalClient::FailureReason::ResendTimeout:
       UpdateGUI();
       break;
     }
   });
 }
 
-void NetPlayDialog::OnTraversalStateChanged(TraversalClient::State state)
+void NetPlayDialog::OnTraversalStateChanged(Common::TraversalClient::State state)
 {
   switch (state)
   {
-  case TraversalClient::State::Connected:
-  case TraversalClient::State::Failure:
+  case Common::TraversalClient::State::Connected:
+  case Common::TraversalClient::State::Failure:
     UpdateDiscordPresence();
     break;
   default:
@@ -1090,9 +1111,14 @@ void NetPlayDialog::OnGolferChanged(const bool is_golfer, const std::string& gol
     DisplayMessage(tr("%1 is now golfing").arg(QString::fromStdString(golfer_name)), "");
 }
 
+void NetPlayDialog::OnTtlDetermined(u8 ttl)
+{
+  DisplayMessage(tr("Using TTL %1 for probe packet").arg(QString::number(ttl)), "");
+}
+
 bool NetPlayDialog::IsRecording()
 {
-  std::optional<bool> is_recording = RunOnObject(m_record_input_action, &QAction::isChecked);
+  const std::optional<bool> is_recording = RunOnObject(m_record_input_action, &QAction::isChecked);
   if (is_recording)
     return *is_recording;
   return false;
@@ -1108,7 +1134,7 @@ NetPlayDialog::FindGameFile(const NetPlay::SyncIdentifier& sync_identifier,
 
   *found = NetPlay::SyncIdentifierComparison::DifferentGame;
 
-  std::optional<std::shared_ptr<const UICommon::GameFile>> game_file =
+  const std::optional<std::shared_ptr<const UICommon::GameFile>> game_file =
       RunOnObject(this, [this, &sync_identifier, found] {
         for (int i = 0; i < m_game_list_model.rowCount(QModelIndex()); i++)
         {
@@ -1128,7 +1154,7 @@ std::string NetPlayDialog::FindGBARomPath(const std::array<u8, 20>& hash, std::s
                                           int device_number)
 {
 #ifdef HAS_LIBMGBA
-  auto result = RunOnObject(this, [&, this] {
+  const auto result = RunOnObject(this, [&, this] {
     std::string rom_path;
     std::array<u8, 20> rom_hash;
     std::string rom_title;
@@ -1172,28 +1198,32 @@ std::string NetPlayDialog::FindGBARomPath(const std::array<u8, 20>& hash, std::s
 void NetPlayDialog::LoadSettings()
 {
   const int buffer_size = Config::Get(Config::NETPLAY_BUFFER_SIZE);
-  const bool write_save_data = Config::Get(Config::NETPLAY_WRITE_SAVE_DATA);
+  const bool savedata_load = Config::Get(Config::NETPLAY_SAVEDATA_LOAD);
+  const bool savedata_write = Config::Get(Config::NETPLAY_SAVEDATA_WRITE);
+  const bool sync_all_wii_saves = Config::Get(Config::NETPLAY_SAVEDATA_SYNC_ALL_WII);
   const bool load_preloaded_saves = Config::Get(Config::NETPLAY_PRELOADED_SAVES);
-  const bool load_wii_save = Config::Get(Config::NETPLAY_LOAD_WII_SAVE);
-  const bool sync_saves = Config::Get(Config::NETPLAY_SYNC_SAVES);
   const bool sync_codes = Config::Get(Config::NETPLAY_SYNC_CODES);
   const bool record_inputs = Config::Get(Config::NETPLAY_RECORD_INPUTS);
   const bool strict_settings_sync = Config::Get(Config::NETPLAY_STRICT_SETTINGS_SYNC);
-  const bool sync_all_wii_saves = Config::Get(Config::NETPLAY_SYNC_ALL_WII_SAVES);
   const bool golf_mode_overlay = Config::Get(Config::NETPLAY_GOLF_MODE_OVERLAY);
   const bool hide_remote_gbas = Config::Get(Config::NETPLAY_HIDE_REMOTE_GBAS);
   const bool enable_chat = Config::Get(Config::NETPLAY_ENABLE_CHAT);
   const bool enable_auto_start_game = Config::Get(Config::NETPLAY_ENABLE_AUTO_START_GAME);
 
   m_buffer_size_box->setValue(buffer_size);
-  m_write_save_data_action->setChecked(write_save_data);
+
+  if (!savedata_load)
+    m_savedata_none_action->setChecked(true);
+  else if (!savedata_write)
+    m_savedata_load_only_action->setChecked(true);
+  else
+    m_savedata_load_and_write_action->setChecked(true);
+  m_savedata_all_wii_saves_action->setChecked(sync_all_wii_saves);
   m_use_preloaded_saves_action->setChecked(load_preloaded_saves);
-  m_load_wii_action->setChecked(load_wii_save);
-  m_sync_save_data_action->setChecked(sync_saves);
+
   m_sync_codes_action->setChecked(sync_codes);
   m_record_input_action->setChecked(record_inputs);
   m_strict_settings_sync_action->setChecked(strict_settings_sync);
-  m_sync_all_wii_saves_action->setChecked(sync_all_wii_saves);
   m_golf_mode_overlay_action->setChecked(golf_mode_overlay);
   m_hide_remote_gbas_action->setChecked(hide_remote_gbas);
   m_enable_chat_action->setChecked(enable_chat);
@@ -1232,14 +1262,17 @@ void NetPlayDialog::SaveSettings()
   else
     Config::SetBase(Config::NETPLAY_BUFFER_SIZE, m_buffer_size_box->value());
 
-  Config::SetBase(Config::NETPLAY_WRITE_SAVE_DATA, m_write_save_data_action->isChecked());
+  const bool write_savedata = m_savedata_load_and_write_action->isChecked();
+  const bool load_savedata = write_savedata || m_savedata_load_only_action->isChecked();
+  Config::SetBase(Config::NETPLAY_SAVEDATA_LOAD, load_savedata);
+  Config::SetBase(Config::NETPLAY_SAVEDATA_WRITE, write_savedata);
+
+  Config::SetBase(Config::NETPLAY_SAVEDATA_SYNC_ALL_WII,
+                  m_savedata_all_wii_saves_action->isChecked());
   Config::SetBase(Config::NETPLAY_PRELOADED_SAVES, m_use_preloaded_saves_action->isChecked());
-  Config::SetBase(Config::NETPLAY_LOAD_WII_SAVE, m_load_wii_action->isChecked());
-  Config::SetBase(Config::NETPLAY_SYNC_SAVES, m_sync_save_data_action->isChecked());
   Config::SetBase(Config::NETPLAY_SYNC_CODES, m_sync_codes_action->isChecked());
   Config::SetBase(Config::NETPLAY_RECORD_INPUTS, m_record_input_action->isChecked());
   Config::SetBase(Config::NETPLAY_STRICT_SETTINGS_SYNC, m_strict_settings_sync_action->isChecked());
-  Config::SetBase(Config::NETPLAY_SYNC_ALL_WII_SAVES, m_sync_all_wii_saves_action->isChecked());
   Config::SetBase(Config::NETPLAY_GOLF_MODE_OVERLAY, m_golf_mode_overlay_action->isChecked());
   Config::SetBase(Config::NETPLAY_HIDE_REMOTE_GBAS, m_hide_remote_gbas_action->isChecked());
   Config::SetBase(Config::NETPLAY_ENABLE_CHAT, m_enable_chat_action->isChecked());
@@ -1262,44 +1295,44 @@ void NetPlayDialog::SaveSettings()
   Config::SetBase(Config::NETPLAY_NETWORK_MODE, network_mode);
 }
 
-void NetPlayDialog::ShowMD5Dialog(const std::string& title)
+void NetPlayDialog::ShowGameDigestDialog(const std::string& title)
 {
   QueueOnObject(this, [this, title] {
-    m_md5_menu->setEnabled(false);
+    m_game_digest_menu->setEnabled(false);
 
-    if (m_md5_dialog->isVisible())
-      m_md5_dialog->close();
+    if (m_game_digest_dialog->isVisible())
+      m_game_digest_dialog->close();
 
-    m_md5_dialog->show(QString::fromStdString(title));
+    m_game_digest_dialog->show(QString::fromStdString(title));
   });
 }
 
-void NetPlayDialog::SetMD5Progress(int pid, int progress)
+void NetPlayDialog::SetGameDigestProgress(int pid, int progress)
 {
   QueueOnObject(this, [this, pid, progress] {
-    if (m_md5_dialog->isVisible())
-      m_md5_dialog->SetProgress(pid, progress);
+    if (m_game_digest_dialog->isVisible())
+      m_game_digest_dialog->SetProgress(pid, progress);
   });
 }
 
-void NetPlayDialog::SetMD5Result(int pid, const std::string& result)
+void NetPlayDialog::SetGameDigestResult(int pid, const std::string& result)
 {
   QueueOnObject(this, [this, pid, result] {
-    m_md5_dialog->SetResult(pid, result);
-    m_md5_menu->setEnabled(true);
+    m_game_digest_dialog->SetResult(pid, result);
+    m_game_digest_menu->setEnabled(true);
   });
 }
 
-void NetPlayDialog::AbortMD5()
+void NetPlayDialog::AbortGameDigest()
 {
   QueueOnObject(this, [this] {
-    m_md5_dialog->close();
-    m_md5_menu->setEnabled(true);
+    m_game_digest_dialog->close();
+    m_game_digest_menu->setEnabled(true);
   });
 }
 
 void NetPlayDialog::ShowChunkedProgressDialog(const std::string& title, const u64 data_size,
-                                              const std::vector<int>& players)
+                                              std::span<const int> players)
 {
   QueueOnObject(this, [this, title, data_size, players] {
     if (m_chunked_progress_dialog->isVisible())
@@ -1324,7 +1357,7 @@ void NetPlayDialog::SetChunkedProgress(const int pid, const u64 progress)
 
 void NetPlayDialog::SetHostWiiSyncData(std::vector<u64> titles, std::string redirect_folder)
 {
-  auto client = Settings::Instance().GetNetPlayClient();
+  const auto client = Settings::Instance().GetNetPlayClient();
   if (client)
     client->SetWiiSyncData(nullptr, std::move(titles), std::move(redirect_folder));
 }

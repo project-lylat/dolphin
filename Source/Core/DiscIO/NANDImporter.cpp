@@ -11,6 +11,7 @@
 #include "Common/IOFile.h"
 #include "Common/Logging/Log.h"
 #include "Common/MsgHandler.h"
+#include "Common/NandPaths.h"
 #include "Core/IOS/ES/Formats.h"
 
 namespace DiscIO
@@ -23,9 +24,8 @@ NANDImporter::NANDImporter() : m_nand_root(File::GetUserPath(D_WIIROOT_IDX))
 }
 NANDImporter::~NANDImporter() = default;
 
-void NANDImporter::ImportNANDBin(const std::string& path_to_bin,
-                                 std::function<void()> update_callback,
-                                 std::function<std::string()> get_otp_dump_path)
+void NANDImporter::ImportNANDBin(const std::string& path_to_bin, UpdateCallback update_callback,
+                                 const std::function<std::string()>& get_otp_dump_path)
 {
   m_update_callback = std::move(update_callback);
 
@@ -35,12 +35,17 @@ void NANDImporter::ImportNANDBin(const std::string& path_to_bin,
     return;
 
   ExportKeys();
-  ProcessEntry(0, "");
+
+  if (!ExtractFiles())
+    return;
+
   ExtractCertificates();
+
+  std::ignore = m_update_callback(Step::Extracting, m_progress_cur, m_progress_max);
 }
 
 bool NANDImporter::ReadNANDBin(const std::string& path_to_bin,
-                               std::function<std::string()> get_otp_dump_path)
+                               const std::function<std::string()>& get_otp_dump_path)
 {
   constexpr size_t NAND_TOTAL_BLOCKS = 0x40000;
   constexpr size_t NAND_BLOCK_SIZE = 0x800;
@@ -60,10 +65,8 @@ bool NANDImporter::ReadNANDBin(const std::string& path_to_bin,
 
   for (size_t i = 0; i < NAND_TOTAL_BLOCKS; i++)
   {
-    // Instead of updating on every cycle, we only update every 1000 cycles for a balance between
-    // not updating fast enough vs updating too fast
-    if (i % 1000 == 0)
-      m_update_callback();
+    if (m_update_callback(Step::Loading, int(i), int(NAND_TOTAL_BLOCKS)))
+      return false;
 
     file.ReadBytes(&m_nand[i * NAND_BLOCK_SIZE], NAND_BLOCK_SIZE);
 
@@ -99,7 +102,7 @@ bool NANDImporter::FindSuperblock()
     std::memcpy(superblock.get(), &m_nand[NAND_SUPERBLOCK_START + i * sizeof(NANDSuperblock)],
                 sizeof(NANDSuperblock));
 
-    if (std::memcmp(superblock->magic, "SFFS", 4) != 0)
+    if (std::memcmp(superblock->magic.data(), "SFFS", 4) != 0)
     {
       ERROR_LOG_FMT(DISCIO, "Superblock #{} does not exist", i);
       continue;
@@ -121,29 +124,49 @@ bool NANDImporter::FindSuperblock()
   return true;
 }
 
+bool NANDImporter::ExtractFiles()
+{
+  constexpr u16 CLUSTER_CHAIN_END = 0xFFFB;
+  m_progress_cur = 0;
+  m_progress_max = std::ranges::count(m_superblock->fat, CLUSTER_CHAIN_END);
+  std::bitset<FSTEntryCount> visited;
+  return ProcessEntry(0, "", &visited);
+}
+
 std::string NANDImporter::GetPath(const NANDFSTEntry& entry, const std::string& parent_path)
 {
   std::string name(entry.name, strnlen(entry.name, sizeof(NANDFSTEntry::name)));
-
-  if (name.front() == '/' || parent_path.back() == '/')
-    return parent_path + name;
-
-  return parent_path + '/' + name;
+  return parent_path + '/' + Common::EscapeFileName(name);
 }
 
-void NANDImporter::ProcessEntry(u16 entry_number, const std::string& parent_path)
+bool NANDImporter::ProcessEntry(u16 entry_number, const std::string& parent_path,
+                                std::bitset<FSTEntryCount>* visited)
 {
   while (entry_number != 0xffff)
   {
+    if (entry_number >= m_superblock->fst.size())
+    {
+      ERROR_LOG_FMT(DISCIO, "FST entry number {} out of range", entry_number);
+      return false;
+    }
+
+    if ((*visited)[entry_number])
+    {
+      ERROR_LOG_FMT(DISCIO, "FST entry number {} visited multiple times", entry_number);
+      return false;
+    }
+
+    (*visited)[entry_number] = true;
     const NANDFSTEntry entry = m_superblock->fst[entry_number];
 
-    const std::string path = GetPath(entry, parent_path);
+    const std::string path = entry_number == 0 ? parent_path : GetPath(entry, parent_path);
     INFO_LOG_FMT(DISCIO, "Entry: {} Path: {}", entry, path);
-    m_update_callback();
 
     Type type = static_cast<Type>(entry.mode & 3);
     if (type == Type::File)
     {
+      if (m_update_callback(Step::Extracting, m_progress_cur++, m_progress_max))
+        return false;
       std::vector<u8> data = GetEntryData(entry);
       File::IOFile file(m_nand_root + path, "wb");
       file.WriteBytes(data.data(), data.size());
@@ -151,7 +174,8 @@ void NANDImporter::ProcessEntry(u16 entry_number, const std::string& parent_path
     else if (type == Type::Directory)
     {
       File::CreateDir(m_nand_root + path);
-      ProcessEntry(entry.sub, path);
+      if (!ProcessEntry(entry.sub, path, visited))
+        return false;
     }
     else
     {
@@ -160,9 +184,10 @@ void NANDImporter::ProcessEntry(u16 entry_number, const std::string& parent_path
 
     entry_number = entry.sib;
   }
+  return true;
 }
 
-std::vector<u8> NANDImporter::GetEntryData(const NANDFSTEntry& entry)
+std::vector<u8> NANDImporter::GetEntryData(const NANDFSTEntry& entry) const
 {
   constexpr size_t NAND_FAT_BLOCK_SIZE = 0x4000;
 
@@ -171,14 +196,19 @@ std::vector<u8> NANDImporter::GetEntryData(const NANDFSTEntry& entry)
   std::vector<u8> data{};
   data.reserve(remaining_bytes);
 
+  auto block = std::make_unique<u8[]>(NAND_FAT_BLOCK_SIZE);
   while (remaining_bytes > 0)
   {
-    std::array<u8, 16> iv{};
-    std::vector<u8> block = Common::AES::Decrypt(
-        m_aes_key.data(), iv.data(), &m_nand[NAND_FAT_BLOCK_SIZE * sub], NAND_FAT_BLOCK_SIZE);
+    if (sub >= m_superblock->fat.size())
+    {
+      ERROR_LOG_FMT(DISCIO, "FAT block index {} out of range", sub);
+      return {};
+    }
 
-    size_t size = std::min(remaining_bytes, block.size());
-    data.insert(data.end(), block.begin(), block.begin() + size);
+    m_aes_ctx->CryptIvZero(&m_nand[NAND_FAT_BLOCK_SIZE * sub], block.get(), NAND_FAT_BLOCK_SIZE);
+
+    size_t size = std::min(remaining_bytes, NAND_FAT_BLOCK_SIZE);
+    data.insert(data.end(), block.get(), block.get() + size);
     remaining_bytes -= size;
 
     sub = m_superblock->fat[sub];
@@ -229,20 +259,37 @@ bool NANDImporter::ExtractCertificates()
 
   for (const PEMCertificate& certificate : certificates)
   {
-    const auto search_result =
-        std::search(content_bytes.begin(), content_bytes.end(), certificate.search_bytes.begin(),
-                    certificate.search_bytes.end());
+    const auto search_result = std::ranges::search(content_bytes, certificate.search_bytes);
 
-    if (search_result == content_bytes.end())
+    if (search_result.empty())
     {
-      ERROR_LOG_FMT(DISCIO, "ExtractCertificates: Could not find offset for certficate '{}'",
+      ERROR_LOG_FMT(DISCIO, "ExtractCertificates: Could not find offset for certificate '{}'",
                     certificate.filename);
       return false;
     }
 
     const std::string pem_file_path = m_nand_root + std::string(certificate.filename);
-    const ptrdiff_t certificate_offset = std::distance(content_bytes.begin(), search_result);
-    const u16 certificate_size = Common::swap16(&content_bytes[certificate_offset - 2]);
+    const ptrdiff_t certificate_offset =
+        std::distance(content_bytes.begin(), search_result.begin());
+    constexpr int min_offset = 2;
+    if (certificate_offset < min_offset)
+    {
+      ERROR_LOG_FMT(
+          DISCIO,
+          "ExtractCertificates: Invalid certificate offset {:#x}, must be between {:#x} and {:#x}",
+          certificate_offset, min_offset, content_bytes.size());
+      return false;
+    }
+    const u16 certificate_size = Common::swap16(&content_bytes[certificate_offset - min_offset]);
+    const size_t available_size = content_bytes.size() - static_cast<size_t>(certificate_offset);
+    if (certificate_size > available_size)
+    {
+      ERROR_LOG_FMT(
+          DISCIO,
+          "ExtractCertificates: Invalid certificate size {:#x}, must be {:#x} bytes or smaller",
+          certificate_size, available_size);
+      return false;
+    }
     INFO_LOG_FMT(DISCIO, "ExtractCertificates: '{}' offset: {:#x} size: {:#x}",
                  certificate.filename, certificate_offset, certificate_size);
 
@@ -260,7 +307,7 @@ void NANDImporter::ExportKeys()
 {
   constexpr size_t NAND_AES_KEY_OFFSET = 0x158;
 
-  std::copy_n(&m_nand_keys[NAND_AES_KEY_OFFSET], m_aes_key.size(), m_aes_key.begin());
+  m_aes_ctx = Common::AES::CreateContextDecrypt(&m_nand_keys[NAND_AES_KEY_OFFSET]);
 
   const std::string file_path = m_nand_root + "/keys.bin";
   File::IOFile file(file_path, "wb");

@@ -11,8 +11,6 @@
 #include "Common/Assert.h"
 #include "Common/BitUtils.h"
 #include "Common/ColorUtil.h"
-#include "Common/CommonFuncs.h"
-#include "Common/CommonPaths.h"
 #include "Common/CommonTypes.h"
 #include "Common/IOFile.h"
 #include "Common/MsgHandler.h"
@@ -101,8 +99,8 @@ std::pair<GCMemcardErrorCode, std::optional<GCMemcard>> GCMemcard::Open(std::str
       MBIT_SIZE_MEMORY_CARD_2043,
   }};
 
-  if (!std::any_of(valid_megabits.begin(), valid_megabits.end(),
-                   [filesize_megabits](u64 mbits) { return mbits == filesize_megabits; }))
+  if (!std::ranges::any_of(valid_megabits,
+                           [filesize_megabits](u64 mbits) { return mbits == filesize_megabits; }))
   {
     error_code.Set(GCMemcardValidityIssues::INVALID_CARD_SIZE);
     return std::make_pair(error_code, std::nullopt);
@@ -165,10 +163,10 @@ std::pair<GCMemcardErrorCode, std::optional<GCMemcard>> GCMemcard::Open(std::str
   //
   // This rule only applies for errors within a single block! That is, invalid checksums for both
   // types, and free block mismatch for the BATs. Once two valid blocks have been selected but it
-  // later turns out they do not match eachother (eg. claimed block count of a file in the directory
-  // does not match the actual block count arrived at by following BAT), the card will be treated as
-  // corrupted, even if perhaps a different combination of the two blocks would result in a valid
-  // memory card.
+  // later turns out they do not match each other (eg. claimed block count of a file in the
+  // directory does not match the actual block count arrived at by following BAT), the card will be
+  // treated as corrupted, even if perhaps a different combination of the two blocks would result in
+  // a valid memory card.
 
   // can return invalid checksum, data in unused area
   GCMemcardErrorCode dir_block_0_error_code = card.m_directory_blocks[0].CheckForErrors();
@@ -289,7 +287,7 @@ const BlockAlloc& GCMemcard::GetActiveBat() const
 void GCMemcard::UpdateDirectory(const Directory& directory)
 {
   // overwrite inactive dir with given data, then set active dir to written block
-  int new_directory_index = m_active_directory == 0 ? 1 : 0;
+  const int new_directory_index = m_active_directory == 0 ? 1 : 0;
   m_directory_blocks[new_directory_index] = directory;
   m_active_directory = new_directory_index;
 }
@@ -297,14 +295,14 @@ void GCMemcard::UpdateDirectory(const Directory& directory)
 void GCMemcard::UpdateBat(const BlockAlloc& bat)
 {
   // overwrite inactive BAT with given data, then set active BAT to written block
-  int new_bat_index = m_active_bat == 0 ? 1 : 0;
+  const int new_bat_index = m_active_bat == 0 ? 1 : 0;
   m_bat_blocks[new_bat_index] = bat;
   m_active_bat = new_bat_index;
 }
 
 bool GCMemcard::IsShiftJIS() const
 {
-  return m_header_block.m_data.m_encoding != 0;
+  return m_header_block.IsShiftJIS();
 }
 
 bool GCMemcard::Save()
@@ -333,7 +331,7 @@ static std::pair<u16, u16> CalculateMemcardChecksums(const u8* data, size_t size
 
   for (size_t i = 0; i < size; i += 2)
   {
-    u16 d = Common::swap16(&data[i]);
+    const u16 d = Common::swap16(&data[i]);
     csum += d;
     inv_csum += static_cast<u16>(d ^ 0xffff);
   }
@@ -420,51 +418,6 @@ std::optional<u8> GCMemcard::TitlePresent(const DEntry& d) const
   return std::nullopt;
 }
 
-bool GCMemcard::GCI_FileName(u8 index, std::string& filename) const
-{
-  if (!m_valid || index >= DIRLEN ||
-      GetActiveDirectory().m_dir_entries[index].m_gamecode == DEntry::UNINITIALIZED_GAMECODE)
-    return false;
-
-  filename = GetActiveDirectory().m_dir_entries[index].GCI_FileName();
-  return true;
-}
-
-std::string GCMemcard::DEntry_GameCode(u8 index) const
-{
-  if (!m_valid || index >= DIRLEN)
-    return "";
-
-  return std::string(
-      reinterpret_cast<const char*>(GetActiveDirectory().m_dir_entries[index].m_gamecode.data()),
-      GetActiveDirectory().m_dir_entries[index].m_gamecode.size());
-}
-
-std::string GCMemcard::DEntry_Makercode(u8 index) const
-{
-  if (!m_valid || index >= DIRLEN)
-    return "";
-
-  return std::string(
-      reinterpret_cast<const char*>(GetActiveDirectory().m_dir_entries[index].m_makercode.data()),
-      GetActiveDirectory().m_dir_entries[index].m_makercode.size());
-}
-
-std::string GCMemcard::DEntry_BIFlags(u8 index) const
-{
-  if (!m_valid || index >= DIRLEN)
-    return "";
-
-  std::string flags;
-  int x = GetActiveDirectory().m_dir_entries[index].m_banner_and_icon_flags;
-  for (int i = 0; i < 8; i++)
-  {
-    flags.push_back((x & 0x80) ? '1' : '0');
-    x = x << 1;
-  }
-  return flags;
-}
-
 bool GCMemcard::DEntry_IsPingPong(u8 index) const
 {
   if (!m_valid || index >= DIRLEN)
@@ -474,87 +427,12 @@ bool GCMemcard::DEntry_IsPingPong(u8 index) const
   return (flags & 0b0000'0100) != 0;
 }
 
-std::string GCMemcard::DEntry_FileName(u8 index) const
-{
-  if (!m_valid || index >= DIRLEN)
-    return "";
-
-  return std::string(
-      reinterpret_cast<const char*>(GetActiveDirectory().m_dir_entries[index].m_filename.data()),
-      GetActiveDirectory().m_dir_entries[index].m_filename.size());
-}
-
-u32 GCMemcard::DEntry_ModTime(u8 index) const
-{
-  if (!m_valid || index >= DIRLEN)
-    return 0xFFFFFFFF;
-
-  return GetActiveDirectory().m_dir_entries[index].m_modification_time;
-}
-
-u32 GCMemcard::DEntry_ImageOffset(u8 index) const
-{
-  if (!m_valid || index >= DIRLEN)
-    return 0xFFFFFFFF;
-
-  return GetActiveDirectory().m_dir_entries[index].m_image_offset;
-}
-
-std::string GCMemcard::DEntry_IconFmt(u8 index) const
-{
-  if (!m_valid || index >= DIRLEN)
-    return "";
-
-  u16 x = GetActiveDirectory().m_dir_entries[index].m_icon_format;
-  std::string format;
-  for (size_t i = 0; i < 16; ++i)
-  {
-    format.push_back(Common::ExtractBit(x, 15 - i) ? '1' : '0');
-  }
-  return format;
-}
-
-std::string GCMemcard::DEntry_AnimSpeed(u8 index) const
-{
-  if (!m_valid || index >= DIRLEN)
-    return "";
-
-  u16 x = GetActiveDirectory().m_dir_entries[index].m_animation_speed;
-  std::string speed;
-  for (size_t i = 0; i < 16; ++i)
-  {
-    speed.push_back(Common::ExtractBit(x, 15 - i) ? '1' : '0');
-  }
-  return speed;
-}
-
-std::string GCMemcard::DEntry_Permissions(u8 index) const
-{
-  if (!m_valid || index >= DIRLEN)
-    return "";
-
-  u8 Permissions = GetActiveDirectory().m_dir_entries[index].m_file_permissions;
-  std::string permissionsString;
-  permissionsString.push_back((Permissions & 16) ? 'x' : 'M');
-  permissionsString.push_back((Permissions & 8) ? 'x' : 'C');
-  permissionsString.push_back((Permissions & 4) ? 'P' : 'x');
-  return permissionsString;
-}
-
-u8 GCMemcard::DEntry_CopyCounter(u8 index) const
-{
-  if (!m_valid || index >= DIRLEN)
-    return 0xFF;
-
-  return GetActiveDirectory().m_dir_entries[index].m_copy_counter;
-}
-
 u16 GCMemcard::DEntry_FirstBlock(u8 index) const
 {
   if (!m_valid || index >= DIRLEN)
     return 0xFFFF;
 
-  u16 block = GetActiveDirectory().m_dir_entries[index].m_first_block;
+  const u16 block = GetActiveDirectory().m_dir_entries[index].m_first_block;
   if (block > (u16)m_size_blocks)
     return 0xFFFF;
   return block;
@@ -565,7 +443,7 @@ u16 GCMemcard::DEntry_BlockCount(u8 index) const
   if (!m_valid || index >= DIRLEN)
     return 0xFFFF;
 
-  u16 blocks = GetActiveDirectory().m_dir_entries[index].m_block_count;
+  const u16 blocks = GetActiveDirectory().m_dir_entries[index].m_block_count;
   if (blocks > (u16)m_size_blocks)
     return 0xFFFF;
   return blocks;
@@ -714,7 +592,7 @@ bool BlockAlloc::ClearBlocks(u16 starting_block, u16 block_count)
   }
   if (starting_block > 0)
   {
-    size_t length = blocks.size();
+    const size_t length = blocks.size();
     if (length != block_count)
     {
       return false;
@@ -735,7 +613,7 @@ void BlockAlloc::FixChecksums()
 
 u16 BlockAlloc::AssignBlocksContiguous(u16 length)
 {
-  u16 starting = m_last_allocated_block + 1;
+  const u16 starting = m_last_allocated_block + 1;
   if (length > m_free_blocks)
     return 0xFFFF;
   u16 current = starting;
@@ -873,7 +751,7 @@ GCMemcardImportFileRetVal GCMemcard::ImportFile(const Savefile& savefile)
   UpdatedDir.m_update_counter = UpdatedDir.m_update_counter + 1;
   UpdateDirectory(UpdatedDir);
 
-  int fileBlocks = direntry.m_block_count;
+  const int fileBlocks = direntry.m_block_count;
 
   std::vector<GCMBlock> blocks = savefile.blocks;
   FZEROGX_MakeSaveGameValid(m_header_block, direntry, blocks);
@@ -928,8 +806,8 @@ GCMemcardRemoveFileRetVal GCMemcard::RemoveFile(u8 index)  // index in the direc
   if (index >= DIRLEN)
     return GCMemcardRemoveFileRetVal::DELETE_FAIL;
 
-  u16 startingblock = GetActiveDirectory().m_dir_entries[index].m_first_block;
-  u16 numberofblocks = GetActiveDirectory().m_dir_entries[index].m_block_count;
+  const u16 startingblock = GetActiveDirectory().m_dir_entries[index].m_first_block;
+  const u16 numberofblocks = GetActiveDirectory().m_dir_entries[index].m_block_count;
 
   BlockAlloc UpdatedBat = GetActiveBat();
   if (!UpdatedBat.ClearBlocks(startingblock, numberofblocks))
@@ -941,7 +819,7 @@ GCMemcardRemoveFileRetVal GCMemcard::RemoveFile(u8 index)  // index in the direc
 
   // TODO: Deleting a file via the GC BIOS sometimes leaves behind an extra updated directory block
   // here that has an empty file with the filename "Broken File000" where the actual deleted file
-  // was. Determine when exactly this happens and if this is neccessary for anything.
+  // was. Determine when exactly this happens and if this is necessary for anything.
 
   memset(reinterpret_cast<u8*>(&UpdatedDir.m_dir_entries[index]), 0xFF, DENTRY_SIZE);
   UpdatedDir.m_update_counter = UpdatedDir.m_update_counter + 1;
@@ -1073,7 +951,7 @@ std::optional<std::vector<GCMemcardAnimationFrameRGBA8>> GCMemcard::ReadAnimRGBA
 
   // now that we have determined the data length, fetch the actual data from the save file
   // if anything is sketchy, bail so we don't access out of bounds
-  auto save_data_bytes = GetSaveDataBytes(index, image_offset, data_length);
+  const auto save_data_bytes = GetSaveDataBytes(index, image_offset, data_length);
   if (!save_data_bytes || save_data_bytes->size() != data_length)
     return std::nullopt;
 
@@ -1142,9 +1020,9 @@ bool GCMemcard::Format(u8* card_data, const CardFlashId& flash_id, u16 size_mbit
   if (!card_data)
     return false;
 
-  Header header(flash_id, size_mbits, shift_jis, rtc_bias, sram_language, format_time);
-  Directory dir;
-  BlockAlloc bat(size_mbits);
+  const Header header(flash_id, size_mbits, shift_jis, rtc_bias, sram_language, format_time);
+  const Directory dir;
+  const BlockAlloc bat(size_mbits);
 
   std::memcpy(&card_data[BLOCK_SIZE * 0], &header, BLOCK_SIZE);
   std::memcpy(&card_data[BLOCK_SIZE * 1], &dir, BLOCK_SIZE);
@@ -1348,11 +1226,6 @@ bool operator==(const HeaderData& lhs, const HeaderData& rhs)
   return std::memcmp(&lhs, &rhs, sizeof(HeaderData)) == 0;
 }
 
-bool operator!=(const HeaderData& lhs, const HeaderData& rhs)
-{
-  return !(lhs == rhs);
-}
-
 Header::Header(const CardFlashId& flash_id, u16 size_mbits, bool shift_jis, u32 rtc_bias,
                u32 sram_language, u64 format_time)
 {
@@ -1394,15 +1267,6 @@ DEntry::DEntry()
   memset(reinterpret_cast<u8*>(this), 0xFF, DENTRY_SIZE);
 }
 
-std::string DEntry::GCI_FileName() const
-{
-  std::string filename =
-      std::string(reinterpret_cast<const char*>(m_makercode.data()), m_makercode.size()) + '-' +
-      std::string(reinterpret_cast<const char*>(m_gamecode.data()), m_gamecode.size()) + '-' +
-      reinterpret_cast<const char*>(m_filename.data()) + ".gci";
-  return Common::EscapeFileName(filename);
-}
-
 void Header::FixChecksums()
 {
   std::tie(m_checksum, m_checksum_inv) = CalculateChecksums();
@@ -1430,8 +1294,8 @@ GCMemcardErrorCode Header::CheckForErrors(u16 card_size_mbits) const
     error_code.Set(GCMemcardValidityIssues::MISMATCHED_CARD_SIZE);
 
   // unused areas, should always be filled with 0xFF
-  if (std::any_of(m_unused_1.begin(), m_unused_1.end(), [](u8 val) { return val != 0xFF; }) ||
-      std::any_of(m_unused_2.begin(), m_unused_2.end(), [](u8 val) { return val != 0xFF; }))
+  if (std::ranges::any_of(m_unused_1, [](u8 val) { return val != 0xFF; }) ||
+      std::ranges::any_of(m_unused_2, [](u8 val) { return val != 0xFF; }))
   {
     error_code.Set(GCMemcardValidityIssues::DATA_IN_UNUSED_AREA);
   }
@@ -1442,6 +1306,11 @@ GCMemcardErrorCode Header::CheckForErrors(u16 card_size_mbits) const
     error_code.Set(GCMemcardValidityIssues::INVALID_CHECKSUM);
 
   return error_code;
+}
+
+bool Header::IsShiftJIS() const
+{
+  return m_data.m_encoding != 0;
 }
 
 Directory::Directory()
@@ -1490,7 +1359,7 @@ GCMemcardErrorCode Directory::CheckForErrors() const
     error_code.Set(GCMemcardValidityIssues::INVALID_CHECKSUM);
 
   // unused area, should always be filled with 0xFF
-  if (std::any_of(m_padding.begin(), m_padding.end(), [](u8 val) { return val != 0xFF; }))
+  if (std::ranges::any_of(m_padding, [](u8 val) { return val != 0xFF; }))
     error_code.Set(GCMemcardValidityIssues::DATA_IN_UNUSED_AREA);
 
   return error_code;

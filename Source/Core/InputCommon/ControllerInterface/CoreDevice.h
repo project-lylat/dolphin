@@ -4,9 +4,11 @@
 #pragma once
 
 #include <chrono>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -36,6 +38,12 @@ constexpr ControlState BATTERY_INPUT_MAX_VALUE = 100.0;
 
 namespace Core
 {
+enum class DeviceRemoval
+{
+  Remove,
+  Keep,
+};
+
 class Device
 {
 public:
@@ -58,6 +66,10 @@ public:
     // May be overridden to allow multiple valid names.
     // Useful for backwards-compatible configurations when names change.
     virtual bool IsMatchingName(std::string_view name) const;
+
+    // May be overridden to hide in UI.
+    // Useful for backwards-compatible configurations when names change.
+    virtual bool IsHidden() const;
   };
 
   //
@@ -106,7 +118,7 @@ public:
   class Output : public Control
   {
   public:
-    virtual ~Output() = default;
+    ~Output() override = default;
     virtual void SetState(ControlState state) = 0;
     Output* ToOutput() override { return this; }
   };
@@ -118,7 +130,7 @@ public:
   virtual std::string GetName() const = 0;
   virtual std::string GetSource() const = 0;
   std::string GetQualifiedName() const;
-  virtual void UpdateInput() {}
+  virtual DeviceRemoval UpdateInput() { return DeviceRemoval::Keep; }
 
   // May be overridden to implement hotplug removal.
   // Currently handled on a per-backend basis but this could change.
@@ -137,6 +149,7 @@ public:
   // A higher priority means it will be one of the first ones (smaller index), making it more
   // likely to be index 0, which is automatically set as the default device when there isn't one.
   // Every platform should have at least one device with priority >= 0.
+  static constexpr int DEFAULT_DEVICE_SORT_PRIORITY = std::numeric_limits<int>::max();
   virtual int GetSortPriority() const { return 0; }
 
   const std::vector<Input*>& Inputs() const { return m_inputs; }
@@ -151,26 +164,14 @@ protected:
   void AddInput(Input* const i);
   void AddOutput(Output* const o);
 
-  class FullAnalogSurface final : public Input
-  {
-  public:
-    FullAnalogSurface(Input* low, Input* high) : m_low(*low), m_high(*high) {}
-    ControlState GetState() const override;
-    std::string GetName() const override;
-    bool IsMatchingName(std::string_view name) const override;
-
-  private:
-    Input& m_low;
-    Input& m_high;
-  };
-
-  void AddAnalogInputs(Input* low, Input* high)
-  {
-    AddInput(low);
-    AddInput(high);
-    AddInput(new FullAnalogSurface(low, high));
-    AddInput(new FullAnalogSurface(high, low));
-  }
+  // Pass Inputs for center-neutral (- and +) directions of some axis.
+  // This function adds those Inputs and also a FullAnalogSurface Input for each direction.
+  // This is only needed when it's not known if the particular axis is neutral in the center
+  //  or neutral on one of the extremes.
+  // Some e.g. DInput devices expose a trigger across the full analog surface
+  //  but we have no way of knowing this until the user actually maps the Input,
+  //  so both center-neutral and full-surface Inputs need to be created in that case.
+  void AddFullAnalogSurfaceInputs(Input* low, Input* high);
 
   void AddCombinedInput(std::string name, const std::pair<std::string, std::string>& inputs);
 
@@ -199,10 +200,8 @@ public:
   std::string ToString() const;
 
   bool operator==(const DeviceQualifier& devq) const;
-  bool operator!=(const DeviceQualifier& devq) const;
 
   bool operator==(const Device* dev) const;
-  bool operator!=(const Device* dev) const;
 
   std::string source;
   int cid;
@@ -212,8 +211,6 @@ public:
 class DeviceContainer
 {
 public:
-  using Clock = std::chrono::steady_clock;
-
   struct InputDetection
   {
     std::shared_ptr<Device> device;
@@ -221,11 +218,14 @@ public:
     Clock::time_point press_time;
     std::optional<Clock::time_point> release_time;
     ControlState smoothness = 0;
+
+    bool IsAnalogPress() const { return smoothness > 1.00001; }
   };
 
   Device::Input* FindInput(std::string_view name, const Device* def_dev) const;
   Device::Output* FindOutput(std::string_view name, const Device* def_dev) const;
 
+  std::vector<std::shared_ptr<Device>> GetAllDevices() const;
   std::vector<std::string> GetAllDeviceStrings() const;
   bool HasDefaultDevice() const;
   std::string GetDefaultDeviceString() const;
@@ -233,15 +233,46 @@ public:
 
   bool HasConnectedDevice(const DeviceQualifier& qualifier) const;
 
-  std::vector<InputDetection> DetectInput(const std::vector<std::string>& device_strings,
-                                          std::chrono::milliseconds initial_wait,
-                                          std::chrono::milliseconds confirmation_wait,
-                                          std::chrono::milliseconds maximum_wait) const;
+  std::recursive_mutex& GetDevicesMutex() const { return m_devices_mutex; }
 
 protected:
-  // Exclusively needed when reading/writing "m_devices"
+  // Exclusively needed when reading/writing the "m_devices" array.
+  // Not needed when individually reading/writing a single device ptr.
   mutable std::recursive_mutex m_devices_mutex;
   std::vector<std::shared_ptr<Device>> m_devices;
 };
+
+// Wait for inputs on supplied devices.
+// Inputs are only considered if they are first seen in a neutral state.
+// This is useful for wacky flight sticks that have certain buttons that are always held down
+// and also properly handles detection when using "FullAnalogSurface" inputs.
+// Multiple detections are returned until the various timeouts have been reached.
+class InputDetector
+{
+public:
+  using Detection = DeviceContainer::InputDetection;
+  using Results = std::vector<Detection>;
+
+  InputDetector();
+  ~InputDetector();
+
+  void Start(const DeviceContainer& container, std::span<const std::string> device_strings);
+  void Update(std::chrono::milliseconds initial_wait, std::chrono::milliseconds confirmation_wait,
+              std::chrono::milliseconds maximum_wait);
+  bool IsComplete() const;
+
+  const Results& GetResults() const;
+
+  // move-return'd to prevent copying.
+  Results TakeResults();
+
+private:
+  struct Impl;
+
+  Clock::time_point m_start_time;
+  Results m_detections;
+  std::unique_ptr<Impl> m_state;
+};
+
 }  // namespace Core
 }  // namespace ciface

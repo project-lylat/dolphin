@@ -3,9 +3,9 @@
 
 #include "Common/LdrWatcher.h"
 
-#include <Windows.h>
-#include <TlHelp32.h>
+#include <windows.h>
 #include <string>
+#include <tlhelp32.h>
 #include <winternl.h>
 
 typedef struct _LDR_DLL_LOADED_NOTIFICATION_DATA
@@ -78,7 +78,7 @@ public:
   {
     static LdrDllNotifier notifier;
     return notifier;
-  };
+  }
   void Install(LdrObserver* observer);
   void Uninstall(LdrObserver* observer);
 

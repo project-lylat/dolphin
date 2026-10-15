@@ -3,13 +3,10 @@
 
 #include "Common/FPURoundMode.h"
 
-#include <cfenv>
-
-#include "Common/CPUDetect.h"
 #include "Common/CommonTypes.h"
 #include "Common/Intrinsics.h"
 
-namespace FPURoundMode
+namespace Common::FPU
 {
 // Get the default SSE states here.
 static u32 saved_sse_state = _mm_getcsr();
@@ -49,4 +46,4 @@ void LoadDefaultSIMDState()
 {
   _mm_setcsr(default_sse_state);
 }
-}  // namespace FPURoundMode
+}  // namespace Common::FPU

@@ -24,6 +24,11 @@ StickWidget::StickWidget(QWidget* parent, u16 max_x, u16 max_y)
   setMinimumSize(QSize(64, 64));
 }
 
+QSize StickWidget::sizeHint() const
+{
+  return QSize(128, 128);
+}
+
 void StickWidget::SetX(u16 x)
 {
   m_x = std::min(m_max_x, x);
@@ -82,6 +87,9 @@ void StickWidget::mouseMoveEvent(QMouseEvent* event)
 
 void StickWidget::handleMouseEvent(QMouseEvent* event)
 {
+  u16 prev_x = m_x;
+  u16 prev_y = m_y;
+
   if (event->button() == Qt::RightButton)
   {
     m_x = std::round(m_max_x / 2.);
@@ -97,7 +105,18 @@ void StickWidget::handleMouseEvent(QMouseEvent* event)
     m_y = std::max(0, std::min(static_cast<int>(m_max_y), new_y));
   }
 
-  emit ChangedX(m_x);
-  emit ChangedY(m_y);
-  update();
+  bool changed = false;
+  if (prev_x != m_x)
+  {
+    emit ChangedX(m_x);
+    changed = true;
+  }
+  if (prev_y != m_y)
+  {
+    emit ChangedY(m_y);
+    changed = true;
+  }
+
+  if (changed)
+    update();
 }

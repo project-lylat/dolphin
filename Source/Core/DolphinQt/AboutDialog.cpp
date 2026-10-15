@@ -7,6 +7,9 @@
 #include <QTextEdit>
 #include <QVBoxLayout>
 #include <QtGlobal>
+#ifdef HAVE_SDL3
+#include <SDL3/SDL_version.h>
+#endif
 
 #include "Common/Version.h"
 
@@ -15,7 +18,24 @@
 AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent)
 {
   setWindowTitle(tr("About Dolphin"));
-  setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
+
+  QString branch_str = QString::fromStdString(Common::GetScmBranchStr());
+  const int commits_ahead = Common::GetScmCommitsAheadMaster();
+  if (commits_ahead > 0)
+  {
+    branch_str = tr("%1 (%2)").arg(
+        branch_str,
+        // i18n: A positive number of version control commits made compared to some named branch
+        tr("%1 commit(s) ahead of %2").arg(commits_ahead).arg(QStringLiteral("master")));
+  }
+
+#ifdef HAVE_SDL3
+  const int sdl_version = SDL_GetVersion();
+  QString sdl_str = QString::fromStdString("%1.%2.%3")
+                        .arg(SDL_VERSIONNUM_MAJOR(sdl_version))
+                        .arg(SDL_VERSIONNUM_MINOR(sdl_version))
+                        .arg(SDL_VERSIONNUM_MICRO(sdl_version));
+#endif
 
   const QString text =
       QStringLiteral(R"(
@@ -26,7 +46,8 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent)
 <p style='font-size: small;'>
 %BRANCH%<br>
 %REVISION%<br><br>
-%QT_VERSION%
+%QT_VERSION%<br>
+%SDL_VERSION%
 </p>
 
 <p>
@@ -50,11 +71,16 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent)
                    QString::fromUtf8(Common::GetScmDescStr().c_str()))
           .replace(QStringLiteral("%BRANCH%"),
                    // i18n: "Branch" means the version control term, not a literal tree branch.
-                   tr("Branch: %1").arg(QString::fromUtf8(Common::GetScmBranchStr().c_str())))
+                   tr("Branch: %1").arg(branch_str))
           .replace(QStringLiteral("%REVISION%"),
                    tr("Revision: %1").arg(QString::fromUtf8(Common::GetScmRevGitStr().c_str())))
           .replace(QStringLiteral("%QT_VERSION%"),
                    tr("Using Qt %1").arg(QStringLiteral(QT_VERSION_STR)))
+#ifdef HAVE_SDL3
+          .replace(QStringLiteral("%SDL_VERSION%"), tr("Using SDL %1").arg(sdl_str))
+#else
+          .replace(QStringLiteral("%SDL_VERSION%"), tr("SDL disabled"))
+#endif
           .replace(QStringLiteral("%CHECK_FOR_UPDATES%"), tr("Check for updates"))
           .replace(QStringLiteral("%ABOUT_DOLPHIN%"),
                    // i18n: The word "free" in the standard phrase "free and open source"
@@ -79,17 +105,18 @@ AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent)
               // in your translation, please use the type of curly quotes that's appropriate for
               // your language. If you aren't sure which type is appropriate, see
               // https://en.wikipedia.org/wiki/Quotation_mark#Specific_language_features
-              tr("\u00A9 2003-2015+ Dolphin Team. \u201cGameCube\u201d and \u201cWii\u201d are "
+              tr("\u00A9 2003-2024+ Dolphin Team. \u201cGameCube\u201d and \u201cWii\u201d are "
                  "trademarks of Nintendo. Dolphin is not affiliated with Nintendo in any way.")));
 
   QLabel* logo = new QLabel();
-  logo->setPixmap(Resources::GetMisc(Resources::MiscID::LogoLarge));
+  logo->setPixmap(Resources::GetAppIcon().pixmap(200, 200));
   logo->setContentsMargins(30, 0, 30, 0);
 
   QVBoxLayout* main_layout = new QVBoxLayout;
   QHBoxLayout* h_layout = new QHBoxLayout;
 
   setLayout(main_layout);
+  main_layout->setSizeConstraint(QLayout::SetFixedSize);
   main_layout->addLayout(h_layout);
   main_layout->addWidget(copyright);
   copyright->setAlignment(Qt::AlignCenter);

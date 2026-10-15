@@ -6,7 +6,9 @@
 #include <algorithm>
 
 #include "Common/Logging/Log.h"
+
 #include "Core/Core.h"
+#include "Core/Host.h"
 
 #include "InputCommon/ControllerInterface/ControllerInterface.h"
 #include "InputCommon/ControllerInterface/DInput/DInput.h"
@@ -142,7 +144,8 @@ KeyboardMouse::KeyboardMouse(const LPDIRECTINPUTDEVICE8 kb_device,
   mouse_caps.dwSize = sizeof(mouse_caps);
   m_mo_device->GetCapabilities(&mouse_caps);
   // mouse buttons
-  for (u8 i = 0; i < mouse_caps.dwButtons; ++i)
+  // We don't use caps here due to reporting inconsistencies
+  for (u8 i = 0; i < std::size(m_state_in.mouse.rgbButtons); ++i)
     AddInput(new Button(i, m_state_in.mouse.rgbButtons[i]));
   // mouse axes
   for (unsigned int i = 0; i < mouse_caps.dwAxes; ++i)
@@ -168,13 +171,6 @@ KeyboardMouse::KeyboardMouse(const LPDIRECTINPUTDEVICE8 kb_device,
 
 void KeyboardMouse::UpdateCursorInput()
 {
-  POINT point = {};
-  GetCursorPos(&point);
-
-  // Get the cursor position relative to the upper left corner of the current window
-  // (separate or render to main)
-  ScreenToClient(s_hwnd, &point);
-
   // Get the size of the current window (in my case Rect.top and Rect.left was zero).
   RECT rect;
   GetClientRect(s_hwnd, &rect);
@@ -183,6 +179,36 @@ void KeyboardMouse::UpdateCursorInput()
   const auto win_width = std::max(rect.right - rect.left, 1l);
   const auto win_height = std::max(rect.bottom - rect.top, 1l);
 
+  POINT point = {};
+  if (g_controller_interface.IsMouseCenteringRequested() &&
+      (Host_RendererHasFocus() || Host_TASInputHasFocus()))
+  {
+    point.x = win_width / 2;
+    point.y = win_height / 2;
+
+    POINT screen_point = point;
+    ClientToScreen(s_hwnd, &screen_point);
+    SetCursorPos(screen_point.x, screen_point.y);
+    g_controller_interface.SetMouseCenteringRequested(false);
+  }
+  else if (Host_TASInputHasFocus())
+  {
+    // When a TAS Input window has focus and "Enable Controller Input" is checked most types of
+    // input should be read normally as if the render window had focus instead. The cursor is an
+    // exception, as otherwise using the mouse to set any control in the TAS Input window will also
+    // update the Wii IR value (or any other input controlled by the cursor).
+
+    return;
+  }
+  else
+  {
+    GetCursorPos(&point);
+
+    // Get the cursor position relative to the upper left corner of the current window
+    // (separate or render to main)
+    ScreenToClient(s_hwnd, &point);
+  }
+
   const auto window_scale = g_controller_interface.GetWindowInputScale();
 
   // Convert the cursor position to a range from -1 to 1.
@@ -190,7 +216,7 @@ void KeyboardMouse::UpdateCursorInput()
   m_state_in.cursor.y = (ControlState(point.y) / win_height * 2 - 1) * window_scale.y;
 }
 
-void KeyboardMouse::UpdateInput()
+Core::DeviceRemoval KeyboardMouse::UpdateInput()
 {
   UpdateCursorInput();
 
@@ -239,6 +265,8 @@ void KeyboardMouse::UpdateInput()
     else
       INFO_LOG_FMT(CONTROLLERINTERFACE, "Keyboard device failed to re-acquire, we'll retry later");
   }
+
+  return Core::DeviceRemoval::Keep;
 }
 
 std::string KeyboardMouse::GetName() const
@@ -254,7 +282,7 @@ std::string KeyboardMouse::GetSource() const
 // Give this device a higher priority to make sure it shows first
 int KeyboardMouse::GetSortPriority() const
 {
-  return 5;
+  return DEFAULT_DEVICE_SORT_PRIORITY;
 }
 
 bool KeyboardMouse::IsVirtualDevice() const
@@ -275,7 +303,7 @@ std::string KeyboardMouse::Button::GetName() const
 
 std::string KeyboardMouse::Axis::GetName() const
 {
-  static char tmpstr[] = "Axis ..";
+  char tmpstr[] = "Axis ..";
   tmpstr[5] = (char)('X' + m_index);
   tmpstr[6] = (m_range < 0 ? '-' : '+');
   return tmpstr;
@@ -283,7 +311,7 @@ std::string KeyboardMouse::Axis::GetName() const
 
 std::string KeyboardMouse::Cursor::GetName() const
 {
-  static char tmpstr[] = "Cursor ..";
+  char tmpstr[] = "Cursor ..";
   tmpstr[7] = (char)('X' + m_index);
   tmpstr[8] = (m_positive ? '+' : '-');
   return tmpstr;

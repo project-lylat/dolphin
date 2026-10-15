@@ -13,16 +13,17 @@ namespace DiscIO
 {
 // This class wraps another BlobReader and zeroes out data that has been
 // identified by DiscScrubber as unused.
-class ScrubbedBlob : public BlobReader
+class ScrubbedBlob final : public BlobReader
 {
 public:
   static std::unique_ptr<ScrubbedBlob> Create(const std::string& path);
 
   BlobType GetBlobType() const override { return m_blob_reader->GetBlobType(); }
+  std::unique_ptr<BlobReader> CopyReader() const override;
 
   u64 GetRawSize() const override { return m_blob_reader->GetRawSize(); }
   u64 GetDataSize() const override { return m_blob_reader->GetDataSize(); }
-  bool IsDataSizeAccurate() const override { return m_blob_reader->IsDataSizeAccurate(); }
+  DataSizeType GetDataSizeType() const override { return m_blob_reader->GetDataSizeType(); }
 
   u64 GetBlockSize() const override { return m_blob_reader->GetBlockSize(); }
   bool HasFastRandomAccessInBlock() const override

@@ -53,7 +53,7 @@ static std::vector<u8> ReadHexString(std::string_view sv)
 {
   if ((sv.size() % 2) == 1)
     return {};
-  if (StringBeginsWith(sv, "0x") || StringBeginsWith(sv, "0X"))
+  if (sv.starts_with("0x") || sv.starts_with("0X"))
     sv = sv.substr(2);
 
   std::vector<u8> result;
@@ -67,7 +67,7 @@ static std::vector<u8> ReadHexString(std::string_view sv)
     sv = sv.substr(2);
   }
   return result;
-};
+}
 
 std::optional<Disc> ParseString(std::string_view xml, std::string xml_path)
 {
@@ -146,8 +146,7 @@ std::optional<Disc> ParseString(std::string_view xml, std::string xml_path)
       const std::string macro_id = macro_node.attribute("id").as_string();
       for (auto& section : disc.m_sections)
       {
-        auto option_to_clone = std::find_if(section.m_options.begin(), section.m_options.end(),
-                                            [&](const Option& o) { return o.m_id == macro_id; });
+        auto option_to_clone = std::ranges::find(section.m_options, macro_id, &Option::m_id);
         if (option_to_clone == section.m_options.end())
           continue;
 
@@ -172,9 +171,10 @@ std::optional<Disc> ParseString(std::string_view xml, std::string xml_path)
     for (const auto& patch_subnode : patch_node.children())
     {
       const std::string_view patch_name(patch_subnode.name());
-      if (patch_name == "file")
+      if (patch_name == "file" || patch_name == "dolphin_sys_file")
       {
-        auto& file = patch.m_file_patches.emplace_back();
+        auto& file = patch_name == "dolphin_sys_file" ? patch.m_sys_file_patches.emplace_back() :
+                                                        patch.m_file_patches.emplace_back();
         file.m_disc = patch_subnode.attribute("disc").as_string();
         file.m_external = patch_subnode.attribute("external").as_string();
         file.m_resize = patch_subnode.attribute("resize").as_bool(true);
@@ -183,9 +183,11 @@ std::optional<Disc> ParseString(std::string_view xml, std::string xml_path)
         file.m_fileoffset = patch_subnode.attribute("fileoffset").as_uint(0);
         file.m_length = patch_subnode.attribute("length").as_uint(0);
       }
-      else if (patch_name == "folder")
+      else if (patch_name == "folder" || patch_name == "dolphin_sys_folder")
       {
-        auto& folder = patch.m_folder_patches.emplace_back();
+        auto& folder = patch_name == "dolphin_sys_folder" ?
+                           patch.m_sys_folder_patches.emplace_back() :
+                           patch.m_folder_patches.emplace_back();
         folder.m_disc = patch_subnode.attribute("disc").as_string();
         folder.m_external = patch_subnode.attribute("external").as_string();
         folder.m_resize = patch_subnode.attribute("resize").as_bool(true);
@@ -216,9 +218,9 @@ std::optional<Disc> ParseString(std::string_view xml, std::string xml_path)
   return disc;
 }
 
-static bool CheckRegion(const std::vector<std::string>& xml_regions, std::string_view game_region)
+static bool CheckRegion(std::span<const std::string> xml_regions, std::string_view game_region)
 {
-  if (xml_regions.begin() == xml_regions.end())
+  if (xml_regions.empty())
     return true;
 
   for (const auto& region : xml_regions)
@@ -242,7 +244,7 @@ bool Disc::IsValidForGame(const std::string& game_id, std::optional<u16> revisio
   const int disc_number_int = std::optional<int>(disc_number).value_or(-1);
   const int revision_int = std::optional<int>(revision).value_or(-1);
 
-  if (m_game_filter.m_game && !StringBeginsWith(game_id_full, *m_game_filter.m_game))
+  if (m_game_filter.m_game && !game_id_full.starts_with(*m_game_filter.m_game))
     return false;
   if (m_game_filter.m_developer && game_developer != *m_game_filter.m_developer)
     return false;
@@ -273,7 +275,7 @@ std::vector<Patch> Disc::GeneratePatches(const std::string& game_id) const
           bool replaced = false;
           for (const auto& r : replacements)
           {
-            if (StringBeginsWith(sv, r.first))
+            if (sv.starts_with(r.first))
             {
               for (char c : r.second)
                 result.push_back(c);
@@ -302,8 +304,7 @@ std::vector<Patch> Disc::GeneratePatches(const std::string& game_id) const
       const Choice& choice = option.m_choices[selected - 1];
       for (const auto& patch_ref : choice.m_patch_references)
       {
-        const auto patch = std::find_if(m_patches.begin(), m_patches.end(),
-                                        [&](const Patch& p) { return patch_ref.m_id == p.m_id; });
+        const auto patch = std::ranges::find(m_patches, patch_ref.m_id, &Patch::m_id);
         if (patch == m_patches.end())
           continue;
 
@@ -312,7 +313,7 @@ std::vector<Patch> Disc::GeneratePatches(const std::string& game_id) const
         replacements.emplace_back(std::pair{"{$__region}", game_region});
         replacements.emplace_back(std::pair{"{$__maker}", game_developer});
         for (const auto& param : patch_ref.m_params)
-          replacements.emplace_back(std::pair{"{$" + param.first + "}", param.second});
+          replacements.emplace_back("{$" + param.first + "}", param.second);
 
         Patch& new_patch = active_patches.emplace_back(*patch);
         new_patch.m_root = replace_variables(new_patch.m_root, replacements);
@@ -384,7 +385,7 @@ std::vector<Patch> GenerateRiivolutionPatchesFromGameModDescriptor(
   return result;
 }
 
-std::vector<Patch> GenerateRiivolutionPatchesFromConfig(const std::string root_directory,
+std::vector<Patch> GenerateRiivolutionPatchesFromConfig(const std::string& root_directory,
                                                         const std::string& game_id,
                                                         std::optional<u16> revision,
                                                         std::optional<u8> disc_number)
@@ -398,7 +399,7 @@ std::vector<Patch> GenerateRiivolutionPatchesFromConfig(const std::string root_d
   const std::optional<Config> config = ParseConfigFile(
       fmt::format("{}/riivolution/config/{}.xml", root_directory, game_id.substr(0, 4)));
 
-  for (const std::string& path : Common::DoFileSearch({root_directory + "riivolution"}, {".xml"}))
+  for (const std::string& path : Common::DoFileSearch(root_directory + "riivolution", ".xml"))
   {
     std::optional<Disc> parsed = ParseFile(path);
     if (!parsed || !parsed->IsValidForGame(game_id, revision, disc_number))

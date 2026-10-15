@@ -6,12 +6,16 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QLabel>
+#include <QStyle>
 #include <QVBoxLayout>
 
 #include "InputCommon/InputConfig.h"
 
 #include "Core/HW/GCKeyboard.h"
 #include "Core/HW/GCKeyboardEmu.h"
+
+#include "DolphinQt/QtUtils/QtUtils.h"
 
 GCKeyboardEmu::GCKeyboardEmu(MappingWindow* window) : MappingWidget(window)
 {
@@ -20,26 +24,24 @@ GCKeyboardEmu::GCKeyboardEmu(MappingWindow* window) : MappingWidget(window)
 
 void GCKeyboardEmu::CreateMainLayout()
 {
-  m_main_layout = new QHBoxLayout();
+  auto* const vbox_layout = new QVBoxLayout{this};
 
-  m_main_layout->addWidget(
-      CreateGroupBox(QString{}, Keyboard::GetGroup(GetPort(), KeyboardGroup::Kb0x)));
-  m_main_layout->addWidget(
-      CreateGroupBox(QString{}, Keyboard::GetGroup(GetPort(), KeyboardGroup::Kb1x)));
-  m_main_layout->addWidget(
-      CreateGroupBox(QString{}, Keyboard::GetGroup(GetPort(), KeyboardGroup::Kb2x)));
-  m_main_layout->addWidget(
-      CreateGroupBox(QString{}, Keyboard::GetGroup(GetPort(), KeyboardGroup::Kb3x)));
-  m_main_layout->addWidget(
-      CreateGroupBox(QString{}, Keyboard::GetGroup(GetPort(), KeyboardGroup::Kb4x)));
+  auto* const warning_text =
+      new QLabel(tr("You are configuring a \"Keyboard Controller\". "
+                    "This device is exclusively for \"Phantasy Star Online Episode I & II\". "
+                    "If you are unsure, turn back now and configure a \"Standard Controller\"."));
+  warning_text->setWordWrap(true);
 
-  auto* vbox_layout = new QVBoxLayout();
   vbox_layout->addWidget(
-      CreateGroupBox(QString{}, Keyboard::GetGroup(GetPort(), KeyboardGroup::Kb5x)));
+      QtUtils::CreateIconWarning(this, QStyle::SP_MessageBoxWarning, warning_text));
 
-  m_main_layout->addLayout(vbox_layout);
+  auto* const layout = new QHBoxLayout;
 
-  setLayout(m_main_layout);
+  using KG = KeyboardGroup;
+  for (auto kbg : {KG::Kb0x, KG::Kb1x, KG::Kb2x, KG::Kb3x, KG::Kb4x, KG::Kb5x})
+    layout->addWidget(CreateGroupBox(QString{}, Keyboard::GetGroup(GetPort(), kbg)));
+
+  vbox_layout->addLayout(layout);
 }
 
 void GCKeyboardEmu::LoadSettings()

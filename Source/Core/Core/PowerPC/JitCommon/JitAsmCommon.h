@@ -17,7 +17,9 @@ struct CommonAsmRoutinesBase
 
   const u8* dispatcher_mispredicted_blr;
   const u8* dispatcher;
+  const u8* dispatcher_no_timing_check;
   const u8* dispatcher_no_check;
+  const u8* dispatcher_exit;
 
   const u8* do_timing;
 
@@ -28,6 +30,8 @@ struct CommonAsmRoutinesBase
   const u8* cstd;
   const u8* fprf_single;
   const u8* fprf_double;
+  const u8* fmadds_eft;
+  const u8* ps_madd_eft;
 
   // In: array index: GQR to use.
   // In: ECX: Address to read from.

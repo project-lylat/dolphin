@@ -16,7 +16,7 @@ class HotkeyScheduler : public QObject
   Q_OBJECT
 public:
   explicit HotkeyScheduler();
-  ~HotkeyScheduler();
+  ~HotkeyScheduler() override;
 
   void Start();
   void Stop();
@@ -36,6 +36,8 @@ signals:
   void ScreenShotHotkey();
   void RefreshGameListHotkey();
   void SetStateSlotHotkey(int slot);
+  void IncrementSelectedStateSlotHotkey();
+  void DecrementSelectedStateSlotHotkey();
   void StateLoadSlotHotkey();
   void StateSaveSlotHotkey();
   void StateLoadSlot(int state);
@@ -51,6 +53,9 @@ signals:
   void ExportRecording();
   void ToggleReadOnlyMode();
   void ConnectWiiRemote(int id);
+#ifdef USE_RETRO_ACHIEVEMENTS
+  void OpenAchievements();
+#endif  // USE_RETRO_ACHIEVEMENTS
 
   void Step();
   void StepOver();
@@ -62,6 +67,9 @@ signals:
 
   void ToggleBreakpoint();
   void AddBreakpoint();
+
+  void SkylandersPortalHotkey();
+  void InfinityBaseHotkey();
 
 private:
   void Run();

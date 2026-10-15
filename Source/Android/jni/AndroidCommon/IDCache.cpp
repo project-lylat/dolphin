@@ -12,8 +12,8 @@ static JavaVM* s_java_vm;
 static jclass s_string_class;
 
 static jclass s_native_library_class;
+static jmethodID s_display_toast_msg;
 static jmethodID s_display_alert_msg;
-static jmethodID s_do_rumble;
 static jmethodID s_update_touch_pointer;
 static jmethodID s_on_title_changed;
 static jmethodID s_finish_emulation_activity;
@@ -25,19 +25,41 @@ static jmethodID s_game_file_constructor;
 static jclass s_game_file_cache_class;
 static jfieldID s_game_file_cache_pointer;
 
+static jclass s_netplay_session_class;
+static jfieldID s_net_play_ui_callbacks_pointer;
+static jfieldID s_net_play_client_pointer;
+static jfieldID s_net_play_server_pointer;
+static jmethodID s_netplay_on_boot_game;
+static jmethodID s_netplay_on_stop_game;
+static jmethodID s_netplay_on_connection_lost;
+static jmethodID s_netplay_on_connection_error;
+static jmethodID s_netplay_on_game_changed;
+static jmethodID s_netplay_on_host_input_authority_changed;
+static jmethodID s_netplay_on_pad_buffer_changed;
+static jmethodID s_netplay_on_chat_message_received;
+static jmethodID s_netplay_update;
+static jmethodID s_netplay_on_show_chunked_progress_dialog;
+static jmethodID s_netplay_on_set_chunked_progress;
+static jmethodID s_netplay_on_hide_chunked_progress_dialog;
+static jmethodID s_netplay_on_desync;
+static jmethodID s_netplay_on_show_game_digest_dialog;
+static jmethodID s_netplay_on_set_game_digest_progress;
+static jmethodID s_netplay_on_set_game_digest_result;
+static jmethodID s_netplay_on_abort_game_digest;
+static jmethodID s_netplay_on_traversal_state_changed;
+
+static jclass s_netplay_player_class;
+static jmethodID s_netplay_player_constructor;
+
 static jclass s_analytics_class;
-static jmethodID s_send_analytics_report;
 static jmethodID s_get_analytics_value;
 
-static jclass s_linked_hash_map_class;
-static jmethodID s_linked_hash_map_init;
-static jmethodID s_linked_hash_map_put;
+static jclass s_pair_class;
+static jmethodID s_pair_constructor;
 
-static jclass s_ini_file_class;
-static jfieldID s_ini_file_pointer;
-static jclass s_ini_file_section_class;
-static jfieldID s_ini_file_section_pointer;
-static jmethodID s_ini_file_section_constructor;
+static jclass s_hash_map_class;
+static jmethodID s_hash_map_init;
+static jmethodID s_hash_map_put;
 
 static jclass s_compress_cb_class;
 static jmethodID s_compress_cb_run;
@@ -70,11 +92,64 @@ static jclass s_patch_cheat_class;
 static jfieldID s_patch_cheat_pointer;
 static jmethodID s_patch_cheat_constructor;
 
+static jclass s_graphics_mod_group_class;
+static jfieldID s_graphics_mod_group_pointer;
+static jmethodID s_graphics_mod_group_constructor;
+
+static jclass s_graphics_mod_class;
+static jfieldID s_graphics_mod_pointer;
+static jmethodID s_graphics_mod_constructor;
+
 static jclass s_riivolution_patches_class;
 static jfieldID s_riivolution_patches_pointer;
 
 static jclass s_wii_update_cb_class;
 static jmethodID s_wii_update_cb_run;
+
+static jclass s_control_class;
+static jfieldID s_control_pointer;
+static jmethodID s_control_constructor;
+
+static jclass s_numeric_setting_class;
+static jfieldID s_numeric_setting_pointer;
+static jmethodID s_numeric_setting_constructor;
+
+static jclass s_control_group_class;
+static jfieldID s_control_group_pointer;
+static jmethodID s_control_group_constructor;
+
+static jclass s_control_reference_class;
+static jfieldID s_control_reference_pointer;
+static jmethodID s_control_reference_constructor;
+
+static jclass s_control_group_container_class;
+static jfieldID s_control_group_container_pointer;
+static jmethodID s_control_group_container_constructor;
+
+static jclass s_emulated_controller_class;
+static jfieldID s_emulated_controller_pointer;
+static jmethodID s_emulated_controller_constructor;
+
+static jclass s_core_device_class;
+static jfieldID s_core_device_pointer;
+static jmethodID s_core_device_constructor;
+
+static jclass s_core_device_control_class;
+static jfieldID s_core_device_control_pointer;
+static jmethodID s_core_device_control_constructor;
+
+static jclass s_input_detector_class;
+static jfieldID s_input_detector_pointer;
+
+static jclass s_permission_handler_class;
+static jmethodID s_permission_handler_has_record_audio_permission;
+static jmethodID s_permission_handler_request_record_audio_permission;
+
+static jmethodID s_runnable_run;
+
+static jclass s_audio_utils_class;
+static jmethodID s_audio_utils_get_sample_rate;
+static jmethodID s_audio_utils_get_frames_per_buffer;
 
 namespace IDCache
 {
@@ -111,14 +186,14 @@ jclass GetNativeLibraryClass()
   return s_native_library_class;
 }
 
+jmethodID GetDisplayToastMsg()
+{
+  return s_display_toast_msg;
+}
+
 jmethodID GetDisplayAlertMsg()
 {
   return s_display_alert_msg;
-}
-
-jmethodID GetDoRumble()
-{
-  return s_do_rumble;
 }
 
 jmethodID GetUpdateTouchPointer()
@@ -139,11 +214,6 @@ jmethodID GetFinishEmulationActivity()
 jclass GetAnalyticsClass()
 {
   return s_analytics_class;
-}
-
-jmethodID GetSendAnalyticsReport()
-{
-  return s_send_analytics_report;
 }
 
 jmethodID GetAnalyticsValue()
@@ -176,44 +246,149 @@ jfieldID GetGameFileCachePointer()
   return s_game_file_cache_pointer;
 }
 
-jclass GetLinkedHashMapClass()
+jclass GetNetplaySessionClass()
 {
-  return s_linked_hash_map_class;
+  return s_netplay_session_class;
 }
 
-jmethodID GetLinkedHashMapInit()
+jfieldID GetNetPlayUICallbacksPointer()
 {
-  return s_linked_hash_map_init;
+  return s_net_play_ui_callbacks_pointer;
 }
 
-jmethodID GetLinkedHashMapPut()
+jfieldID GetNetPlayClientPointer()
 {
-  return s_linked_hash_map_put;
+  return s_net_play_client_pointer;
 }
 
-jclass GetIniFileClass()
+jfieldID GetNetPlayServerPointer()
 {
-  return s_ini_file_class;
+  return s_net_play_server_pointer;
 }
 
-jfieldID GetIniFilePointer()
+jmethodID GetNetplayOnBootGame()
 {
-  return s_ini_file_pointer;
+  return s_netplay_on_boot_game;
 }
 
-jclass GetIniFileSectionClass()
+jmethodID GetNetplayOnStopGame()
 {
-  return s_ini_file_section_class;
+  return s_netplay_on_stop_game;
 }
 
-jfieldID GetIniFileSectionPointer()
+jmethodID GetNetplayOnConnectionLost()
 {
-  return s_ini_file_section_pointer;
+  return s_netplay_on_connection_lost;
 }
 
-jmethodID GetIniFileSectionConstructor()
+jmethodID GetNetplayOnConnectionError()
 {
-  return s_ini_file_section_constructor;
+  return s_netplay_on_connection_error;
+}
+
+jmethodID GetNetplayOnGameChanged()
+{
+  return s_netplay_on_game_changed;
+}
+
+jmethodID GetNetplayOnHostInputAuthorityChanged()
+{
+  return s_netplay_on_host_input_authority_changed;
+}
+
+jmethodID GetNetplayOnPadBufferChanged()
+{
+  return s_netplay_on_pad_buffer_changed;
+}
+
+jmethodID GetNetplayOnChatMessageReceived()
+{
+  return s_netplay_on_chat_message_received;
+}
+
+jmethodID GetNetplayUpdate()
+{
+  return s_netplay_update;
+}
+
+jmethodID GetNetplayOnShowChunkedProgressDialog()
+{
+  return s_netplay_on_show_chunked_progress_dialog;
+}
+
+jmethodID GetNetplayOnSetChunkedProgress()
+{
+  return s_netplay_on_set_chunked_progress;
+}
+
+jmethodID GetNetplayOnHideChunkedProgressDialog()
+{
+  return s_netplay_on_hide_chunked_progress_dialog;
+}
+
+jmethodID GetNetplayOnDesync()
+{
+  return s_netplay_on_desync;
+}
+
+jmethodID GetNetplayOnShowGameDigestDialog()
+{
+  return s_netplay_on_show_game_digest_dialog;
+}
+
+jmethodID GetNetplayOnSetGameDigestProgress()
+{
+  return s_netplay_on_set_game_digest_progress;
+}
+
+jmethodID GetNetplayOnSetGameDigestResult()
+{
+  return s_netplay_on_set_game_digest_result;
+}
+
+jmethodID GetNetplayOnAbortGameDigest()
+{
+  return s_netplay_on_abort_game_digest;
+}
+
+jmethodID GetNetplayOnTraversalStateChanged()
+{
+  return s_netplay_on_traversal_state_changed;
+}
+
+jclass GetNetplayPlayerClass()
+{
+  return s_netplay_player_class;
+}
+
+jmethodID GetNetplayPlayerConstructor()
+{
+  return s_netplay_player_constructor;
+}
+
+jclass GetPairClass()
+{
+  return s_pair_class;
+}
+
+jmethodID GetPairConstructor()
+{
+  return s_pair_constructor;
+}
+
+jclass GetHashMapClass()
+{
+  return s_hash_map_class;
+}
+
+jmethodID GetHashMapInit()
+{
+  return s_hash_map_init;
+}
+
+jmethodID GetHashMapPut()
+{
+  return s_hash_map_put;
 }
 
 jclass GetCompressCallbackClass()
@@ -331,6 +506,36 @@ jmethodID GetPatchCheatConstructor()
   return s_patch_cheat_constructor;
 }
 
+jclass GetGraphicsModClass()
+{
+  return s_graphics_mod_class;
+}
+
+jfieldID GetGraphicsModPointer()
+{
+  return s_graphics_mod_pointer;
+}
+
+jmethodID GetGraphicsModConstructor()
+{
+  return s_graphics_mod_constructor;
+}
+
+jclass GetGraphicsModGroupClass()
+{
+  return s_graphics_mod_group_class;
+}
+
+jfieldID GetGraphicsModGroupPointer()
+{
+  return s_graphics_mod_group_pointer;
+}
+
+jmethodID GetGraphicsModGroupConstructor()
+{
+  return s_graphics_mod_group_constructor;
+}
+
 jclass GetRiivolutionPatchesClass()
 {
   return s_riivolution_patches_class;
@@ -351,6 +556,171 @@ jmethodID GetWiiUpdateCallbackFunction()
   return s_wii_update_cb_run;
 }
 
+jclass GetControlClass()
+{
+  return s_control_class;
+}
+
+jfieldID GetControlPointer()
+{
+  return s_control_pointer;
+}
+
+jmethodID GetControlConstructor()
+{
+  return s_control_constructor;
+}
+
+jclass GetControlGroupClass()
+{
+  return s_control_group_class;
+}
+
+jfieldID GetControlGroupPointer()
+{
+  return s_control_group_pointer;
+}
+
+jmethodID GetControlGroupConstructor()
+{
+  return s_control_group_constructor;
+}
+
+jclass GetControlReferenceClass()
+{
+  return s_control_reference_class;
+}
+
+jfieldID GetControlReferencePointer()
+{
+  return s_control_reference_pointer;
+}
+
+jmethodID GetControlReferenceConstructor()
+{
+  return s_control_reference_constructor;
+}
+
+jclass GetControlGroupContainerClass()
+{
+  return s_control_group_container_class;
+}
+
+jfieldID GetControlGroupContainerPointer()
+{
+  return s_control_group_container_pointer;
+}
+
+jmethodID GetControlGroupContainerConstructor()
+{
+  return s_control_group_container_constructor;
+}
+
+jclass GetEmulatedControllerClass()
+{
+  return s_emulated_controller_class;
+}
+
+jfieldID GetEmulatedControllerPointer()
+{
+  return s_emulated_controller_pointer;
+}
+
+jmethodID GetEmulatedControllerConstructor()
+{
+  return s_emulated_controller_constructor;
+}
+
+jclass GetNumericSettingClass()
+{
+  return s_numeric_setting_class;
+}
+
+jfieldID GetNumericSettingPointer()
+{
+  return s_numeric_setting_pointer;
+}
+
+jmethodID GetNumericSettingConstructor()
+{
+  return s_numeric_setting_constructor;
+}
+
+jclass GetCoreDeviceClass()
+{
+  return s_core_device_class;
+}
+
+jfieldID GetCoreDevicePointer()
+{
+  return s_core_device_pointer;
+}
+
+jmethodID GetCoreDeviceConstructor()
+{
+  return s_core_device_constructor;
+}
+
+jclass GetCoreDeviceControlClass()
+{
+  return s_core_device_control_class;
+}
+
+jfieldID GetCoreDeviceControlPointer()
+{
+  return s_core_device_control_pointer;
+}
+
+jmethodID GetCoreDeviceControlConstructor()
+{
+  return s_core_device_control_constructor;
+}
+
+jclass GetInputDetectorClass()
+{
+  return s_input_detector_class;
+}
+
+jfieldID GetInputDetectorPointer()
+{
+  return s_input_detector_pointer;
+}
+
+jclass GetPermissionHandlerClass()
+{
+  return s_permission_handler_class;
+}
+
+jmethodID GetPermissionHandlerHasRecordAudioPermission()
+{
+  return s_permission_handler_has_record_audio_permission;
+}
+
+jmethodID GetPermissionHandlerRequestRecordAudioPermission()
+{
+  return s_permission_handler_request_record_audio_permission;
+}
+
+jmethodID GetRunnableRun()
+{
+  return s_runnable_run;
+}
+
+jclass GetAudioUtilsClass()
+{
+  return s_audio_utils_class;
+}
+
+jmethodID GetAudioUtilsGetSampleRate()
+{
+  return s_audio_utils_get_sample_rate;
+}
+
+jmethodID GetAudioUtilsGetFramesPerBuffer()
+{
+  return s_audio_utils_get_frames_per_buffer;
+}
+
 }  // namespace IDCache
 
 extern "C" {
@@ -368,9 +738,10 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved)
 
   const jclass native_library_class = env->FindClass("org/dolphinemu/dolphinemu/NativeLibrary");
   s_native_library_class = reinterpret_cast<jclass>(env->NewGlobalRef(native_library_class));
+  s_display_toast_msg =
+      env->GetStaticMethodID(s_native_library_class, "displayToastMsg", "(Ljava/lang/String;Z)V");
   s_display_alert_msg = env->GetStaticMethodID(s_native_library_class, "displayAlertMsg",
                                                "(Ljava/lang/String;Ljava/lang/String;ZZZ)Z");
-  s_do_rumble = env->GetStaticMethodID(s_native_library_class, "rumble", "(ID)V");
   s_update_touch_pointer =
       env->GetStaticMethodID(s_native_library_class, "updateTouchPointer", "()V");
   s_on_title_changed = env->GetStaticMethodID(s_native_library_class, "onTitleChanged", "()V");
@@ -380,43 +751,87 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved)
 
   const jclass game_file_class = env->FindClass("org/dolphinemu/dolphinemu/model/GameFile");
   s_game_file_class = reinterpret_cast<jclass>(env->NewGlobalRef(game_file_class));
-  s_game_file_pointer = env->GetFieldID(game_file_class, "mPointer", "J");
+  s_game_file_pointer = env->GetFieldID(game_file_class, "pointer", "J");
   s_game_file_constructor = env->GetMethodID(game_file_class, "<init>", "(J)V");
   env->DeleteLocalRef(game_file_class);
 
   const jclass game_file_cache_class =
       env->FindClass("org/dolphinemu/dolphinemu/model/GameFileCache");
   s_game_file_cache_class = reinterpret_cast<jclass>(env->NewGlobalRef(game_file_cache_class));
-  s_game_file_cache_pointer = env->GetFieldID(game_file_cache_class, "mPointer", "J");
+  s_game_file_cache_pointer = env->GetFieldID(game_file_cache_class, "pointer", "J");
   env->DeleteLocalRef(game_file_cache_class);
+
+  const jclass netplay_session_class =
+      env->FindClass("org/dolphinemu/dolphinemu/features/netplay/NetplaySession");
+  s_netplay_session_class = reinterpret_cast<jclass>(env->NewGlobalRef(netplay_session_class));
+  s_net_play_ui_callbacks_pointer =
+      env->GetFieldID(netplay_session_class, "netPlayUICallbacksPointer", "J");
+  s_net_play_client_pointer = env->GetFieldID(netplay_session_class, "netPlayClientPointer", "J");
+  s_net_play_server_pointer = env->GetFieldID(netplay_session_class, "netPlayServerPointer", "J");
+  s_netplay_on_boot_game =
+      env->GetMethodID(netplay_session_class, "onBootGame", "(Ljava/lang/String;J)V");
+  s_netplay_on_stop_game = env->GetMethodID(netplay_session_class, "onStopGame", "()V");
+  s_netplay_on_connection_lost = env->GetMethodID(netplay_session_class, "onConnectionLost", "()V");
+  s_netplay_on_connection_error =
+      env->GetMethodID(netplay_session_class, "onConnectionError", "(Ljava/lang/String;)V");
+  s_netplay_on_game_changed =
+      env->GetMethodID(netplay_session_class, "onGameChanged", "(Ljava/lang/String;)V");
+  s_netplay_on_host_input_authority_changed =
+      env->GetMethodID(netplay_session_class, "onHostInputAuthorityChanged", "(Z)V");
+  s_netplay_on_pad_buffer_changed =
+      env->GetMethodID(netplay_session_class, "onPadBufferChanged", "(I)V");
+  s_netplay_on_chat_message_received =
+      env->GetMethodID(netplay_session_class, "onChatMessageReceived", "(Ljava/lang/String;)V");
+  s_netplay_update =
+      env->GetMethodID(netplay_session_class, "onUpdate",
+                       "([Lorg/dolphinemu/dolphinemu/features/netplay/model/Player;)V");
+  s_netplay_on_show_chunked_progress_dialog = env->GetMethodID(
+      netplay_session_class, "onShowChunkedProgressDialog", "(Ljava/lang/String;J[I)V");
+  s_netplay_on_set_chunked_progress =
+      env->GetMethodID(netplay_session_class, "onSetChunkedProgress", "(IJ)V");
+  s_netplay_on_hide_chunked_progress_dialog =
+      env->GetMethodID(netplay_session_class, "onHideChunkedProgressDialog", "()V");
+  s_netplay_on_desync =
+      env->GetMethodID(netplay_session_class, "onDesync", "(ILjava/lang/String;)V");
+  s_netplay_on_show_game_digest_dialog =
+      env->GetMethodID(netplay_session_class, "onShowGameDigestDialog", "(Ljava/lang/String;)V");
+  s_netplay_on_set_game_digest_progress =
+      env->GetMethodID(netplay_session_class, "onSetGameDigestProgress", "(II)V");
+  s_netplay_on_set_game_digest_result =
+      env->GetMethodID(netplay_session_class, "onSetGameDigestResult", "(ILjava/lang/String;)V");
+  s_netplay_on_abort_game_digest =
+      env->GetMethodID(netplay_session_class, "onAbortGameDigest", "()V");
+  s_netplay_on_traversal_state_changed =
+      env->GetMethodID(netplay_session_class, "onTraversalStateChanged",
+                       "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
+  env->DeleteLocalRef(netplay_session_class);
+
+  const jclass netplay_player_class =
+      env->FindClass("org/dolphinemu/dolphinemu/features/netplay/model/Player");
+  s_netplay_player_class = reinterpret_cast<jclass>(env->NewGlobalRef(netplay_player_class));
+  s_netplay_player_constructor =
+      env->GetMethodID(netplay_player_class, "<init>",
+                       "(ILjava/lang/String;Ljava/lang/String;IZLjava/lang/String;)V");
+  env->DeleteLocalRef(netplay_player_class);
 
   const jclass analytics_class = env->FindClass("org/dolphinemu/dolphinemu/utils/Analytics");
   s_analytics_class = reinterpret_cast<jclass>(env->NewGlobalRef(analytics_class));
-  s_send_analytics_report =
-      env->GetStaticMethodID(s_analytics_class, "sendReport", "(Ljava/lang/String;[B)V");
   s_get_analytics_value = env->GetStaticMethodID(s_analytics_class, "getValue",
                                                  "(Ljava/lang/String;)Ljava/lang/String;");
   env->DeleteLocalRef(analytics_class);
 
-  const jclass ini_file_class = env->FindClass("org/dolphinemu/dolphinemu/utils/IniFile");
-  s_ini_file_class = reinterpret_cast<jclass>(env->NewGlobalRef(ini_file_class));
-  s_ini_file_pointer = env->GetFieldID(ini_file_class, "mPointer", "J");
-  env->DeleteLocalRef(ini_file_class);
+  const jclass pair_class = env->FindClass("androidx/core/util/Pair");
+  s_pair_class = reinterpret_cast<jclass>(env->NewGlobalRef(pair_class));
+  s_pair_constructor =
+      env->GetMethodID(s_pair_class, "<init>", "(Ljava/lang/Object;Ljava/lang/Object;)V");
+  env->DeleteLocalRef(pair_class);
 
-  const jclass ini_file_section_class =
-      env->FindClass("org/dolphinemu/dolphinemu/utils/IniFile$Section");
-  s_ini_file_section_class = reinterpret_cast<jclass>(env->NewGlobalRef(ini_file_section_class));
-  s_ini_file_section_pointer = env->GetFieldID(ini_file_section_class, "mPointer", "J");
-  s_ini_file_section_constructor = env->GetMethodID(
-      ini_file_section_class, "<init>", "(Lorg/dolphinemu/dolphinemu/utils/IniFile;J)V");
-  env->DeleteLocalRef(ini_file_section_class);
-
-  const jclass map_class = env->FindClass("java/util/LinkedHashMap");
-  s_linked_hash_map_class = reinterpret_cast<jclass>(env->NewGlobalRef(map_class));
-  s_linked_hash_map_init = env->GetMethodID(s_linked_hash_map_class, "<init>", "(I)V");
-  s_linked_hash_map_put = env->GetMethodID(
-      s_linked_hash_map_class, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
-  env->DeleteLocalRef(map_class);
+  const jclass hash_map_class = env->FindClass("java/util/HashMap");
+  s_hash_map_class = reinterpret_cast<jclass>(env->NewGlobalRef(hash_map_class));
+  s_hash_map_init = env->GetMethodID(s_hash_map_class, "<init>", "(I)V");
+  s_hash_map_put = env->GetMethodID(s_hash_map_class, "put",
+                                    "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+  env->DeleteLocalRef(hash_map_class);
 
   const jclass compress_cb_class =
       env->FindClass("org/dolphinemu/dolphinemu/utils/CompressCallback");
@@ -446,11 +861,11 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved)
       env->FindClass("org/dolphinemu/dolphinemu/utils/NetworkHelper");
   s_network_helper_class = reinterpret_cast<jclass>(env->NewGlobalRef(network_helper_class));
   s_network_helper_get_network_ip_address =
-      env->GetStaticMethodID(s_network_helper_class, "GetNetworkIpAddress", "()I");
+      env->GetStaticMethodID(s_network_helper_class, "getNetworkIpAddress", "()I");
   s_network_helper_get_network_prefix_length =
-      env->GetStaticMethodID(s_network_helper_class, "GetNetworkPrefixLength", "()I");
+      env->GetStaticMethodID(s_network_helper_class, "getNetworkPrefixLength", "()I");
   s_network_helper_get_network_gateway =
-      env->GetStaticMethodID(s_network_helper_class, "GetNetworkGateway", "()I");
+      env->GetStaticMethodID(s_network_helper_class, "getNetworkGateway", "()I");
   env->DeleteLocalRef(network_helper_class);
 
   const jclass boolean_supplier_class =
@@ -462,7 +877,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved)
   const jclass ar_cheat_class =
       env->FindClass("org/dolphinemu/dolphinemu/features/cheats/model/ARCheat");
   s_ar_cheat_class = reinterpret_cast<jclass>(env->NewGlobalRef(ar_cheat_class));
-  s_ar_cheat_pointer = env->GetFieldID(ar_cheat_class, "mPointer", "J");
+  s_ar_cheat_pointer = env->GetFieldID(ar_cheat_class, "pointer", "J");
   s_ar_cheat_constructor = env->GetMethodID(ar_cheat_class, "<init>", "(J)V");
   env->DeleteLocalRef(ar_cheat_class);
 
@@ -476,15 +891,32 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved)
   const jclass patch_cheat_class =
       env->FindClass("org/dolphinemu/dolphinemu/features/cheats/model/PatchCheat");
   s_patch_cheat_class = reinterpret_cast<jclass>(env->NewGlobalRef(patch_cheat_class));
-  s_patch_cheat_pointer = env->GetFieldID(patch_cheat_class, "mPointer", "J");
+  s_patch_cheat_pointer = env->GetFieldID(patch_cheat_class, "pointer", "J");
   s_patch_cheat_constructor = env->GetMethodID(patch_cheat_class, "<init>", "(J)V");
   env->DeleteLocalRef(patch_cheat_class);
+
+  const jclass graphics_mod_group_class =
+      env->FindClass("org/dolphinemu/dolphinemu/features/cheats/model/GraphicsModGroup");
+  s_graphics_mod_group_class =
+      reinterpret_cast<jclass>(env->NewGlobalRef(graphics_mod_group_class));
+  s_graphics_mod_group_pointer = env->GetFieldID(graphics_mod_group_class, "pointer", "J");
+  s_graphics_mod_group_constructor = env->GetMethodID(graphics_mod_group_class, "<init>", "(J)V");
+  env->DeleteLocalRef(graphics_mod_group_class);
+
+  const jclass graphics_mod_class =
+      env->FindClass("org/dolphinemu/dolphinemu/features/cheats/model/GraphicsMod");
+  s_graphics_mod_class = reinterpret_cast<jclass>(env->NewGlobalRef(graphics_mod_class));
+  s_graphics_mod_pointer = env->GetFieldID(graphics_mod_class, "pointer", "J");
+  s_graphics_mod_constructor =
+      env->GetMethodID(graphics_mod_class, "<init>",
+                       "(JLorg/dolphinemu/dolphinemu/features/cheats/model/GraphicsModGroup;)V");
+  env->DeleteLocalRef(graphics_mod_class);
 
   const jclass riivolution_patches_class =
       env->FindClass("org/dolphinemu/dolphinemu/features/riivolution/model/RiivolutionPatches");
   s_riivolution_patches_class =
       reinterpret_cast<jclass>(env->NewGlobalRef(riivolution_patches_class));
-  s_riivolution_patches_pointer = env->GetFieldID(riivolution_patches_class, "mPointer", "J");
+  s_riivolution_patches_pointer = env->GetFieldID(riivolution_patches_class, "pointer", "J");
   env->DeleteLocalRef(riivolution_patches_class);
 
   const jclass wii_update_cb_class =
@@ -492,6 +924,96 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved)
   s_wii_update_cb_class = reinterpret_cast<jclass>(env->NewGlobalRef(wii_update_cb_class));
   s_wii_update_cb_run = env->GetMethodID(s_wii_update_cb_class, "run", "(IIJ)Z");
   env->DeleteLocalRef(wii_update_cb_class);
+
+  const jclass control_class =
+      env->FindClass("org/dolphinemu/dolphinemu/features/input/model/controlleremu/Control");
+  s_control_class = reinterpret_cast<jclass>(env->NewGlobalRef(control_class));
+  s_control_pointer = env->GetFieldID(control_class, "pointer", "J");
+  s_control_constructor = env->GetMethodID(control_class, "<init>", "(J)V");
+  env->DeleteLocalRef(control_class);
+
+  const jclass control_group_class =
+      env->FindClass("org/dolphinemu/dolphinemu/features/input/model/controlleremu/ControlGroup");
+  s_control_group_class = reinterpret_cast<jclass>(env->NewGlobalRef(control_group_class));
+  s_control_group_pointer = env->GetFieldID(control_group_class, "pointer", "J");
+  s_control_group_constructor = env->GetMethodID(control_group_class, "<init>", "(J)V");
+  env->DeleteLocalRef(control_group_class);
+
+  const jclass control_reference_class = env->FindClass(
+      "org/dolphinemu/dolphinemu/features/input/model/controlleremu/ControlReference");
+  s_control_reference_class = reinterpret_cast<jclass>(env->NewGlobalRef(control_reference_class));
+  s_control_reference_pointer = env->GetFieldID(control_reference_class, "pointer", "J");
+  s_control_reference_constructor = env->GetMethodID(control_reference_class, "<init>", "(J)V");
+  env->DeleteLocalRef(control_reference_class);
+
+  const jclass control_group_container_class = env->FindClass(
+      "org/dolphinemu/dolphinemu/features/input/model/controlleremu/ControlGroupContainer");
+  s_control_group_container_class =
+      reinterpret_cast<jclass>(env->NewGlobalRef(control_group_container_class));
+  s_control_group_container_pointer =
+      env->GetFieldID(control_group_container_class, "pointer", "J");
+  s_control_group_container_constructor =
+      env->GetMethodID(control_group_container_class, "<init>", "(J)V");
+  env->DeleteLocalRef(control_group_container_class);
+
+  const jclass emulated_controller_class = env->FindClass(
+      "org/dolphinemu/dolphinemu/features/input/model/controlleremu/EmulatedController");
+  s_emulated_controller_class =
+      reinterpret_cast<jclass>(env->NewGlobalRef(emulated_controller_class));
+  s_emulated_controller_pointer = env->GetFieldID(emulated_controller_class, "pointer", "J");
+  s_emulated_controller_constructor = env->GetMethodID(emulated_controller_class, "<init>", "(J)V");
+  env->DeleteLocalRef(emulated_controller_class);
+
+  const jclass numeric_setting_class =
+      env->FindClass("org/dolphinemu/dolphinemu/features/input/model/controlleremu/NumericSetting");
+  s_numeric_setting_class = reinterpret_cast<jclass>(env->NewGlobalRef(numeric_setting_class));
+  s_numeric_setting_pointer = env->GetFieldID(numeric_setting_class, "pointer", "J");
+  s_numeric_setting_constructor = env->GetMethodID(numeric_setting_class, "<init>", "(J)V");
+  env->DeleteLocalRef(numeric_setting_class);
+
+  const jclass core_device_class =
+      env->FindClass("org/dolphinemu/dolphinemu/features/input/model/CoreDevice");
+  s_core_device_class = reinterpret_cast<jclass>(env->NewGlobalRef(core_device_class));
+  s_core_device_pointer = env->GetFieldID(core_device_class, "pointer", "J");
+  s_core_device_constructor = env->GetMethodID(core_device_class, "<init>", "(J)V");
+  env->DeleteLocalRef(core_device_class);
+
+  const jclass core_device_control_class =
+      env->FindClass("org/dolphinemu/dolphinemu/features/input/model/CoreDevice$Control");
+  s_core_device_control_class =
+      reinterpret_cast<jclass>(env->NewGlobalRef(core_device_control_class));
+  s_core_device_control_pointer = env->GetFieldID(core_device_control_class, "pointer", "J");
+  s_core_device_control_constructor =
+      env->GetMethodID(core_device_control_class, "<init>",
+                       "(Lorg/dolphinemu/dolphinemu/features/input/model/CoreDevice;J)V");
+  env->DeleteLocalRef(core_device_control_class);
+
+  const jclass input_detector_class =
+      env->FindClass("org/dolphinemu/dolphinemu/features/input/model/InputDetector");
+  s_input_detector_class = reinterpret_cast<jclass>(env->NewGlobalRef(input_detector_class));
+  s_input_detector_pointer = env->GetFieldID(input_detector_class, "pointer", "J");
+  env->DeleteLocalRef(input_detector_class);
+
+  const jclass permission_handler_class =
+      env->FindClass("org/dolphinemu/dolphinemu/utils/PermissionsHandler");
+  s_permission_handler_class =
+      reinterpret_cast<jclass>(env->NewGlobalRef(permission_handler_class));
+  s_permission_handler_has_record_audio_permission = env->GetStaticMethodID(
+      permission_handler_class, "hasRecordAudioPermission", "(Landroid/content/Context;)Z");
+  s_permission_handler_request_record_audio_permission = env->GetStaticMethodID(
+      permission_handler_class, "requestRecordAudioPermission", "(Landroid/app/Activity;)V");
+  env->DeleteLocalRef(permission_handler_class);
+
+  const jclass runnable_class = env->FindClass("java/lang/Runnable");
+  s_runnable_run = env->GetMethodID(runnable_class, "run", "()V");
+  env->DeleteLocalRef(runnable_class);
+
+  const jclass audio_utils_class = env->FindClass("org/dolphinemu/dolphinemu/utils/AudioUtils");
+  s_audio_utils_class = reinterpret_cast<jclass>(env->NewGlobalRef(audio_utils_class));
+  s_audio_utils_get_sample_rate = env->GetStaticMethodID(audio_utils_class, "getSampleRate", "()I");
+  s_audio_utils_get_frames_per_buffer =
+      env->GetStaticMethodID(audio_utils_class, "getFramesPerBuffer", "()I");
+  env->DeleteLocalRef(audio_utils_class);
 
   return JNI_VERSION;
 }
@@ -505,10 +1027,11 @@ JNIEXPORT void JNI_OnUnload(JavaVM* vm, void* reserved)
   env->DeleteGlobalRef(s_native_library_class);
   env->DeleteGlobalRef(s_game_file_class);
   env->DeleteGlobalRef(s_game_file_cache_class);
+  env->DeleteGlobalRef(s_netplay_session_class);
+  env->DeleteGlobalRef(s_netplay_player_class);
   env->DeleteGlobalRef(s_analytics_class);
-  env->DeleteGlobalRef(s_linked_hash_map_class);
-  env->DeleteGlobalRef(s_ini_file_class);
-  env->DeleteGlobalRef(s_ini_file_section_class);
+  env->DeleteGlobalRef(s_pair_class);
+  env->DeleteGlobalRef(s_hash_map_class);
   env->DeleteGlobalRef(s_compress_cb_class);
   env->DeleteGlobalRef(s_content_handler_class);
   env->DeleteGlobalRef(s_network_helper_class);
@@ -516,7 +1039,20 @@ JNIEXPORT void JNI_OnUnload(JavaVM* vm, void* reserved)
   env->DeleteGlobalRef(s_ar_cheat_class);
   env->DeleteGlobalRef(s_gecko_cheat_class);
   env->DeleteGlobalRef(s_patch_cheat_class);
+  env->DeleteGlobalRef(s_graphics_mod_group_class);
+  env->DeleteGlobalRef(s_graphics_mod_class);
   env->DeleteGlobalRef(s_riivolution_patches_class);
   env->DeleteGlobalRef(s_wii_update_cb_class);
+  env->DeleteGlobalRef(s_control_class);
+  env->DeleteGlobalRef(s_control_group_class);
+  env->DeleteGlobalRef(s_control_reference_class);
+  env->DeleteGlobalRef(s_control_group_container_class);
+  env->DeleteGlobalRef(s_emulated_controller_class);
+  env->DeleteGlobalRef(s_numeric_setting_class);
+  env->DeleteGlobalRef(s_core_device_class);
+  env->DeleteGlobalRef(s_core_device_control_class);
+  env->DeleteGlobalRef(s_input_detector_class);
+  env->DeleteGlobalRef(s_permission_handler_class);
+  env->DeleteGlobalRef(s_audio_utils_class);
 }
 }

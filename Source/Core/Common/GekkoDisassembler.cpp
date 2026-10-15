@@ -73,17 +73,17 @@ namespace Common
 #define PPCLSH 21
 #define PPCIDX2SH 1
 
-#define PPCGETIDX(x) (((x)&PPCIDXMASK) >> PPCIDXSH)
-#define PPCGETD(x) (((x)&PPCDMASK) >> PPCDSH)
-#define PPCGETA(x) (((x)&PPCAMASK) >> PPCASH)
-#define PPCGETB(x) (((x)&PPCBMASK) >> PPCBSH)
-#define PPCGETC(x) (((x)&PPCCMASK) >> PPCCSH)
-#define PPCGETM(x) (((x)&PPCMMASK) >> PPCMSH)
-#define PPCGETCRD(x) (((x)&PPCCRDMASK) >> PPCCRDSH)
-#define PPCGETCRA(x) (((x)&PPCCRAMASK) >> PPCCRASH)
-#define PPCGETL(x) (((x)&PPCLMASK) >> PPCLSH)
-#define PPCGETIDX2(x) (((x)&PPCIDX2MASK) >> PPCIDX2SH)
-#define PPCGETSTRM(x) (((x)&PPCSTRM) >> PPCDSH)
+#define PPCGETIDX(x) (((x) & PPCIDXMASK) >> PPCIDXSH)
+#define PPCGETD(x) (((x) & PPCDMASK) >> PPCDSH)
+#define PPCGETA(x) (((x) & PPCAMASK) >> PPCASH)
+#define PPCGETB(x) (((x) & PPCBMASK) >> PPCBSH)
+#define PPCGETC(x) (((x) & PPCCMASK) >> PPCCSH)
+#define PPCGETM(x) (((x) & PPCMMASK) >> PPCMSH)
+#define PPCGETCRD(x) (((x) & PPCCRDMASK) >> PPCCRDSH)
+#define PPCGETCRA(x) (((x) & PPCCRAMASK) >> PPCCRASH)
+#define PPCGETL(x) (((x) & PPCLMASK) >> PPCLSH)
+#define PPCGETIDX2(x) (((x) & PPCIDX2MASK) >> PPCIDX2SH)
+#define PPCGETSTRM(x) (((x) & PPCSTRM) >> PPCDSH)
 
 constexpr std::array<const char*, 32> trap_condition{
     nullptr, "lgt",   "llt",   nullptr, "eq",    "lge",   "lle",   nullptr,
@@ -153,10 +153,6 @@ u32* GekkoDisassembler::m_instr = nullptr;
 u32* GekkoDisassembler::m_iaddr = nullptr;
 std::string GekkoDisassembler::m_opcode;
 std::string GekkoDisassembler::m_operands;
-unsigned char GekkoDisassembler::m_type = 0;
-unsigned char GekkoDisassembler::m_flags = PPCF_ILLEGAL;
-unsigned short GekkoDisassembler::m_sreg = 0;
-u32 GekkoDisassembler::m_displacement = 0;
 
 static u32 HelperRotateMask(int r, int mb, int me)
 {
@@ -207,7 +203,7 @@ static std::string spr_name(int i)
   case 9:
     return "CTR";
   case 18:
-    return "DSIR";
+    return "DSISR";
   case 19:
     return "DAR";
   case 22:
@@ -218,6 +214,10 @@ static std::string spr_name(int i)
     return "SRR0";
   case 27:
     return "SRR1";
+  case 268:
+    return "TBLr";
+  case 269:
+    return "TBUr";
   case 272:
     return "SPRG0";
   case 273:
@@ -228,6 +228,10 @@ static std::string spr_name(int i)
     return "SPRG3";
   case 282:
     return "EAR";
+  case 284:
+    return "TBLw";
+  case 285:
+    return "TBUw";
   case 287:
     return "PVR";
   case 528:
@@ -262,6 +266,38 @@ static std::string spr_name(int i)
     return "DBAT3U";
   case 543:
     return "DBAT3L";
+  case 560:
+    return "IBAT4U";
+  case 561:
+    return "IBAT4L";
+  case 562:
+    return "IBAT5U";
+  case 563:
+    return "IBAT5L";
+  case 564:
+    return "IBAT6U";
+  case 565:
+    return "IBAT6L";
+  case 566:
+    return "IBAT7U";
+  case 567:
+    return "IBAT7L";
+  case 568:
+    return "DBAT4U";
+  case 569:
+    return "DBAT4L";
+  case 570:
+    return "DBAT5U";
+  case 571:
+    return "DBAT5L";
+  case 572:
+    return "DBAT6U";
+  case 573:
+    return "DBAT6L";
+  case 574:
+    return "DBAT7U";
+  case 575:
+    return "DBAT7L";
   case 912:
     return "GQR0";
   case 913:
@@ -283,9 +319,9 @@ static std::string spr_name(int i)
   case 921:
     return "WPAR";
   case 922:
-    return "DMA_U";
+    return "DMAU";
   case 923:
-    return "DMA_L";
+    return "DMAL";
   case 924:
     return "ECID_U";
   case 925:
@@ -332,10 +368,14 @@ static std::string spr_name(int i)
     return "IABR";
   case 1011:
     return "HID4";
+  case 1012:
+    return "TDCL";
   case 1013:
     return "DABR";
   case 1017:
     return "L2CR";
+  case 1018:
+    return "TDCH";
   case 1019:
     return "ICTC";
   case 1020:
@@ -371,8 +411,6 @@ void GekkoDisassembler::ill(u32 in)
     m_opcode = "(ill)";
     m_operands = fmt::format("{:08x}", in);
   }
-
-  m_flags |= PPCF_ILLEGAL;
 }
 
 // Generate immediate instruction operand.
@@ -385,18 +423,11 @@ std::string GekkoDisassembler::imm(u32 in, int uimm, int type, bool hex)
 {
   int i = (int)(in & 0xffff);
 
-  m_type = PPCINSTR_IMM;
-
   if (uimm == 0)
   {
     if (i > 0x7fff)
       i -= 0x10000;
   }
-  else
-  {
-    m_flags |= PPCF_UNSIGNED;
-  }
-  m_displacement = i;
 
   switch (type)
   {
@@ -460,10 +491,9 @@ void GekkoDisassembler::trapi(u32 in, unsigned char dmode)
 {
   const char* cnd = trap_condition[PPCGETD(in)];
 
-  m_flags |= dmode;
   if (cnd != nullptr)
   {
-    m_opcode = fmt::format("t{}{}", dmode ? 'd' : 'w', cnd);
+    m_opcode = fmt::format("t{}{}i", dmode ? 'd' : 'w', cnd);
   }
   else
   {
@@ -479,9 +509,6 @@ void GekkoDisassembler::cmpi(u32 in, int uimm)
 
   if (i < 2)
   {
-    if (i != 0)
-      m_flags |= PPCF_64;
-
     m_opcode = fmt::format("{}i", cmpname[uimm * 2 + i]);
 
     i = (int)PPCGETCRD(in);
@@ -586,9 +613,6 @@ void GekkoDisassembler::bc(u32 in)
     m_operands = fmt::format("{} ->0x{:08X}", m_operands, d);
   else
     m_operands = fmt::format("{} ->0x{:08X}", m_operands, *m_iaddr + d);
-
-  m_type = PPCINSTR_BRANCH;
-  m_displacement = d;
 }
 
 void GekkoDisassembler::bli(u32 in)
@@ -604,9 +628,6 @@ void GekkoDisassembler::bli(u32 in)
     m_operands = fmt::format("->0x{:08X}", d);
   else
     m_operands = fmt::format("->0x{:08X}", *m_iaddr + d);
-
-  m_type = PPCINSTR_BRANCH;
-  m_displacement = d;
 }
 
 void GekkoDisassembler::mcrf(u32 in, std::string_view suffix)
@@ -642,7 +663,7 @@ void GekkoDisassembler::crop(u32 in, std::string_view n1, std::string_view n2)
   }
 }
 
-void GekkoDisassembler::nooper(u32 in, std::string_view name, unsigned char dmode)
+void GekkoDisassembler::nooper(u32 in, std::string_view name)
 {
   if (in & (PPCDMASK | PPCAMASK | PPCBMASK | 1))
   {
@@ -650,7 +671,6 @@ void GekkoDisassembler::nooper(u32 in, std::string_view name, unsigned char dmod
   }
   else
   {
-    m_flags |= dmode;
     m_opcode = name;
   }
 }
@@ -681,7 +701,6 @@ void GekkoDisassembler::rld(u32 in, std::string_view name, int i)
   int bsh = i ? (int)PPCGETB(in) : (int)(((in & 2) << 4) + PPCGETB(in));
   int m = (int)(in & 0x7e0) >> 5;
 
-  m_flags |= PPCF_64;
   m_opcode = fmt::format("rld{}{}", name, (in & 1) ? "." : "");
   m_operands = fmt::format("{}, {}, {}{}, {}", regnames[a], regnames[s], regsel[i], bsh, m);
 }
@@ -692,9 +711,6 @@ void GekkoDisassembler::cmp(u32 in)
 
   if (i < 2)
   {
-    if (i != 0)
-      m_flags |= PPCF_64;
-
     m_opcode = cmpname[((in & PPCIDX2MASK) ? 2 : 0) + i];
 
     i = (int)PPCGETCRD(in);
@@ -716,7 +732,6 @@ void GekkoDisassembler::trap(u32 in, unsigned char dmode)
 
   if (cnd != nullptr)
   {
-    m_flags |= dmode;
     m_opcode = fmt::format("t{}{}", dmode ? 'd' : 'w', cnd);
     m_operands = ra_rb(in);
   }
@@ -726,7 +741,6 @@ void GekkoDisassembler::trap(u32 in, unsigned char dmode)
     {
       if (dmode)
       {
-        m_flags |= dmode;
         m_opcode = "td";
         m_operands = "31,0,0";
       }
@@ -744,7 +758,7 @@ void GekkoDisassembler::trap(u32 in, unsigned char dmode)
 
 // Standard instruction: xxxx rD,rA,rB
 void GekkoDisassembler::dab(u32 in, std::string_view name, int mask, int smode, int chkoe,
-                            int chkrc, unsigned char dmode)
+                            int chkrc)
 {
   if (chkrc >= 0 && ((in & 1) != (unsigned int)chkrc))
   {
@@ -752,8 +766,6 @@ void GekkoDisassembler::dab(u32 in, std::string_view name, int mask, int smode, 
   }
   else
   {
-    m_flags |= dmode;
-
     // rA,rS,rB
     if (smode)
       in = swapda(in);
@@ -765,8 +777,7 @@ void GekkoDisassembler::dab(u32 in, std::string_view name, int mask, int smode, 
 }
 
 // Last operand is no register: xxxx rD,rA,NB
-void GekkoDisassembler::rrn(u32 in, std::string_view name, int smode, int chkoe, int chkrc,
-                            unsigned char dmode)
+void GekkoDisassembler::rrn(u32 in, std::string_view name, int smode, int chkoe, int chkrc)
 {
   if (chkrc >= 0 && ((in & 1) != (unsigned int)chkrc))
   {
@@ -774,8 +785,6 @@ void GekkoDisassembler::rrn(u32 in, std::string_view name, int smode, int chkoe,
   }
   else
   {
-    m_flags |= dmode;
-
     // rA,rS,NB
     if (smode)
       in = swapda(in);
@@ -818,7 +827,6 @@ void GekkoDisassembler::msr(u32 in, int smode)
   }
   else
   {
-    m_flags |= PPCF_SUPER;
     m_opcode = fmt::format("m{}sr", smode ? 't' : 'f');
 
     if (smode)
@@ -840,9 +848,6 @@ void GekkoDisassembler::mspr(u32 in, int smode)
   }
   else
   {
-    if (spr != 1 && spr != 8 && spr != 9)
-      m_flags |= PPCF_SUPER;
-
     const char* x;
     switch (spr)
     {
@@ -905,7 +910,6 @@ void GekkoDisassembler::mtb(u32 in)
       break;
 
     default:
-      m_flags |= PPCF_SUPER;
       m_operands += fmt::format(",{}", tbr);
       break;
     }
@@ -914,29 +918,12 @@ void GekkoDisassembler::mtb(u32 in)
   }
 }
 
-void GekkoDisassembler::sradi(u32 in)
-{
-  int s = (int)PPCGETD(in);
-  int a = (int)PPCGETA(in);
-  int bsh = (int)(((in & 2) << 4) + PPCGETB(in));
-
-  m_flags |= PPCF_64;
-  m_opcode = fmt::format("sradi{}", (in & 1) ? "." : "");
-  m_operands = fmt::format("{}, {}, {}", regnames[a], regnames[s], bsh);
-}
-
-void GekkoDisassembler::ldst(u32 in, std::string_view name, char reg, unsigned char dmode)
+void GekkoDisassembler::ldst(u32 in, std::string_view name, char reg)
 {
   int s = (int)PPCGETD(in);
   int a = (int)PPCGETA(in);
   int d = (u32)(in & 0xffff);
 
-  m_type = PPCINSTR_LDST;
-  m_flags |= dmode;
-  m_sreg = (short)a;
-  //  if (d >= 0x8000)
-  //    d -= 0x10000;
-  m_displacement = (u32)d;
   m_opcode = name;
 
   if (reg == 'r')
@@ -950,11 +937,10 @@ void GekkoDisassembler::ldst(u32 in, std::string_view name, char reg, unsigned c
 }
 
 // Standard floating point instruction: xxxx fD,fA,fC,fB
-void GekkoDisassembler::fdabc(u32 in, std::string_view name, int mask, unsigned char dmode)
+void GekkoDisassembler::fdabc(u32 in, std::string_view name, int mask)
 {
   int err = 0;
 
-  m_flags |= dmode;
   m_opcode = fmt::format("f{}{}", name, rcsel[in & 1]);
   m_operands += fmt::format("f{}", PPCGETD(in));
 
@@ -1098,7 +1084,7 @@ void GekkoDisassembler::ps(u32 inst)
 
   case 23:
     m_opcode = "ps_sel";
-    m_operands = fmt::format("p{}>=0?p{}:p{}", FD, FA, FC);
+    m_operands = fmt::format("p{}, p{}>=0?p{}:p{}", FD, FA, FC, FB);
     return;
 
   case 24:
@@ -1227,7 +1213,7 @@ void GekkoDisassembler::ps(u32 inst)
     if (inst & PPCDMASK)
       ill(inst);
     else
-      dab(inst, "dcbz_l", 3, 0, 0, 0, 0);
+      dab(inst, "dcbz_l", 3, 0, 0, 0);
     return;
   }
 
@@ -1276,8 +1262,6 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
 
   m_opcode.clear();
   m_operands.clear();
-  m_type = PPCINSTR_OTHER;
-  m_flags = 0;
 
   switch (PPCGETIDX(in))
   {
@@ -1365,7 +1349,7 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       break;
 
     case 50:
-      nooper(in, "rfi", PPCF_SUPER);
+      nooper(in, "rfi");
       break;
 
     case 129:
@@ -1373,7 +1357,7 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       break;
 
     case 150:
-      nooper(in, "isync", 0);
+      nooper(in, "isync");
       break;
 
     case 193:
@@ -1449,30 +1433,6 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
     ori(in, "andis.");
     break;
 
-  case 30:
-    switch ((in >> 2) & 0x7)
-    {
-    case 0:
-      rld(in, "icl", 0);  // rldicl
-      break;
-    case 1:
-      rld(in, "icr", 0);  // rldicr
-      break;
-    case 2:
-      rld(in, "ic", 0);  // rldic
-      break;
-    case 3:
-      rld(in, "imi", 0);  // rldimi
-      break;
-    case 4:
-      rld(in, in & 2 ? "cl" : "cr", 1);  // rldcl, rldcr
-      break;
-    default:
-      ill(in);
-      break;
-    }
-    break;
-
   case 31:
     switch (PPCGETIDX2(in))
     {
@@ -1493,89 +1453,89 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
 
     case 8:
     case (PPCOE >> 1) + 8:
-      dab(swapab(in), "subc", 7, 0, 1, -1, 0);
+      dab(swapab(in), "subc", 7, 0, 1, -1);
       break;
 
     case 9:
-      dab(in, "mulhdu", 7, 0, 0, -1, PPCF_64);
+      dab(in, "mulhdu", 7, 0, 0, -1);
       break;
 
     case 10:
     case (PPCOE >> 1) + 10:
-      dab(in, "addc", 7, 0, 1, -1, 0);
+      dab(in, "addc", 7, 0, 1, -1);
       break;
 
     case 11:
-      dab(in, "mulhwu", 7, 0, 0, -1, 0);
+      dab(in, "mulhwu", 7, 0, 0, -1);
       break;
 
     case 19:
       if (in & (PPCAMASK | PPCBMASK))
         ill(in);
       else
-        dab(in, "mfcr", 4, 0, 0, 0, 0);
+        dab(in, "mfcr", 4, 0, 0, 0);
       break;
 
     case 20:
-      dab(in, "lwarx", 7, 0, 0, 0, 0);
+      dab(in, "lwarx", 7, 0, 0, 0);
       break;
 
     case 21:
-      dab(in, "ldx", 7, 0, 0, 0, PPCF_64);
+      dab(in, "ldx", 7, 0, 0, 0);
       break;
 
     case 23:
-      dab(in, "lwzx", 7, 0, 0, 0, 0);
+      dab(in, "lwzx", 7, 0, 0, 0);
       break;
 
     case 24:
-      dab(in, "slw", 7, 1, 0, -1, 0);
+      dab(in, "slw", 7, 1, 0, -1);
       break;
 
     case 26:
       if (in & PPCBMASK)
         ill(in);
       else
-        dab(in, "cntlzw", 6, 1, 0, -1, 0);
+        dab(in, "cntlzw", 6, 1, 0, -1);
       break;
 
     case 27:
-      dab(in, "sld", 7, 1, 0, -1, PPCF_64);
+      dab(in, "sld", 7, 1, 0, -1);
       break;
 
     case 28:
-      dab(in, "and", 7, 1, 0, -1, 0);
+      dab(in, "and", 7, 1, 0, -1);
       break;
 
     case 40:
     case (PPCOE >> 1) + 40:
-      dab(swapab(in), "sub", 7, 0, 1, -1, 0);
+      dab(swapab(in), "sub", 7, 0, 1, -1);
       break;
 
     case 53:
-      dab(in, "ldux", 7, 0, 0, 0, PPCF_64);
+      dab(in, "ldux", 7, 0, 0, 0);
       break;
 
     case 54:
       if (in & PPCDMASK)
         ill(in);
       else
-        dab(in, "dcbst", 3, 0, 0, 0, 0);
+        dab(in, "dcbst", 3, 0, 0, 0);
       break;
 
     case 55:
-      dab(in, "lwzux", 7, 0, 0, 0, 0);
+      dab(in, "lwzux", 7, 0, 0, 0);
       break;
 
     case 58:
       if (in & PPCBMASK)
         ill(in);
       else
-        dab(in, "cntlzd", 6, 1, 0, -1, PPCF_64);
+        dab(in, "cntlzd", 6, 1, 0, -1);
       break;
 
     case 60:
-      dab(in, "andc", 7, 1, 0, -1, 0);
+      dab(in, "andc", 7, 1, 0, -1);
       break;
 
     case 68:
@@ -1583,33 +1543,33 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       break;
 
     case 73:
-      dab(in, "mulhd", 7, 0, 0, -1, PPCF_64);
+      dab(in, "mulhd", 7, 0, 0, -1);
       break;
 
     case 75:
-      dab(in, "mulhw", 7, 0, 0, -1, 0);
+      dab(in, "mulhw", 7, 0, 0, -1);
       break;
 
     case 83:
       if (in & (PPCAMASK | PPCBMASK))
         ill(in);
       else
-        dab(in, "mfmsr", 4, 0, 0, 0, PPCF_SUPER);
+        dab(in, "mfmsr", 4, 0, 0, 0);
       break;
 
     case 84:
-      dab(in, "ldarx", 7, 0, 0, 0, PPCF_64);
+      dab(in, "ldarx", 7, 0, 0, 0);
       break;
 
     case 86:
       if (in & PPCDMASK)
         ill(in);
       else
-        dab(in, "dcbf", 3, 0, 0, 0, 0);
+        dab(in, "dcbf", 3, 0, 0, 0);
       break;
 
     case 87:
-      dab(in, "lbzx", 7, 0, 0, 0, 0);
+      dab(in, "lbzx", 7, 0, 0, 0);
       break;
 
     case 104:
@@ -1617,28 +1577,28 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       if (in & PPCBMASK)
         ill(in);
       else
-        dab(in, "neg", 6, 0, 1, -1, 0);
+        dab(in, "neg", 6, 0, 1, -1);
       break;
 
     case 119:
-      dab(in, "lbzux", 7, 0, 0, 0, 0);
+      dab(in, "lbzux", 7, 0, 0, 0);
       break;
 
     case 124:
       if (PPCGETD(in) == PPCGETB(in))
-        dab(in, "not", 6, 1, 0, -1, 0);
+        dab(in, "not", 6, 1, 0, -1);
       else
-        dab(in, "nor", 7, 1, 0, -1, 0);
+        dab(in, "nor", 7, 1, 0, -1);
       break;
 
     case 136:
     case (PPCOE >> 1) + 136:
-      dab(in, "subfe", 7, 0, 1, -1, 0);
+      dab(in, "subfe", 7, 0, 1, -1);
       break;
 
     case 138:
     case (PPCOE >> 1) + 138:
-      dab(in, "adde", 7, 0, 1, -1, 0);
+      dab(in, "adde", 7, 0, 1, -1);
       break;
 
     case 144:
@@ -1649,27 +1609,27 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       if (in & (PPCAMASK | PPCBMASK))
         ill(in);
       else
-        dab(in, "mtmsr", 4, 0, 0, 0, PPCF_SUPER);
+        dab(in, "mtmsr", 4, 0, 0, 0);
       break;
 
     case 149:
-      dab(in, "stdx", 7, 0, 0, 0, PPCF_64);
+      dab(in, "stdx", 7, 0, 0, 0);
       break;
 
     case 150:
-      dab(in, "stwcx.", 7, 0, 0, 1, 0);
+      dab(in, "stwcx.", 7, 0, 0, 1);
       break;
 
     case 151:
-      dab(in, "stwx", 7, 0, 0, 0, 0);
+      dab(in, "stwx", 7, 0, 0, 0);
       break;
 
     case 181:
-      dab(in, "stdux", 7, 0, 0, 0, PPCF_64);
+      dab(in, "stdux", 7, 0, 0, 0);
       break;
 
     case 183:
-      dab(in, "stwux", 7, 0, 0, 0, 0);
+      dab(in, "stwux", 7, 0, 0, 0);
       break;
 
     case 200:
@@ -1677,7 +1637,7 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       if (in & PPCBMASK)
         ill(in);
       else
-        dab(in, "subfze", 6, 0, 1, -1, 0);
+        dab(in, "subfze", 6, 0, 1, -1);
       break;
 
     case 202:
@@ -1685,7 +1645,7 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       if (in & PPCBMASK)
         ill(in);
       else
-        dab(in, "addze", 6, 0, 1, -1, 0);
+        dab(in, "addze", 6, 0, 1, -1);
       break;
 
     case 210:
@@ -1693,11 +1653,11 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       break;
 
     case 214:
-      dab(in, "stdcx.", 7, 0, 0, 1, PPCF_64);
+      dab(in, "stdcx.", 7, 0, 0, 1);
       break;
 
     case 215:
-      dab(in, "stbx", 7, 0, 0, 0, 0);
+      dab(in, "stbx", 7, 0, 0, 0);
       break;
 
     case 232:
@@ -1705,12 +1665,12 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       if (in & PPCBMASK)
         ill(in);
       else
-        dab(in, "subfme", 6, 0, 1, -1, 0);
+        dab(in, "subfme", 6, 0, 1, -1);
       break;
 
     case 233:
     case (PPCOE >> 1) + 233:
-      dab(in, "mulld", 7, 0, 1, -1, PPCF_64);
+      dab(in, "mulld", 7, 0, 1, -1);
       break;
 
     case 234:
@@ -1718,69 +1678,69 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       if (in & PPCBMASK)
         ill(in);
       else
-        dab(in, "addme", 6, 0, 1, -1, 0);
+        dab(in, "addme", 6, 0, 1, -1);
       break;
 
     case 235:
     case (PPCOE >> 1) + 235:
-      dab(in, "mullw", 7, 0, 1, -1, 0);
+      dab(in, "mullw", 7, 0, 1, -1);
       break;
 
     case 242:
       if (in & PPCAMASK)
         ill(in);
       else
-        dab(in, "mtsrin", 5, 0, 0, 0, PPCF_SUPER);
+        dab(in, "mtsrin", 5, 0, 0, 0);
       break;
 
     case 246:
       if (in & PPCDMASK)
         ill(in);
       else
-        dab(in, "dcbtst", 3, 0, 0, 0, 0);
+        dab(in, "dcbtst", 3, 0, 0, 0);
       break;
 
     case 247:
-      dab(in, "stbux", 7, 0, 0, 0, 0);
+      dab(in, "stbux", 7, 0, 0, 0);
       break;
 
     case 266:
     case (PPCOE >> 1) + 266:
-      dab(in, "add", 7, 0, 1, -1, 0);
+      dab(in, "add", 7, 0, 1, -1);
       break;
 
     case 278:
       if (in & PPCDMASK)
         ill(in);
       else
-        dab(in, "dcbt", 3, 0, 0, 0, 0);
+        dab(in, "dcbt", 3, 0, 0, 0);
       break;
 
     case 279:
-      dab(in, "lhzx", 7, 0, 0, 0, 0);
+      dab(in, "lhzx", 7, 0, 0, 0);
       break;
 
     case 284:
-      dab(in, "eqv", 7, 1, 0, -1, 0);
+      dab(in, "eqv", 7, 1, 0, -1);
       break;
 
     case 306:
       if (in & (PPCDMASK | PPCAMASK))
         ill(in);
       else
-        dab(in, "tlbie", 1, 0, 0, 0, PPCF_SUPER);
+        dab(in, "tlbie", 1, 0, 0, 0);
       break;
 
     case 310:
-      dab(in, "eciwx", 7, 0, 0, 0, 0);
+      dab(in, "eciwx", 7, 0, 0, 0);
       break;
 
     case 311:
-      dab(in, "lhzux", 7, 0, 0, 0, 0);
+      dab(in, "lhzux", 7, 0, 0, 0);
       break;
 
     case 316:
-      dab(in, "xor", 7, 1, 0, -1, 0);
+      dab(in, "xor", 7, 1, 0, -1);
       break;
 
     case 339:
@@ -1788,15 +1748,15 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       break;
 
     case 341:
-      dab(in, "lwax", 7, 0, 0, 0, PPCF_64);
+      dab(in, "lwax", 7, 0, 0, 0);
       break;
 
     case 343:
-      dab(in, "lhax", 7, 0, 0, 0, 0);
+      dab(in, "lhax", 7, 0, 0, 0);
       break;
 
     case 370:
-      nooper(in, "tlbia", PPCF_SUPER);
+      nooper(in, "tlbia");
       break;
 
     case 371:
@@ -1804,55 +1764,51 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       break;
 
     case 373:
-      dab(in, "lwaux", 7, 0, 0, 0, PPCF_64);
+      dab(in, "lwaux", 7, 0, 0, 0);
       break;
 
     case 375:
-      dab(in, "lhaux", 7, 0, 0, 0, 0);
+      dab(in, "lhaux", 7, 0, 0, 0);
       break;
 
     case 407:
-      dab(in, "sthx", 7, 0, 0, 0, 0);
+      dab(in, "sthx", 7, 0, 0, 0);
       break;
 
     case 412:
-      dab(in, "orc", 7, 1, 0, -1, 0);
-      break;
-
-    case 413:
-      sradi(in);  // sradi
+      dab(in, "orc", 7, 1, 0, -1);
       break;
 
     case 434:
       if (in & (PPCDMASK | PPCAMASK))
         ill(in);
       else
-        dab(in, "slbie", 1, 0, 0, 0, PPCF_SUPER | PPCF_64);
+        dab(in, "slbie", 1, 0, 0, 0);
       break;
 
     case 438:
-      dab(in, "ecowx", 7, 0, 0, 0, 0);
+      dab(in, "ecowx", 7, 0, 0, 0);
       break;
 
     case 439:
-      dab(in, "sthux", 7, 0, 0, 0, 0);
+      dab(in, "sthux", 7, 0, 0, 0);
       break;
 
     case 444:
       if (PPCGETD(in) == PPCGETB(in))
-        dab(in, "mr", 6, 1, 0, -1, 0);
+        dab(in, "mr", 6, 1, 0, -1);
       else
-        dab(in, "or", 7, 1, 0, -1, 0);
+        dab(in, "or", 7, 1, 0, -1);
       break;
 
     case 457:
     case (PPCOE >> 1) + 457:
-      dab(in, "divdu", 7, 0, 1, -1, PPCF_64);
+      dab(in, "divdu", 7, 0, 1, -1);
       break;
 
     case 459:
     case (PPCOE >> 1) + 459:
-      dab(in, "divwu", 7, 0, 1, -1, 0);
+      dab(in, "divwu", 7, 0, 1, -1);
       break;
 
     case 467:
@@ -1863,25 +1819,25 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       if (in & PPCDMASK)
         ill(in);
       else
-        dab(in, "dcbi", 3, 0, 0, 0, 0);
+        dab(in, "dcbi", 3, 0, 0, 0);
       break;
 
     case 476:
-      dab(in, "nand", 7, 1, 0, -1, 0);
+      dab(in, "nand", 7, 1, 0, -1);
       break;
 
     case 489:
     case (PPCOE >> 1) + 489:
-      dab(in, "divd", 7, 0, 1, -1, PPCF_64);
+      dab(in, "divd", 7, 0, 1, -1);
       break;
 
     case 491:
     case (PPCOE >> 1) + 491:
-      dab(in, "divw", 7, 0, 1, -1, 0);
+      dab(in, "divw", 7, 0, 1, -1);
       break;
 
     case 498:
-      nooper(in, "slbia", PPCF_SUPER | PPCF_64);
+      nooper(in, "slbia");
       break;
 
     case 512:
@@ -1897,11 +1853,11 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       break;
 
     case 533:
-      dab(in, "lswx", 7, 0, 0, 0, 0);
+      dab(in, "lswx", 7, 0, 0, 0);
       break;
 
     case 534:
-      dab(in, "lwbrx", 7, 0, 0, 0, 0);
+      dab(in, "lwbrx", 7, 0, 0, 0);
       break;
 
     case 535:
@@ -1909,15 +1865,15 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       break;
 
     case 536:
-      dab(in, "srw", 7, 1, 0, -1, 0);
+      dab(in, "srw", 7, 1, 0, -1);
       break;
 
     case 539:
-      dab(in, "srd", 7, 1, 0, -1, PPCF_64);
+      dab(in, "srd", 7, 1, 0, -1);
       break;
 
     case 566:
-      nooper(in, "tlbsync", PPCF_SUPER);
+      nooper(in, "tlbsync");
       break;
 
     case 567:
@@ -1929,11 +1885,11 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       break;
 
     case 597:
-      rrn(in, "lswi", 0, 0, 0, 0);
+      rrn(in, "lswi", 0, 0, 0);
       break;
 
     case 598:
-      nooper(in, "sync", PPCF_SUPER);
+      nooper(in, "sync");
       break;
 
     case 599:
@@ -1948,15 +1904,15 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       if (in & PPCAMASK)
         ill(in);
       else
-        dab(in, "mfsrin", 5, 0, 0, 0, PPCF_SUPER);
+        dab(in, "mfsrin", 5, 0, 0, 0);
       break;
 
     case 661:
-      dab(in, "stswx", 7, 0, 0, 0, 0);
+      dab(in, "stswx", 7, 0, 0, 0);
       break;
 
     case 662:
-      dab(in, "stwbrx", 7, 0, 0, 0, 0);
+      dab(in, "stwbrx", 7, 0, 0, 0);
       break;
 
     case 663:
@@ -1968,7 +1924,7 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       break;
 
     case 725:
-      rrn(in, "stswi", 0, 0, 0, 0);
+      rrn(in, "stswi", 0, 0, 0);
       break;
 
     case 727:
@@ -1980,48 +1936,48 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       break;
 
     case 790:
-      dab(in, "lhbrx", 7, 0, 0, 0, 0);
+      dab(in, "lhbrx", 7, 0, 0, 0);
       break;
 
     case 792:
-      dab(in, "sraw", 7, 1, 0, -1, 0);
+      dab(in, "sraw", 7, 1, 0, -1);
       break;
 
     case 794:
-      dab(in, "srad", 7, 1, 0, -1, PPCF_64);
+      dab(in, "srad", 7, 1, 0, -1);
       break;
 
     case 824:
-      rrn(in, "srawi", 1, 0, -1, 0);
+      rrn(in, "srawi", 1, 0, -1);
       break;
 
     case 854:
-      nooper(in, "eieio", PPCF_SUPER);
+      nooper(in, "eieio");
       break;
 
     case 918:
-      dab(in, "sthbrx", 7, 0, 0, 0, 0);
+      dab(in, "sthbrx", 7, 0, 0, 0);
       break;
 
     case 922:
       if (in & PPCBMASK)
         ill(in);
       else
-        dab(in, "extsh", 6, 1, 0, -1, 0);
+        dab(in, "extsh", 6, 1, 0, -1);
       break;
 
     case 954:
       if (in & PPCBMASK)
         ill(in);
       else
-        dab(in, "extsb", 6, 1, 0, -1, 0);
+        dab(in, "extsb", 6, 1, 0, -1);
       break;
 
     case 982:
       if (in & PPCDMASK)
         ill(in);
       else
-        dab(in, "icbi", 3, 0, 0, 0, 0);
+        dab(in, "icbi", 3, 0, 0, 0);
       break;
 
     case 983:
@@ -2032,14 +1988,14 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       if (in & PPCBMASK)
         ill(in);
       else
-        dab(in, "extsw", 6, 1, 0, -1, PPCF_64);
+        dab(in, "extsw", 6, 1, 0, -1);
       break;
 
     case 1014:
       if (in & PPCDMASK)
         ill(in);
       else
-        dab(in, "dcbz", 3, 0, 0, 0, 0);
+        dab(in, "dcbz", 3, 0, 0, 0);
       break;
 
     default:
@@ -2064,7 +2020,7 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
   case 45:
   case 46:
   case 47:
-    ldst(in, ldstnames[PPCGETIDX(in) - 32], 'r', 0);
+    ldst(in, ldstnames[PPCGETIDX(in) - 32], 'r');
     break;
 
   case 48:
@@ -2075,20 +2031,20 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
   case 53:
   case 54:
   case 55:
-    ldst(in, ldstnames[PPCGETIDX(in) - 32], 'f', 0);
+    ldst(in, ldstnames[PPCGETIDX(in) - 32], 'f');
     break;
 
   case 58:
     switch (in & 3)
     {
     case 0:
-      ldst(in & ~3, "ld", 'r', PPCF_64);
+      ldst(in & ~3, "ld", 'r');
       break;
     case 1:
-      ldst(in & ~3, "ldu", 'r', PPCF_64);
+      ldst(in & ~3, "ldu", 'r');
       break;
     case 2:
-      ldst(in & ~3, "lwa", 'r', PPCF_64);
+      ldst(in & ~3, "lwa", 'r');
       break;
     default:
       ill(in);
@@ -2100,43 +2056,43 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
     switch (in & 0x3e)
     {
     case 36:
-      fdabc(in, "divs", 5, 0);
+      fdabc(in, "divs", 5);
       break;
 
     case 40:
-      fdabc(in, "subs", 5, 0);
+      fdabc(in, "subs", 5);
       break;
 
     case 42:
-      fdabc(in, "adds", 5, 0);
+      fdabc(in, "adds", 5);
       break;
 
     case 44:
-      fdabc(in, "sqrts", 1, 0);
+      fdabc(in, "sqrts", 1);
       break;
 
     case 48:
-      fdabc(in, "res", 1, 0);
+      fdabc(in, "res", 1);
       break;
 
     case 50:
-      fdabc(in, "muls", 6, 0);
+      fdabc(in, "muls", 6);
       break;
 
     case 56:
-      fdabc(in, "msubs", 7, 0);
+      fdabc(in, "msubs", 7);
       break;
 
     case 58:
-      fdabc(in, "madds", 7, 0);
+      fdabc(in, "madds", 7);
       break;
 
     case 60:
-      fdabc(in, "nmsubs", 7, 0);
+      fdabc(in, "nmsubs", 7);
       break;
 
     case 62:
-      fdabc(in, "nmadds", 7, 0);
+      fdabc(in, "nmadds", 7);
       break;
 
     default:
@@ -2149,10 +2105,10 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
     switch (in & 3)
     {
     case 0:
-      ldst(in & ~3, "std", 'r', PPCF_64);
+      ldst(in & ~3, "std", 'r');
       break;
     case 1:
-      ldst(in & ~3, "stdu", 'r', PPCF_64);
+      ldst(in & ~3, "stdu", 'r');
       break;
     default:
       ill(in);
@@ -2166,47 +2122,47 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
       switch (in & 0x1e)
       {
       case 4:
-        fdabc(in, "div", 5, 0);
+        fdabc(in, "div", 5);
         break;
 
       case 8:
-        fdabc(in, "sub", 5, 0);
+        fdabc(in, "sub", 5);
         break;
 
       case 10:
-        fdabc(in, "add", 5, 0);
+        fdabc(in, "add", 5);
         break;
 
       case 12:
-        fdabc(in, "sqrt", 1, 0);
+        fdabc(in, "sqrt", 1);
         break;
 
       case 14:
-        fdabc(in, "sel", 7, 0);
+        fdabc(in, "sel", 7);
         break;
 
       case 18:
-        fdabc(in, "mul", 6, 0);
+        fdabc(in, "mul", 6);
         break;
 
       case 20:
-        fdabc(in, "rsqrte", 1, 0);
+        fdabc(in, "rsqrte", 1);
         break;
 
       case 24:
-        fdabc(in, "msub", 7, 0);
+        fdabc(in, "msub", 7);
         break;
 
       case 26:
-        fdabc(in, "madd", 7, 0);
+        fdabc(in, "madd", 7);
         break;
 
       case 28:
-        fdabc(in, "nmsub", 7, 0);
+        fdabc(in, "nmsub", 7);
         break;
 
       case 30:
-        fdabc(in, "nmadd", 7, 0);
+        fdabc(in, "nmadd", 7);
         break;
 
       default:
@@ -2223,15 +2179,15 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
         break;
 
       case 12:
-        fdabc(in, "rsp", 1, 0);
+        fdabc(in, "rsp", 1);
         break;
 
       case 14:
-        fdabc(in, "ctiw", 1, 0);
+        fdabc(in, "ctiw", 1);
         break;
 
       case 15:
-        fdabc(in, "ctiwz", 1, 0);
+        fdabc(in, "ctiwz", 1);
         break;
 
       case 32:
@@ -2243,7 +2199,7 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
         break;
 
       case 40:
-        fdabc(in, "neg", 9, 0);
+        fdabc(in, "neg", 9);
         break;
 
       case 64:
@@ -2271,18 +2227,18 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
         break;
 
       case 136:
-        fdabc(in, "nabs", 9, 0);
+        fdabc(in, "nabs", 9);
         break;
 
       case 264:
-        fdabc(in, "abs", 9, 0);
+        fdabc(in, "abs", 9);
         break;
 
       case 583:
         if (in & (PPCAMASK | PPCBMASK))
           ill(in);
         else
-          dab(in, "mffs", 4, 0, 0, -1, 0);
+          dab(in, "mffs", 4, 0, 0, -1);
         break;
 
       case 711:
@@ -2295,18 +2251,6 @@ u32* GekkoDisassembler::DoDisassembly(bool big_endian)
         {
           ill(in);
         }
-        break;
-
-      case 814:
-        fdabc(in, "fctid", 9, PPCF_64);
-        break;
-
-      case 815:
-        fdabc(in, "fctidz", 9, PPCF_64);
-        break;
-
-      case 846:
-        fdabc(in, "fcfid", 9, PPCF_64);
         break;
 
       default:

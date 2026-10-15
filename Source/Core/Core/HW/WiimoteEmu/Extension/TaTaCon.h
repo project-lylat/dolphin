@@ -29,9 +29,15 @@ public:
   };
   static_assert(sizeof(DataFormat) == 6, "Wrong size");
 
+  struct DesiredState
+  {
+    u8 state;
+  };
+
   TaTaCon();
 
-  void Update() override;
+  void BuildDesiredExtensionState(DesiredExtensionState* target_state) override;
+  void Update(const DesiredExtensionState& target_state) override;
   void Reset() override;
 
   ControllerEmu::ControlGroup* GetGroup(TaTaConGroup group);

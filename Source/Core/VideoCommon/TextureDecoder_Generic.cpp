@@ -31,7 +31,7 @@ static inline u32 DecodePixel_RGB565(u16 val)
   int r, g, b, a;
   r = Convert5To8((val >> 11) & 0x1f);
   g = Convert6To8((val >> 5) & 0x3f);
-  b = Convert5To8((val)&0x1f);
+  b = Convert5To8((val) & 0x1f);
   a = 0xFF;
   return r | (g << 8) | (b << 16) | (a << 24);
 }
@@ -43,7 +43,7 @@ static inline u32 DecodePixel_RGB5A3(u16 val)
   {
     r = Convert5To8((val >> 10) & 0x1f);
     g = Convert5To8((val >> 5) & 0x1f);
-    b = Convert5To8((val)&0x1f);
+    b = Convert5To8((val) & 0x1f);
     a = 0xFF;
   }
   else
@@ -51,7 +51,7 @@ static inline u32 DecodePixel_RGB5A3(u16 val)
     a = Convert3To8((val >> 12) & 0x7);
     r = Convert4To8((val >> 8) & 0xf);
     g = Convert4To8((val >> 4) & 0xf);
-    b = Convert4To8((val)&0xf);
+    b = Convert4To8((val) & 0xf);
   }
   return r | (g << 8) | (b << 16) | (a << 24);
 }
@@ -115,30 +115,14 @@ static inline void DecodeBytes_IA4(u32* dst, const u8* src)
 
 static inline void DecodeBytes_RGB5A3(u32* dst, const u16* src)
 {
-#if 0
   for (int x = 0; x < 4; x++)
     dst[x] = DecodePixel_RGB5A3(Common::swap16(src[x]));
-#else
-  dst[0] = DecodePixel_RGB5A3(Common::swap16(src[0]));
-  dst[1] = DecodePixel_RGB5A3(Common::swap16(src[1]));
-  dst[2] = DecodePixel_RGB5A3(Common::swap16(src[2]));
-  dst[3] = DecodePixel_RGB5A3(Common::swap16(src[3]));
-#endif
 }
 
 static inline void DecodeBytes_RGBA8(u32* dst, const u16* src, const u16* src2)
 {
-#if 0
   for (int x = 0; x < 4; x++)
-  {
-    dst[x] =  ((src[x] & 0xFF) << 24) | ((src[x] & 0xFF00)>>8)  | (src2[x] << 8);
-  }
-#else
-  dst[0] = ((src[0] & 0xFF) << 24) | ((src[0] & 0xFF00) >> 8) | (src2[0] << 8);
-  dst[1] = ((src[1] & 0xFF) << 24) | ((src[1] & 0xFF00) >> 8) | (src2[1] << 8);
-  dst[2] = ((src[2] & 0xFF) << 24) | ((src[2] & 0xFF00) >> 8) | (src2[2] << 8);
-  dst[3] = ((src[3] & 0xFF) << 24) | ((src[3] & 0xFF00) >> 8) | (src2[3] << 8);
-#endif
+    dst[x] = ((src[x] & 0xFF) << 24) | ((src[x] & 0xFF00) >> 8) | (src2[x] << 8);
 }
 
 static void DecodeDXTBlock(u32* dst, const DXTBlock* src, int pitch)

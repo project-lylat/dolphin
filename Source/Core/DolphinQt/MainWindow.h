@@ -14,23 +14,33 @@
 #include "Core/Lylat/LylatMatchmakingClient.h"
 #include "DolphinQt/QtUtils/ParallelProgressDialog.h"
 #include <random>
+
+#ifdef USE_RETRO_ACHIEVEMENTS
+#include "Common/Config/Config.h"
+#endif  // USE_RETRO_ACHIEVEMENTS
+
+#include "Core/Boot/Boot.h"
+#include "DolphinQt/FIFO/FIFOPlayerWindow.h"
+
+class QMenu;
 class QStackedWidget;
 class QString;
 
+class AchievementsWindow;
+class AssemblerWidget;
 class BreakpointWidget;
-class BootSessionData;
 struct BootParameters;
 class CheatsManager;
 class CodeWidget;
-class ControllersWindow;
 class DiscordHandler;
 class DragEnterEvent;
-class FIFOPlayerWindow;
 class FreeLookWindow;
+class GameCount;
 class GameList;
+class GBATASInputWindow;
 class GCTASInputWindow;
-class GraphicsWindow;
 class HotkeyScheduler;
+class InfinityBaseWindow;
 class JITWidget;
 class LogConfigWidget;
 class LogWidget;
@@ -44,10 +54,19 @@ class RegisterWidget;
 class RenderWidget;
 class SearchBar;
 class SettingsWindow;
+class SkylanderPortalWindow;
 class ThreadWidget;
 class ToolBar;
 class WatchWidget;
 class WiiTASInputWindow;
+class WiiSpeakWindow;
+class LogitechMicWindow;
+struct WindowSystemInfo;
+
+namespace Core
+{
+class System;
+}
 
 namespace DiscIO
 {
@@ -69,14 +88,16 @@ class MainWindow final : public QMainWindow
   Q_OBJECT
 
 public:
-  explicit MainWindow(std::unique_ptr<BootParameters> boot_parameters,
-                      const std::string& movie_path,
-                      std::string init_netplay_path );
-  ~MainWindow();
+  explicit MainWindow(Core::System& system, std::unique_ptr<BootParameters> boot_parameters,
+                      const std::string& movie_path, std::string init_netplay_path);
+  ~MainWindow() override;
 
-  void Show();
+  WindowSystemInfo GetWindowSystemInfo() const;
 
   bool eventFilter(QObject* object, QEvent* event) override;
+  QMenu* createPopupMenu() override;
+
+  void ShowTriforceWindow();
 
 signals:
   void ReadOnlyModeChanged(bool read_only);
@@ -111,6 +132,8 @@ private:
   void StateSaveUndo();
   void StateSaveOldest();
   void SetStateSlot(int slot);
+  void IncrementSelectedStateSlot();
+  void DecrementSelectedStateSlot();
   void BootWiiSystemMenu();
 
   void PerformOnlineUpdate(const std::string& region);
@@ -165,10 +188,20 @@ private:
   void ShowNetPlaySetupDialog();
   void ShowNetPlayBrowser();
   void ShowFIFOPlayer();
+  void ShowSkylanderPortal();
+  void ShowInfinityBase();
+  void ShowWiiSpeakWindow();
+  void ShowLogitechMicWindow();
   void ShowMemcardManager();
   void ShowResourcePackManager();
   void ShowCheatsManager();
   void ShowRiivolutionBootWidget(const UICommon::GameFile& game);
+
+#ifdef USE_RETRO_ACHIEVEMENTS
+  void ShowAchievementsWindow();
+  void ShowAchievementSettings();
+  void OnHardcoreChanged();
+#endif  // USE_RETRO_ACHIEVEMENTS
 
   void NetPlayInit();
   bool NetPlayJoin();
@@ -197,9 +230,14 @@ private:
   void OnActivateChat();
   void OnRequestGolfControl();
   void ShowTASInput();
+  void ShowOSDWindow();
 
   void ChangeDisc();
   void EjectDisc();
+
+  void OpenUserFolder();
+  void OpenConfigFolder();
+  void OpenCacheFolder();
 
   QStringList PromptFileNames();
 
@@ -210,6 +248,8 @@ private:
   void dropEvent(QDropEvent* event) override;
   QSize sizeHint() const override;
 
+  Core::System& m_system;
+
 #ifdef HAVE_XRANDR
   std::unique_ptr<X11Utils::XRRConfiguration> m_xrr_config;
 #endif
@@ -219,6 +259,7 @@ private:
   MenuBar* m_menu_bar;
   SearchBar* m_search_bar;
   GameList* m_game_list;
+  GameCount* m_game_count;
   RenderWidget* m_render_widget = nullptr;
   bool m_should_show_lylat_connected_notification = false;
   bool m_rendering_to_main;
@@ -227,16 +268,20 @@ private:
   bool m_exit_requested = false;
   bool m_fullscreen_requested = false;
   bool m_is_screensaver_inhibited = false;
-  int m_state_slot = 1;
+  u32 m_state_slot = 1;
   std::unique_ptr<BootParameters> m_pending_boot;
   std::default_random_engine generator;
 
   std::function<void(std::string)> m_room_id_callback;
 
-  ControllersWindow* m_controllers_window = nullptr;
   SettingsWindow* m_settings_window = nullptr;
-  GraphicsWindow* m_graphics_window = nullptr;
-  FIFOPlayerWindow* m_fifo_window = nullptr;
+  // m_fifo_window doesn't set MainWindow as its parent so that the fifo can be focused without
+  // raising the main window, so use a unique_ptr to make sure it gets destroyed.
+  std::unique_ptr<FIFOPlayerWindow> m_fifo_window = nullptr;
+  SkylanderPortalWindow* m_skylander_window = nullptr;
+  InfinityBaseWindow* m_infinity_window = nullptr;
+  WiiSpeakWindow* m_wii_speak_window = nullptr;
+  LogitechMicWindow* m_logitech_mic_window = nullptr;
   MappingWindow* m_hotkey_window = nullptr;
   FreeLookWindow* m_freelook_window = nullptr;
 
@@ -246,9 +291,17 @@ private:
   NetPlaySetupDialog* m_netplay_setup_dialog;
   static constexpr int num_gc_controllers = 4;
   std::array<GCTASInputWindow*, num_gc_controllers> m_gc_tas_input_windows{};
+  std::array<GBATASInputWindow*, num_gc_controllers> m_gba_tas_input_windows{};
   static constexpr int num_wii_controllers = 4;
   std::array<WiiTASInputWindow*, num_wii_controllers> m_wii_tas_input_windows{};
 
+#ifdef USE_RETRO_ACHIEVEMENTS
+  AchievementsWindow* m_achievements_window = nullptr;
+  Config::ConfigChangedCallbackID m_config_changed_callback_id;
+  bool m_former_hardcore_setting = false;
+#endif  // USE_RETRO_ACHIEVEMENTS
+
+  AssemblerWidget* m_assembler_widget;
   BreakpointWidget* m_breakpoint_widget;
   CodeWidget* m_code_widget;
   JITWidget* m_jit_widget;
@@ -259,7 +312,7 @@ private:
   RegisterWidget* m_register_widget;
   ThreadWidget* m_thread_widget;
   WatchWidget* m_watch_widget;
-  CheatsManager* m_cheats_manager;
+  CheatsManager* m_cheats_manager{};
   QByteArray m_render_widget_geometry;
   LylatMatchmakingClient* m_lylat_matchmaking_client = nullptr;
   ParallelProgressDialog* m_lylat_progress_dialog;

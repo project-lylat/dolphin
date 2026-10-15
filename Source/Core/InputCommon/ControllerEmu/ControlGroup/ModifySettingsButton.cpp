@@ -8,23 +8,18 @@
 #include <string>
 #include <utility>
 
-#include "Common/Common.h"
-#include "InputCommon/ControlReference/ControlReference.h"
 #include "InputCommon/ControllerEmu/Control/Control.h"
-#include "InputCommon/ControllerEmu/Control/Input.h"
-#include "InputCommon/ControllerEmu/Setting/NumericSetting.h"
 #include "VideoCommon/OnScreenDisplay.h"
 
 namespace ControllerEmu
 {
-ModifySettingsButton::ModifySettingsButton(std::string button_name)
-    : Buttons(std::move(button_name))
+ModifySettingsButton::ModifySettingsButton(const std::string& button_name) : Buttons(button_name)
 {
 }
 
 void ModifySettingsButton::AddInput(std::string button_name, bool toggle)
 {
-  ControlGroup::AddInput(Translate, std::move(button_name));
+  ControlGroup::AddInput(Translatability::Translate, std::move(button_name));
   m_threshold_exceeded.emplace_back(false);
   m_associated_settings.emplace_back(false);
   m_associated_settings_toggle.emplace_back(toggle);

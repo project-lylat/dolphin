@@ -1,32 +1,23 @@
 // Copyright 2021 Dolphin Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include <cstdio>
-#include <thread>
-
 #include <memory>
 #include <string>
 
-#include "Common/Flag.h"
-#include "Common/WindowSystemInfo.h"
-
-#include "Core/Core.h"
-#include "Core/DolphinAnalytics.h"
 #include "Core/Host.h"
 
 // Begin stubs needed to satisfy Core dependencies
-#include "VideoCommon/RenderBase.h"
 
 std::vector<std::string> Host_GetPreferredLocales()
 {
   return {};
 }
 
-void Host_NotifyMapLoaded()
+void Host_PPCSymbolsChanged()
 {
 }
 
-void Host_RefreshDSPDebuggerWindow()
+void Host_PPCBreakpointsChanged()
 {
 }
 
@@ -43,11 +34,30 @@ void Host_UpdateTitle(const std::string& title)
 {
 }
 
+void Host_UpdateDiscordClientID(const std::string& client_id)
+{
+}
+
+bool Host_UpdateDiscordPresenceRaw(const std::string& details, const std::string& state,
+                                   const std::string& large_image_key,
+                                   const std::string& large_image_text,
+                                   const std::string& small_image_key,
+                                   const std::string& small_image_text,
+                                   const int64_t start_timestamp, const int64_t end_timestamp,
+                                   const int party_size, const int party_max)
+{
+  return false;
+}
+
 void Host_UpdateDisasmDialog()
 {
 }
 
-void Host_UpdateMainFrame()
+void Host_JitCacheInvalidation()
+{
+}
+
+void Host_JitProfileDataWiped()
 {
 }
 
@@ -66,6 +76,11 @@ bool Host_RendererHasFullFocus()
 }
 
 bool Host_RendererIsFullscreen()
+{
+  return false;
+}
+
+bool Host_TASInputHasFocus()
 {
   return false;
 }

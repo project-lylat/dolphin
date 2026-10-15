@@ -4,16 +4,25 @@
 #pragma once
 
 #include <atomic>
+#include <map>
+#include <mutex>
 #include <thread>
 #include <vector>
+#include "SFML/Network/IpAddress.hpp"
 
 #ifdef _WIN32
-#include <Windows.h>
+#include <windows.h>
 #endif
 
 #include <SFML/Network.hpp>
+#ifdef HAVE_CPPIPC
+#include <libipc/ipc.h>
+#endif
 
 #include "Common/Flag.h"
+#include "Common/Network.h"
+#include "Core/HW/EXI/BBA/BuiltIn.h"
+#include "Core/HW/EXI/BBA/TAPServerConnection.h"
 #include "Core/HW/EXI/EXI_Device.h"
 
 class PointerWrap;
@@ -201,16 +210,16 @@ enum class BBADeviceType
 {
   TAP,
   XLINK,
-#if defined(__APPLE__)
   TAPSERVER,
-#endif
+  BuiltIn,
+  IPC,
 };
 
 class CEXIETHERNET : public IEXIDevice
 {
 public:
-  explicit CEXIETHERNET(BBADeviceType type);
-  virtual ~CEXIETHERNET();
+  CEXIETHERNET(Core::System& system, BBADeviceType type);
+  ~CEXIETHERNET() override;
   void SetCS(int cs) override;
   bool IsPresent() const override;
   bool IsInterruptSet() override;
@@ -263,7 +272,7 @@ private:
 
     u8 revision_id = 0;  // 0xf0
     u8 interrupt_mask = 0;
-    u8 interrupt = 0;
+    std::atomic<u8> interrupt = 0;
     u16 device_id = 0xD107;
     u8 acstart = 0x4E;
     u32 hash_challenge = 0;
@@ -275,7 +284,7 @@ private:
   {
     u32 word;
 
-    inline void set(u32 const next_page, u32 const packet_length, u32 const status)
+    void set(u32 const next_page, u32 const packet_length, u32 const status)
     {
       word = 0;
       word |= (status & 0xff) << 24;
@@ -284,12 +293,8 @@ private:
     }
   };
 
-  inline u16 page_ptr(int const index) const
-  {
-    return ((u16)mBbaMem[index + 1] << 8) | mBbaMem[index];
-  }
+  u16 page_ptr(int const index) const { return ((u16)mBbaMem[index + 1] << 8) | mBbaMem[index]; }
 
-  inline u8* ptr_from_page_ptr(int const index) const { return &mBbaMem[page_ptr(index) << 8]; }
   bool IsMXCommand(u32 const data);
   bool IsWriteCommand(u32 const data);
   const char* GetRegisterName() const;
@@ -299,9 +304,11 @@ private:
   void SendFromDirectFIFO();
   void SendFromPacketBuffer();
   void SendComplete();
+  void SendCompleteBack();
   u8 HashIndex(const u8* dest_eth_addr);
   bool RecvMACFilter();
   void inc_rwp();
+  void set_rwp(u16 value);
   bool RecvHandlePacket();
 
   std::unique_ptr<u8[]> mBbaMem;
@@ -358,21 +365,25 @@ private:
 #endif
   };
 
-#if defined(__APPLE__)
-  class TAPServerNetworkInterface : public TAPNetworkInterface
+  class TAPServerNetworkInterface : public NetworkInterface
   {
   public:
-    explicit TAPServerNetworkInterface(CEXIETHERNET* eth_ref) : TAPNetworkInterface(eth_ref) {}
+    TAPServerNetworkInterface(CEXIETHERNET* eth_ref, const std::string& destination);
 
   public:
     bool Activate() override;
+    void Deactivate() override;
+    bool IsActivated() override;
     bool SendFrame(const u8* frame, u32 size) override;
     bool RecvInit() override;
+    void RecvStart() override;
+    void RecvStop() override;
 
   private:
-    void ReadThreadHandler();
+    TAPServerConnection m_tapserver_if;
+
+    void HandleReceivedFrame(std::string&& data);
   };
-#endif
 
   class XLinkNetworkInterface : public NetworkInterface
   {
@@ -403,13 +414,103 @@ private:
 #if defined(WIN32) || defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) ||          \
     defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__)
     sf::UdpSocket m_sf_socket;
-    sf::IpAddress m_sf_recipient_ip;
+    sf::IpAddress m_sf_recipient_ip = sf::IpAddress::Any;
     char m_in_frame[9004]{};
     char m_out_frame[9004]{};
     std::thread m_read_thread;
     Common::Flag m_read_enabled;
     Common::Flag m_read_thread_shutdown;
     static void ReadThreadHandler(XLinkNetworkInterface* self);
+#endif
+  };
+
+  class BuiltInBBAInterface : public NetworkInterface
+  {
+  public:
+    BuiltInBBAInterface(CEXIETHERNET* eth_ref, std::string dns_ip, std::string local_ip)
+        : NetworkInterface(eth_ref), m_dns_ip(std::move(dns_ip)), m_local_ip(std::move(local_ip))
+    {
+    }
+    bool Activate() override;
+    void Deactivate() override;
+    bool IsActivated() override;
+    bool SendFrame(const u8* frame, u32 size) override;
+    bool RecvInit() override;
+    void RecvStart() override;
+    void RecvStop() override;
+
+  private:
+    std::string m_mac_id;
+    std::string m_dns_ip;
+    bool m_active = false;
+    u16 m_ip_frame_id = 0;
+    u8 m_queue_read = 0;
+    u8 m_queue_write = 0;
+    std::array<std::vector<u8>, 16> m_queue_data;
+    std::mutex m_mtx;
+    std::string m_local_ip;
+    u32 m_current_ip = 0;
+    Common::MACAddress m_current_mac{};
+    u32 m_router_ip = 0;
+    Common::MACAddress m_router_mac{};
+    std::map<u32, Common::MACAddress> m_arp_table;
+    sf::TcpListener m_upnp_httpd;
+#if defined(WIN32) || defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) ||          \
+    defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__)
+    NetworkRef m_network_ref;
+    std::thread m_read_thread;
+    Common::Flag m_read_enabled;
+    Common::Flag m_read_thread_shutdown;
+    static void ReadThreadHandler(BuiltInBBAInterface* self);
+#endif
+    void WriteToQueue(std::vector<u8> data);
+    bool WillQueueOverrun() const;
+    void PollData(std::size_t* datasize);
+    std::optional<std::vector<u8>> TryGetDataFromSocket(StackRef* ref);
+
+    void HandleARP(const Common::ARPPacket& packet);
+    void HandleDHCP(const Common::UDPPacket& packet);
+    void HandleTCPFrame(const Common::TCPPacket& packet);
+    void InitUDPPort(u16 port);
+    void HandleUDPFrame(const Common::UDPPacket& packet);
+    void HandleUPnPClient();
+    const Common::MACAddress& ResolveAddress(u32 inet_ip);
+  };
+
+  class IPCBBAInterface : public NetworkInterface
+  {
+  public:
+    explicit IPCBBAInterface(CEXIETHERNET* const eth_ref) : NetworkInterface(eth_ref) {}
+
+#ifdef HAVE_CPPIPC
+
+    bool Activate() override;
+    void Deactivate() override;
+    bool IsActivated() override;
+    bool SendFrame(const u8* frame, u32 size) override;
+    bool RecvInit() override;
+    void RecvStart() override;
+    void RecvStop() override;
+
+  private:
+    void ReadThreadHandler();
+
+    bool m_active{};
+    ipc::channel m_channel;
+    std::thread m_read_thread;
+    Common::Flag m_read_enabled;
+    Common::Flag m_read_thread_shutdown;
+
+#else
+
+    bool Activate() override { return false; }
+    void Deactivate() override {}
+    bool IsActivated() override { return false; }
+    bool SendFrame(const u8* const frame, const u32 size) override { return false; }
+    bool RecvInit() override { return false; }
+    void RecvStart() override {}
+    void RecvStop() override {}
+
 #endif
   };
 

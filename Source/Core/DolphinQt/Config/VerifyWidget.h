@@ -4,7 +4,6 @@
 #pragma once
 
 #include <memory>
-#include <string>
 #include <utility>
 
 #include <QCheckBox>
@@ -15,6 +14,10 @@
 #include <QTextEdit>
 #include <QWidget>
 
+namespace Core
+{
+enum class State;
+}
 namespace DiscIO
 {
 class Volume;
@@ -26,18 +29,16 @@ class VerifyWidget final : public QWidget
 public:
   explicit VerifyWidget(std::shared_ptr<DiscIO::Volume> volume);
 
-private slots:
-  void OnEmulationStateChanged();
-
 private:
+  void OnEmulationStateChanged(Core::State state);
   void CreateWidgets();
-  std::pair<QCheckBox*, QLineEdit*> AddHashLine(QFormLayout* layout, QString text);
+  std::pair<QCheckBox*, QLineEdit*> AddHashLine(QFormLayout* layout, const QString& text);
   void ConnectWidgets();
 
   bool CanVerifyRedump() const;
   void UpdateRedumpEnabled();
   void Verify();
-  void SetProblemCellText(int row, int column, QString text);
+  void SetProblemCellText(int row, int column, const QString& text);
 
   std::shared_ptr<DiscIO::Volume> m_volume;
   QTableWidget* m_problems;

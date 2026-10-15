@@ -5,11 +5,9 @@
 
 #include <cstddef>
 #include <fstream>
-#include <functional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <utility>
 
 #include <fmt/format.h>
 
@@ -17,7 +15,6 @@
 #include "Common/MsgHandler.h"
 #include "Common/StringUtil.h"
 #include "Core/Config/MainSettings.h"
-#include "Core/IOS/ES/Formats.h"
 #include "DiscIO/Enums.h"
 
 namespace Core
@@ -43,9 +40,9 @@ static Map LoadMap(const std::string& file_path)
     if (equals_index != std::string::npos)
     {
       const std::string_view line_view(line);
-      const std::string_view game_id = StripSpaces(line_view.substr(0, equals_index));
+      const std::string_view game_id = StripWhitespace(line_view.substr(0, equals_index));
       if (game_id.length() >= 4)
-        map.emplace(game_id, StripSpaces(line_view.substr(equals_index + 1)));
+        map.emplace(game_id, StripWhitespace(line_view.substr(equals_index + 1)));
     }
   }
   return map;
@@ -55,6 +52,9 @@ void TitleDatabase::AddLazyMap(DiscIO::Language language, const std::string& lan
 {
   m_title_maps[language] = [language_code]() -> Map {
     return LoadMap(File::GetSysDirectory() + "wiitdb-" + language_code + ".txt");
+  };
+  m_triforce_title_maps[language] = [language_code]() -> Map {
+    return LoadMap(File::GetSysDirectory() + "triforcetdb-" + language_code + ".txt");
   };
 }
 

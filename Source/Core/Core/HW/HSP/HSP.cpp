@@ -5,64 +5,62 @@
 
 #include <memory>
 
+#include <fmt/ranges.h>
+
 #include "Common/ChunkFile.h"
 #include "Core/Config/MainSettings.h"
 #include "Core/HW/HSP/HSP_Device.h"
 
 namespace HSP
 {
-static std::unique_ptr<IHSPDevice> s_device;
+HSPManager::HSPManager() = default;
+HSPManager::~HSPManager() = default;
 
-void Init()
+void HSPManager::Init()
 {
-  AddDevice(Config::Get(Config::MAIN_HSP_DEVICE));
+  SetDevice(Config::Get(Config::MAIN_HSP_DEVICE));
 }
 
-void Shutdown()
+void HSPManager::Shutdown()
 {
-  RemoveDevice();
+  m_device.reset();
 }
 
-u64 Read(u32 address)
+void HSPManager::Read(u32 address, std::span<u8, TRANSFER_SIZE> data)
 {
   DEBUG_LOG_FMT(HSP, "HSP read from 0x{:08x}", address);
-  if (s_device)
-    return s_device->Read(address);
-  return 0;
+
+  m_device->Read(address, data);
 }
 
-void Write(u32 address, u64 value)
+void HSPManager::Write(u32 address, std::span<const u8, TRANSFER_SIZE> data)
 {
-  DEBUG_LOG_FMT(HSP, "HSP write to 0x{:08x}: 0x{:016x}", address, value);
-  if (s_device)
-    s_device->Write(address, value);
+  DEBUG_LOG_FMT(HSP, "HSP write to 0x{:08x}: {:02x}", address, fmt::join(data, " "));
+
+  m_device->Write(address, data);
 }
 
-void DoState(PointerWrap& p)
+void HSPManager::DoState(PointerWrap& p)
 {
-  HSPDeviceType type = s_device->GetDeviceType();
-  p.Do(type);
+  const HSPDeviceType current_type = m_device->GetDeviceType();
+  auto state_type = current_type;
+  p.Do(state_type);
 
   // If the type doesn't match, switch to the right device type
-  if (type != s_device->GetDeviceType())
-    AddDevice(type);
+  if (state_type != current_type)
+    SetDevice(state_type);
 
-  s_device->DoState(p);
+  m_device->DoState(p);
 }
 
-void AddDevice(std::unique_ptr<IHSPDevice> device)
+void HSPManager::SetDevice(std::unique_ptr<IHSPDevice> device)
 {
-  // Set the new one
-  s_device = std::move(device);
+  m_device = std::move(device);
 }
 
-void AddDevice(const HSPDeviceType device)
+void HSPManager::SetDevice(const HSPDeviceType device)
 {
-  AddDevice(HSPDevice_Create(device));
+  SetDevice(HSPDevice_Create(device));
 }
 
-void RemoveDevice()
-{
-  s_device.reset();
-}
 }  // namespace HSP

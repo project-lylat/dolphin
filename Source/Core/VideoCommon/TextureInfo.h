@@ -4,22 +4,23 @@
 #pragma once
 
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
-#include <vector>
 
 #include "Common/CommonTypes.h"
 
 enum class TextureFormat;
 enum class TLUTFormat;
 
-class TextureInfo
+class TextureInfo final
 {
 public:
   static TextureInfo FromStage(u32 stage);
-  TextureInfo(const u8* ptr, const u8* tlut_ptr, u32 address, TextureFormat texture_format,
-              TLUTFormat tlut_format, u32 width, u32 height, bool from_tmem, const u8* tmem_odd,
-              const u8* tmem_even, std::optional<u32> mip_count);
+  TextureInfo(u32 stage, std::span<const u8> data, std::span<const u8> tlut_data, u32 address,
+              TextureFormat texture_format, TLUTFormat tlut_format, u32 width, u32 height,
+              bool from_tmem, std::span<const u8> tmem_odd, std::span<const u8> tmem_even,
+              std::optional<u32> mip_count);
 
   struct NameDetails
   {
@@ -30,80 +31,146 @@ public:
 
     std::string GetFullName() const;
   };
-  NameDetails CalculateTextureName();
+  NameDetails CalculateTextureName() const;
 
-  const u8* GetData() const;
-  const u8* GetTlutAddress() const;
+  bool IsDataValid() const { return m_data_valid; }
 
-  u32 GetRawAddress() const;
+  const u8* GetData() const { return m_data.data(); }
+  const u8* GetTlutAddress() const { return m_tlut_data.data(); }
 
-  bool IsFromTmem() const;
-  const u8* GetTmemOddAddress() const;
+  u32 GetRawAddress() const { return m_address; }
 
-  TextureFormat GetTextureFormat() const;
-  TLUTFormat GetTlutFormat() const;
+  bool IsFromTmem() const { return m_from_tmem; }
+  const u8* GetTmemOddAddress() const { return m_tmem_odd.data(); }
 
-  std::optional<u32> GetPaletteSize() const;
-  u32 GetTextureSize() const;
+  TextureFormat GetTextureFormat() const { return m_texture_format; }
+  TLUTFormat GetTlutFormat() const { return m_tlut_format; }
 
-  u32 GetBlockWidth() const;
-  u32 GetBlockHeight() const;
+  std::optional<u32> GetPaletteSize() const { return m_palette_size; }
+  u32 GetTextureSize() const { return m_texture_size; }
 
-  u32 GetExpandedWidth() const;
-  u32 GetExpandedHeight() const;
+  u32 GetBlockWidth() const { return m_block_width; }
+  u32 GetBlockHeight() const { return m_block_height; }
 
-  u32 GetRawWidth() const;
-  u32 GetRawHeight() const;
+  u32 GetExpandedWidth() const { return m_expanded_width; }
+  u32 GetExpandedHeight() const { return m_expanded_height; }
 
-  class MipLevel
+  u32 GetRawWidth() const { return m_raw_width; }
+  u32 GetRawHeight() const { return m_raw_height; }
+
+  u32 GetStage() const { return m_stage; }
+
+  class MipLevel final
   {
   public:
-    MipLevel(u32 level, const TextureInfo& parent, bool from_tmem, const u8*& src_data,
-             const u8*& ptr_even, const u8*& ptr_odd);
+    MipLevel() = default;
+    MipLevel(u32 level, const TextureInfo& parent, std::span<const u8>* data);
 
-    const u8* GetData() const;
+    bool IsDataValid() const { return m_data_valid; }
 
-    u32 GetTextureSize() const;
+    const u8* GetData() const { return m_ptr; }
+    u32 GetTextureSize() const { return m_texture_size; }
 
-    u32 GetExpandedWidth() const;
-    u32 GetExpandedHeight() const;
+    u32 GetExpandedWidth() const { return m_expanded_width; }
+    u32 GetExpandedHeight() const { return m_expanded_height; }
 
-    u32 GetRawWidth() const;
-    u32 GetRawHeight() const;
+    u32 GetRawWidth() const { return m_raw_width; }
+    u32 GetRawHeight() const { return m_raw_height; }
+
+    u32 GetLevel() const { return m_level; }
 
   private:
-    const u8* m_ptr;
+    bool m_data_valid = false;
+
+    const u8* m_ptr = nullptr;
 
     u32 m_texture_size = 0;
 
-    u32 m_expanded_width;
-    u32 m_raw_width;
+    u32 m_expanded_width = 0;
+    u32 m_raw_width = 0;
 
-    u32 m_expanded_height;
-    u32 m_raw_height;
+    u32 m_expanded_height = 0;
+    u32 m_raw_height = 0;
+
+    u32 m_level = 0;
   };
 
-  bool HasMipMaps() const;
-  u32 GetLevelCount() const;
-  const MipLevel* GetMipMapLevel(u32 level) const;
+  class MipLevelIterator final
+  {
+    friend TextureInfo;
+
+  public:
+    using difference_type = u32;
+    using value_type = MipLevel;
+
+    MipLevel& operator*() { return m_mip_level; }
+
+    const MipLevel& operator*() const { return m_mip_level; }
+
+    MipLevelIterator& operator++();
+
+    MipLevelIterator operator++(int)
+    {
+      auto tmp = *this;
+      ++*this;
+      return tmp;
+    }
+
+    bool operator==(const MipLevelIterator& other) const
+    {
+      return m_level_index == other.m_level_index;
+    }
+
+  private:
+    void CreateMipLevel();
+
+    MipLevel m_mip_level;
+
+    const TextureInfo* m_parent = nullptr;
+    u32 m_level_index = 0;
+    bool m_from_tmem = false;
+    std::span<const u8> m_data;
+    std::span<const u8> m_tmem_even;
+    std::span<const u8> m_tmem_odd;
+  };
+
+  class MipLevels final
+  {
+  public:
+    MipLevels(MipLevelIterator begin, MipLevelIterator end) : m_begin(begin), m_end(end) {}
+
+    MipLevelIterator begin() const { return m_begin; }
+    MipLevelIterator end() const { return m_end; }
+
+  private:
+    MipLevelIterator m_begin;
+    MipLevelIterator m_end;
+  };
+
+  bool HasMipMaps() const { return m_limited_mip_count != 0; }
+  u32 GetLevelCount() const { return m_limited_mip_count + 1; }
+  MipLevels GetMipMapLevels() const;
   u32 GetFullLevelSize() const;
 
   static constexpr std::string_view format_prefix{"tex1_"};
 
 private:
-  const u8* m_ptr;
-  const u8* m_tlut_ptr;
+  std::span<const u8> m_data;
+  std::span<const u8> m_tlut_data;
 
   u32 m_address;
 
+  bool m_data_valid;
+
   bool m_from_tmem;
-  const u8* m_tmem_odd;
+  std::span<const u8> m_tmem_even;
+  std::span<const u8> m_tmem_odd;
 
   TextureFormat m_texture_format;
   TLUTFormat m_tlut_format;
 
   bool m_mipmaps_enabled = false;
-  std::vector<MipLevel> m_mip_levels;
+  u32 m_limited_mip_count = 0;
 
   u32 m_texture_size = 0;
   std::optional<u32> m_palette_size;
@@ -115,4 +182,6 @@ private:
   u32 m_block_height;
   u32 m_expanded_height;
   u32 m_raw_height;
+
+  u32 m_stage;
 };

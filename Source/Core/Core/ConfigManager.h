@@ -3,18 +3,24 @@
 
 #pragma once
 
-#include <limits>
+#include <mutex>
 #include <optional>
-#include <set>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 
-#include "Common/Common.h"
 #include "Common/CommonTypes.h"
 
+namespace Common
+{
 class IniFile;
+}
+
+namespace Core
+{
+class CPUThreadGuard;
+class System;
+}  // namespace Core
 
 namespace DiscIO
 {
@@ -32,10 +38,11 @@ class TMDReader;
 
 struct BootParameters;
 
+static constexpr std::string_view DEFAULT_GAME_ID = "00000000";
+
 struct SConfig
 {
   // Settings
-  bool bAutomaticStart = false;
   bool bBootToPause = false;
 
   bool bJITNoBlockCache = false;
@@ -43,52 +50,63 @@ struct SConfig
 
   bool bCopyWiiSaveNetplay = true;
 
-  bool bWii = false;
-  bool m_is_mios = false;
-
   DiscIO::Region m_region;
 
   // files
   std::string m_strBootROM;
   std::string m_strSRAM;
-
   std::string m_debugger_game_id;
+
   // TODO: remove this as soon as the ticket view hack in IOS/ES/Views is dropped.
   bool m_disc_booted_from_game_list = false;
 
-  const std::string& GetGameID() const { return m_game_id; }
-  const std::string& GetGameTDBID() const { return m_gametdb_id; }
-  const std::string& GetTitleName() const { return m_title_name; }
-  const std::string& GetTitleDescription() const { return m_title_description; }
-  u64 GetTitleID() const { return m_title_id; }
-  u16 GetRevision() const { return m_revision; }
+  const std::string GetGameID() const;
+  const std::string GetGameTDBID() const;
+  const std::string GetGameIDElfDol() const;
+
+  // Returns a preference ordered list of ids to try for texture loading.
+  // If launched via elf/dol, returns {elfdolid-gameid, gameid}. Otherwise returns {gameid}.
+  const std::vector<std::string> GetGameIDsForTextures() const;
+
+  // Returns the single most-preferred id from GetGameIDsForTextures(); see that function for
+  // the full priority order.
+  const std::string GetGameIDForTextures() const;
+
+  const std::string GetTitleName() const;
+  const std::string GetTitleDescription() const;
+  u64 GetTitleID() const;
+  u16 GetRevision() const;
+  u32 GetSimulatedMemorySize() const;
   void ResetRunningGameMetadata();
   void SetRunningGameMetadata(const DiscIO::Volume& volume, const DiscIO::Partition& partition);
   void SetRunningGameMetadata(const IOS::ES::TMDReader& tmd, DiscIO::Platform platform);
   void SetRunningGameMetadata(const std::string& game_id);
-  // Reloads title-specific map files, patches, custom textures, etc.
-  // This should only be called after the new title has been loaded into memory.
-  static void OnNewTitleLoad();
+
+  void SetElfDolID(const std::string& game_id);
+
+  // Triggered when Dolphin loads a title directly
+  // Reloads title-specific map files, patches, etc.
+  static void OnTitleDirectlyBooted(const Core::CPUThreadGuard& guard);
+
+  // Direct title change from ES (Wii system)
+  // Wii titles will still hit OnTitleDirectlyBooted
+  // but GC titles will never see this call
+  static void OnESTitleChanged();
 
   void LoadDefaults();
   static std::string MakeGameID(std::string_view file_name);
-  // Replaces NTSC-K with some other region, and doesn't replace non-NTSC-K regions
-  static DiscIO::Region ToGameCubeRegion(DiscIO::Region region);
-  // The region argument must be valid for GameCube (i.e. must not be NTSC-K)
-  static const char* GetDirectoryForRegion(DiscIO::Region region);
-  std::string GetBootROMPath(const std::string& region_directory) const;
-  bool SetPathsAndGameMetadata(const BootParameters& boot);
-  static DiscIO::Region GetFallbackRegion();
+  bool SetPathsAndGameMetadata(Core::System& system, const BootParameters& boot);
   DiscIO::Language GetCurrentLanguage(bool wii) const;
   DiscIO::Language GetLanguageAdjustedForRegion(bool wii, DiscIO::Region region) const;
+  std::string GetGameTDBImageRegionCode(bool wii, DiscIO::Region region) const;
 
-  IniFile LoadDefaultGameIni() const;
-  IniFile LoadLocalGameIni() const;
-  IniFile LoadGameIni() const;
+  Common::IniFile LoadDefaultGameIni() const;
+  Common::IniFile LoadLocalGameIni() const;
+  Common::IniFile LoadGameIni() const;
 
-  static IniFile LoadDefaultGameIni(const std::string& id, std::optional<u16> revision);
-  static IniFile LoadLocalGameIni(const std::string& id, std::optional<u16> revision);
-  static IniFile LoadGameIni(const std::string& id, std::optional<u16> revision);
+  static Common::IniFile LoadDefaultGameIni(std::string_view id, std::optional<u16> revision);
+  static Common::IniFile LoadLocalGameIni(std::string_view id, std::optional<u16> revision);
+  static Common::IniFile LoadGameIni(std::string_view id, std::optional<u16> revision);
 
   SConfig(const SConfig&) = delete;
   SConfig& operator=(const SConfig&) = delete;
@@ -101,6 +119,8 @@ struct SConfig
   // Load settings
   void LoadSettings();
 
+  static void ResetAllSettings();
+
   // Return the permanent and somewhat globally used instance of this struct
   static SConfig& GetInstance() { return (*m_Instance); }
   static void Init();
@@ -110,15 +130,22 @@ private:
   SConfig();
   ~SConfig();
 
+  static void ReloadTextures(Core::System& system);
+
   void SetRunningGameMetadata(const std::string& game_id, const std::string& gametdb_id,
-                              u64 title_id, u16 revision, DiscIO::Region region);
+                              u64 title_id, u16 revision, DiscIO::Region region,
+                              u32 simulated_memory_size);
 
   static SConfig* m_Instance;
+  mutable std::recursive_mutex m_metadata_lock;
 
   std::string m_game_id;
+  std::string m_game_id_elf_dol;
   std::string m_gametdb_id;
   std::string m_title_name;
   std::string m_title_description;
   u64 m_title_id;
   u16 m_revision;
+  // Memory size requested by game's header.
+  u32 m_simulated_memory_size;
 };

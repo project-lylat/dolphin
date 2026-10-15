@@ -3,14 +3,15 @@
 
 #pragma once
 
+#include <span>
 #include <string>
-#include <vector>
 
+#include "Common/Buffer.h"
 #include "Common/CommonTypes.h"
 
 namespace Common
 {
-bool LoadPNG(const std::vector<u8>& input, std::vector<u8>* data_out, u32* width_out,
+bool LoadPNG(std::span<const u8> input, Common::UniqueBuffer<u8>* data_out, u32* width_out,
              u32* height_out);
 
 enum class ImageByteFormat
@@ -20,10 +21,7 @@ enum class ImageByteFormat
 };
 
 bool SavePNG(const std::string& path, const u8* input, ImageByteFormat format, u32 width,
-             u32 height, int stride, int level = 6);
+             u32 height, u32 stride, int level = 6);
 bool ConvertRGBAToRGBAndSavePNG(const std::string& path, const u8* input, u32 width, u32 height,
-                                int stride, int level);
-
-std::vector<u8> RGBAToRGB(const u8* input, u32 width, u32 height, int row_stride = 0);
-
+                                u32 stride, int level);
 }  // namespace Common

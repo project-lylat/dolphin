@@ -12,16 +12,25 @@
 #pragma once
 
 #include <array>
+#include <memory>
 #include <optional>
 
 #include "Common/BitUtils.h"
 #include "Common/CommonTypes.h"
 #include "Common/Swap.h"
+#include "Core/HW/DSPHLE/DSPHLE.h"
 #include "Core/HW/DSPHLE/UCodes/UCodes.h"
 #include "Core/HW/Memmap.h"
+#include "Core/System.h"
+
+namespace DSP
+{
+class Accelerator;
+}
 
 namespace DSP::HLE
 {
+struct AXPB;
 class DSPHLE;
 
 // We can't directly use the mixer_control field from the PB because it does
@@ -62,7 +71,7 @@ enum AXMixControl
   // clang-format on
 };
 
-class AXUCode : public UCodeInterface
+class AXUCode /* not final: subclassed by AXWiiUCode */ : public UCodeInterface
 {
 public:
   AXUCode(DSPHLE* dsphle, u32 crc);
@@ -74,17 +83,9 @@ public:
   void DoState(PointerWrap& p) override;
 
 protected:
-  enum MailType
-  {
-    MAIL_RESUME = 0xCDD10000,
-    MAIL_NEW_UCODE = 0xCDD10001,
-    MAIL_RESET = 0xCDD10002,
-    MAIL_CONTINUE = 0xCDD10003,
-
-    // CPU sends 0xBABE0000 | cmdlist_size to the DSP
-    MAIL_CMDLIST = 0xBABE0000,
-    MAIL_CMDLIST_MASK = 0xFFFF0000
-  };
+  // CPU sends 0xBABE0000 | cmdlist_size to the DSP
+  static constexpr u32 MAIL_CMDLIST = 0xBABE0000;
+  static constexpr u32 MAIL_CMDLIST_MASK = 0xFFFF0000;
 
   // 32 * 5 because 32 samples per millisecond, for max 5 milliseconds.
   int m_samples_main_left[32 * 5]{};
@@ -108,6 +109,13 @@ protected:
 
   u16 m_compressor_pos = 0;
 
+  std::unique_ptr<Accelerator> m_accelerator;
+
+  // Constructs without any GC-specific state, so it can be used by the deriving AXWii.
+  AXUCode(DSPHLE* dsphle, u32 crc, bool dummy);
+
+  void InitializeShared();
+
   bool LoadResamplingCoefficients(bool require_same_checksum, u32 desired_checksum);
 
   // Copy a command list from memory to our temp buffer
@@ -117,27 +125,6 @@ protected:
   // value. Required because that bitfield has a different meaning in some
   // versions of AX.
   AXMixControl ConvertMixerControl(u32 mixer_control);
-
-  // Apply updates to a PB. Generic, used in AX GC and AX Wii.
-  template <typename PBType>
-  void ApplyUpdatesForMs(int curr_ms, PBType& pb, u16* num_updates, u16* updates)
-  {
-    auto pb_mem = Common::BitCastToArray<u16>(pb);
-
-    u32 start_idx = 0;
-    for (int i = 0; i < curr_ms; ++i)
-      start_idx += num_updates[i];
-
-    for (u32 i = start_idx; i < start_idx + num_updates[curr_ms]; ++i)
-    {
-      u16 update_off = Common::swap16(updates[2 * i]);
-      u16 update_val = Common::swap16(updates[2 * i + 1]);
-
-      pb_mem[update_off] = update_val;
-    }
-
-    Common::BitCastFromArray<u16>(pb_mem, pb);
-  }
 
   virtual void HandleCommandList();
   void SignalWorkEnd();
@@ -151,8 +138,10 @@ protected:
   template <int Millis, size_t BufCount>
   void InitMixingBuffers(u32 init_addr, const std::array<BufferDesc, BufCount>& buffers)
   {
+    auto& system = m_dsphle->GetSystem();
+    auto& memory = system.GetMemory();
     std::array<u16, 3 * BufCount> init_array;
-    Memory::CopyFromEmuSwapped(init_array.data(), init_addr, sizeof(init_array));
+    memory.CopyFromEmuSwapped(init_array.data(), init_addr, sizeof(init_array));
     for (size_t i = 0; i < BufCount; ++i)
     {
       const BufferDesc& buf = buffers[i];
@@ -186,6 +175,9 @@ protected:
   void DoAXState(PointerWrap& p);
 
 private:
+  void ReadPB(Memory::MemoryManager& memory, u32 addr, AXPB& pb);
+  void WritePB(Memory::MemoryManager& memory, u32 addr, const AXPB& pb);
+
   enum CmdType
   {
     CMD_SETUP = 0x00,
@@ -209,5 +201,14 @@ private:
     CMD_COMPRESSOR = 0x12,
     CMD_SEND_AUX_AND_MIX = 0x13,
   };
+
+  enum class MailState
+  {
+    WaitingForCmdListSize,
+    WaitingForCmdListAddress,
+    WaitingForNextTask,
+  };
+
+  MailState m_mail_state = MailState::WaitingForCmdListSize;
 };
 }  // namespace DSP::HLE

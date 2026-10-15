@@ -6,7 +6,6 @@
 #include <fmt/format.h>
 
 #include "Common/FileUtil.h"
-#include "Common/IOFile.h"
 #include "Common/Logging/Log.h"
 #include "Core/ConfigManager.h"
 
@@ -136,8 +135,7 @@ bool ProcessSpecificationV1(picojson::value& root, std::vector<Data>& input_text
             return false;
           }
 
-          if (!std::all_of(region_offsets.begin(), region_offsets.end(),
-                           [](picojson::value val) { return val.is<double>(); }))
+          if (!std::ranges::all_of(region_offsets, &picojson::value::is<double>))
           {
             ERROR_LOG_FMT(
                 VIDEO,

@@ -42,14 +42,10 @@
  *   constexpr formatter() : EnumFormatter(names) {}
  * };
  */
-template <auto last_member, typename = decltype(last_member)>
+template <Common::Enum auto last_member>
 class EnumFormatter
 {
-  // The second template argument is needed to avoid compile errors from ambiguity with multiple
-  // enums with the same number of members in GCC prior to 8.  See https://godbolt.org/z/xcKaW1seW
-  // and https://godbolt.org/z/hz7Yqq1P5
   using T = decltype(last_member);
-  static_assert(std::is_enum_v<T>);
 
 public:
   constexpr auto parse(fmt::format_parse_context& ctx)

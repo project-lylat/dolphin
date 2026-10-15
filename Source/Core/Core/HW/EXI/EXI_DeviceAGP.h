@@ -17,8 +17,8 @@ enum class Slot : int;
 class CEXIAgp : public IEXIDevice
 {
 public:
-  CEXIAgp(const Slot slot);
-  virtual ~CEXIAgp() override;
+  CEXIAgp(Core::System& system, const Slot slot);
+  ~CEXIAgp() override;
   bool IsPresent() const override { return true; }
   void ImmWrite(u32 _uData, u32 _uSize) override;
   u32 ImmRead(u32 _uSize) override;

@@ -9,6 +9,7 @@
 #include <lzo/lzo1x.h>
 
 #include "Common/FileUtil.h"
+#include "Common/HttpRequest.h"
 #include "Common/IOFile.h"
 #include "Common/MsgHandler.h"
 #include "Common/SFMLHelper.h"
@@ -27,7 +28,7 @@ bool CompressFileIntoPacket(const std::string& file_path, sf::Packet& packet)
     return false;
   }
 
-  const sf::Uint64 size = file.GetSize();
+  const u64 size = file.GetSize();
   packet << size;
 
   if (size == 0)
@@ -89,7 +90,7 @@ bool CompressFileIntoPacket(const std::string& file_path, sf::Packet& packet)
 
 static bool CompressFolderIntoPacketInternal(const File::FSTEntry& folder, sf::Packet& packet)
 {
-  const sf::Uint64 size = folder.children.size();
+  const u64 size = folder.children.size();
   packet << size;
   for (const auto& child : folder.children)
   {
@@ -116,9 +117,9 @@ bool CompressFolderIntoPacket(const std::string& folder_path, sf::Packet& packet
   return CompressFolderIntoPacketInternal(File::ScanDirectoryTree(folder_path, true), packet);
 }
 
-bool CompressBufferIntoPacket(const std::vector<u8>& in_buffer, sf::Packet& packet)
+bool CompressBufferIntoPacket(std::span<const u8> in_buffer, sf::Packet& packet)
 {
-  const sf::Uint64 size = in_buffer.size();
+  const u64 size = in_buffer.size();
   packet << size;
 
   if (size == 0)
@@ -173,7 +174,7 @@ bool CompressBufferIntoPacket(const std::vector<u8>& in_buffer, sf::Packet& pack
 
 bool DecompressPacketIntoFile(sf::Packet& packet, const std::string& file_path)
 {
-  u64 file_size = Common::PacketReadU64(packet);
+  const u64 file_size = Common::PacketReadU64(packet);
 
   if (file_size == 0)
     return true;
@@ -187,25 +188,38 @@ bool DecompressPacketIntoFile(sf::Packet& packet, const std::string& file_path)
 
   std::vector<u8> in_buffer(LZO_OUT_LEN);
   std::vector<u8> out_buffer(LZO_IN_LEN);
+  u64 bytes_written = 0;
 
   while (true)
   {
-    u32 cur_len = 0;       // number of bytes to read
-    lzo_uint new_len = 0;  // number of bytes to write
+    u32 cur_len = 0;                       // number of bytes to read
+    lzo_uint new_len = out_buffer.size();  // output buffer capacity
 
     packet >> cur_len;
     if (!cur_len)
       break;  // We reached the end of the data stream
+
+    if (cur_len > in_buffer.size())
+    {
+      PanicAlertFmt("LZO error - input is too large");
+      return false;
+    }
 
     for (size_t j = 0; j < cur_len; j++)
     {
       packet >> in_buffer[j];
     }
 
-    if (lzo1x_decompress(in_buffer.data(), cur_len, out_buffer.data(), &new_len, nullptr) !=
+    if (lzo1x_decompress_safe(in_buffer.data(), cur_len, out_buffer.data(), &new_len, nullptr) !=
         LZO_E_OK)
     {
       PanicAlertFmtT("Internal LZO Error - decompression failed");
+      return false;
+    }
+
+    if (new_len > file_size - bytes_written)
+    {
+      PanicAlertFmtT("LZO error - output is too large");
       return false;
     }
 
@@ -214,9 +228,11 @@ bool DecompressPacketIntoFile(sf::Packet& packet, const std::string& file_path)
       PanicAlertFmtT("Error writing file: {0}", file_path);
       return false;
     }
+
+    bytes_written += new_len;
   }
 
-  return true;
+  return bytes_written == file_size;
 }
 
 static bool DecompressPacketIntoFolderInternal(sf::Packet& packet, const std::string& folder_path)
@@ -224,20 +240,20 @@ static bool DecompressPacketIntoFolderInternal(sf::Packet& packet, const std::st
   if (!File::CreateFullPath(folder_path + "/"))
     return false;
 
-  sf::Uint64 size;
+  u64 size;
   packet >> size;
   for (size_t i = 0; i < size; ++i)
   {
     std::string name;
     packet >> name;
 
-    if (name.find('/') != std::string::npos)
+    if (name.contains('/'))
       return false;
 #ifdef _WIN32
-    if (name.find('\\') != std::string::npos)
+    if (name.contains('\\'))
       return false;
 #endif
-    if (std::all_of(name.begin(), name.end(), [](char c) { return c == '.'; }))
+    if (std::ranges::all_of(name, [](char c) { return c == '.'; }))
       return false;
 
     bool is_folder;
@@ -262,39 +278,75 @@ bool DecompressPacketIntoFolder(sf::Packet& packet, const std::string& folder_pa
 
 std::optional<std::vector<u8>> DecompressPacketIntoBuffer(sf::Packet& packet)
 {
-  u64 size = Common::PacketReadU64(packet);
+  const u64 size = Common::PacketReadU64(packet);
 
-  std::vector<u8> out_buffer(size);
+  std::vector<u8> out_buffer;
 
   if (size == 0)
     return out_buffer;
 
   std::vector<u8> in_buffer(LZO_OUT_LEN);
+  std::vector<u8> decompressed_buffer(LZO_IN_LEN);
 
-  lzo_uint i = 0;
+  u64 decompressed_size = 0;
   while (true)
   {
-    u32 cur_len = 0;       // number of bytes to read
-    lzo_uint new_len = 0;  // number of bytes to write
+    u32 cur_len = 0;                                // number of bytes to read
+    lzo_uint new_len = decompressed_buffer.size();  // output buffer capacity
 
     packet >> cur_len;
     if (!cur_len)
       break;  // We reached the end of the data stream
+
+    if (cur_len > in_buffer.size())
+    {
+      PanicAlertFmt("LZO error - input is too large");
+      return {};
+    }
 
     for (size_t j = 0; j < cur_len; j++)
     {
       packet >> in_buffer[j];
     }
 
-    if (lzo1x_decompress(in_buffer.data(), cur_len, &out_buffer[i], &new_len, nullptr) != LZO_E_OK)
+    if (lzo1x_decompress_safe(in_buffer.data(), cur_len, decompressed_buffer.data(), &new_len,
+                              nullptr) != LZO_E_OK)
     {
       PanicAlertFmtT("Internal LZO Error - decompression failed");
       return {};
     }
 
-    i += new_len;
+    if (new_len > size - decompressed_size || new_len > out_buffer.max_size() - out_buffer.size())
+    {
+      PanicAlertFmtT("LZO error - output is too large");
+      return {};
+    }
+
+    out_buffer.insert(out_buffer.end(), decompressed_buffer.begin(),
+                      decompressed_buffer.begin() + new_len);
+    decompressed_size += new_len;
+  }
+
+  if (decompressed_size != size)
+  {
+    PanicAlertFmtT("LZO error - output size mismatch");
+    return {};
   }
 
   return out_buffer;
 }
+
+std::string GetExternalIPAddress()
+{
+  Common::HttpRequest request;
+  // ENet does not support IPv6, so IPv4 has to be used
+  request.UseIPv4();
+  Common::HttpRequest::Response response =
+      request.Get("https://ip.dolphin-emu.org/", {{"X-Is-Dolphin", "1"}});
+
+  if (response.has_value())
+    return std::string(response->begin(), response->end());
+  return "";
+}
+
 }  // namespace NetPlay

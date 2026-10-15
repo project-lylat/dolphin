@@ -5,6 +5,9 @@
 
 #include <string>
 
+#include <fmt/format.h>
+
+#include "AudioCommon/Mixer.h"
 #include "Common/CommonTypes.h"
 #include "Common/FileUtil.h"
 #include "Common/IOFile.h"
@@ -13,7 +16,6 @@
 #include "Common/StringUtil.h"
 #include "Common/Swap.h"
 #include "Core/Config/MainSettings.h"
-#include "Core/ConfigManager.h"
 
 constexpr size_t WaveFileWriter::BUFFER_SIZE;
 
@@ -26,7 +28,7 @@ WaveFileWriter::~WaveFileWriter()
   Stop();
 }
 
-bool WaveFileWriter::Start(const std::string& filename, unsigned int HLESampleRate)
+bool WaveFileWriter::Start(const std::string& filename, u32 sample_rate_divisor)
 {
   // Ask to delete file
   if (File::Exists(filename))
@@ -44,14 +46,14 @@ bool WaveFileWriter::Start(const std::string& filename, unsigned int HLESampleRa
   }
 
   // Check if the file is already open
-  if (file)
+  if (m_file)
   {
     PanicAlertFmtT("The file {0} was already open, the file header will not be written.", filename);
     return false;
   }
 
-  file.Open(filename, "wb");
-  if (!file)
+  m_file.Open(filename, "wb");
+  if (!m_file)
   {
     PanicAlertFmtT(
         "The file {0} could not be opened for writing. Please check if it's already opened "
@@ -60,12 +62,12 @@ bool WaveFileWriter::Start(const std::string& filename, unsigned int HLESampleRa
     return false;
   }
 
-  audio_size = 0;
+  m_audio_size = 0;
 
-  if (basename.empty())
-    SplitPath(filename, nullptr, &basename, nullptr);
+  if (m_basename.empty())
+    SplitPath(filename, nullptr, &m_basename, nullptr);
 
-  current_sample_rate = HLESampleRate;
+  m_current_sample_rate_divisor = sample_rate_divisor;
 
   // -----------------
   // Write file header
@@ -78,7 +80,7 @@ bool WaveFileWriter::Start(const std::string& filename, unsigned int HLESampleRa
   Write(16);          // size of fmt block
   Write(0x00020001);  // two channels, uncompressed
 
-  const u32 sample_rate = HLESampleRate;
+  const u32 sample_rate = Mixer::FIXED_SAMPLE_RATE_DIVIDEND / sample_rate_divisor;
   Write(sample_rate);
   Write(sample_rate * 2 * 2);  // two channels, 16bit
 
@@ -87,42 +89,49 @@ bool WaveFileWriter::Start(const std::string& filename, unsigned int HLESampleRa
   Write(100 * 1000 * 1000 - 32);
 
   // We are now at offset 44
-  if (file.Tell() != 44)
-    PanicAlertFmt("Wrong offset: {}", file.Tell());
+  if (m_file.Tell() != 44)
+    PanicAlertFmt("Wrong offset: {}", m_file.Tell());
 
   return true;
 }
 
 void WaveFileWriter::Stop()
 {
-  file.Seek(4, File::SeekOrigin::Begin);
-  Write(audio_size + 36);
+  m_file.Seek(4, File::SeekOrigin::Begin);
+  Write(m_audio_size + 36);
 
-  file.Seek(40, File::SeekOrigin::Begin);
-  Write(audio_size);
+  m_file.Seek(40, File::SeekOrigin::Begin);
+  Write(m_audio_size);
 
-  file.Close();
+  m_file.Close();
 }
 
 void WaveFileWriter::Write(u32 value)
 {
-  file.WriteArray(&value, 1);
+  m_file.WriteArray(&value, 1);
 }
 
 void WaveFileWriter::Write4(const char* ptr)
 {
-  file.WriteBytes(ptr, 4);
+  m_file.WriteBytes(ptr, 4);
 }
 
-void WaveFileWriter::AddStereoSamplesBE(const short* sample_data, u32 count, int sample_rate)
+void WaveFileWriter::AddStereoSamplesBE(const short* sample_data, u32 count,
+                                        u32 sample_rate_divisor, int l_volume, int r_volume)
 {
-  if (!file)
+  if (!m_file)
+  {
     ERROR_LOG_FMT(AUDIO, "WaveFileWriter - file not open.");
+    return;
+  }
 
-  if (count > BUFFER_SIZE * 2)
+  if (count * 2 > BUFFER_SIZE)
+  {
     ERROR_LOG_FMT(AUDIO, "WaveFileWriter - buffer too small (count = {}).", count);
+    return;
+  }
 
-  if (skip_silence)
+  if (m_skip_silence)
   {
     bool all_zero = true;
 
@@ -139,20 +148,24 @@ void WaveFileWriter::AddStereoSamplesBE(const short* sample_data, u32 count, int
   for (u32 i = 0; i < count; i++)
   {
     // Flip the audio channels from RL to LR
-    conv_buffer[2 * i] = Common::swap16((u16)sample_data[2 * i + 1]);
-    conv_buffer[2 * i + 1] = Common::swap16((u16)sample_data[2 * i]);
+    m_conv_buffer[2 * i] = Common::swap16((u16)sample_data[2 * i + 1]);
+    m_conv_buffer[2 * i + 1] = Common::swap16((u16)sample_data[2 * i]);
+
+    // Apply volume (volume ranges from 0 to 256)
+    m_conv_buffer[2 * i] = m_conv_buffer[2 * i] * l_volume / 256;
+    m_conv_buffer[2 * i + 1] = m_conv_buffer[2 * i + 1] * r_volume / 256;
   }
 
-  if (sample_rate != current_sample_rate)
+  if (sample_rate_divisor != m_current_sample_rate_divisor)
   {
     Stop();
-    file_index++;
-    std::ostringstream filename;
-    filename << File::GetUserPath(D_DUMPAUDIO_IDX) << basename << file_index << ".wav";
-    Start(filename.str(), sample_rate);
-    current_sample_rate = sample_rate;
+    m_file_index++;
+    const std::string filename =
+        fmt::format("{}{}{}.wav", File::GetUserPath(D_DUMPAUDIO_IDX), m_basename, m_file_index);
+    Start(filename, sample_rate_divisor);
+    m_current_sample_rate_divisor = sample_rate_divisor;
   }
 
-  file.WriteBytes(conv_buffer.data(), count * 4);
-  audio_size += count * 4;
+  m_file.WriteBytes(m_conv_buffer.data(), count * 4);
+  m_audio_size += count * 4;
 }

@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include <type_traits>
+#include <concepts>
 
 #include "Common/Assert.h"
 #include "Common/CommonTypes.h"
@@ -110,14 +110,20 @@ public:
 
   // Get the current CP state.  Needed for vertex decoding; will also be mutated for CP commands.
   virtual CPState& GetCPState() = 0;
+
+  virtual u32 GetVertexSize(u8 vat)
+  {
+    const CPState& cpmem = GetCPState();
+    return VertexLoaderBase::GetVertexSize(cpmem.vtx_desc, cpmem.vtx_attr[vat]);
+  }
 #endif
 };
 
 namespace detail
 {
 // Main logic; split so that the main RunCommand can call OnCommand with the returned size.
-template <typename T, typename = std::enable_if_t<std::is_base_of_v<Callback, T>>>
-static DOLPHIN_FORCE_INLINE u32 RunCommand(const u8* data, u32 available, T& callback)
+static DOLPHIN_FORCE_INLINE u32 RunCommand(const u8* data, u32 available,
+                                           std::derived_from<Callback> auto& callback)
 {
   if (available < 1)
     return 0;
@@ -157,7 +163,7 @@ static DOLPHIN_FORCE_INLINE u32 RunCommand(const u8* data, u32 available, T& cal
     const u16 base_address = cmd2 & 0xffff;
 
     const u16 stream_size_temp = cmd2 >> 16;
-    ASSERT(stream_size_temp < 16);
+    ASSERT_MSG(VIDEO, stream_size_temp < 16, "cmd2 = 0x{:08X}", cmd2);
     const u8 stream_size = (stream_size_temp & 0xf) + 1;
 
     if (available < u32(5 + stream_size * 4))
@@ -201,7 +207,8 @@ static DOLPHIN_FORCE_INLINE u32 RunCommand(const u8* data, u32 available, T& cal
     const u32 address = Common::swap32(&data[1]);
     const u32 size = Common::swap32(&data[5]);
 
-    callback.OnDisplayList(address, size);
+    // Force 32-byte alignment for both the address and the size.
+    callback.OnDisplayList(address & ~31, size & ~31);
     return 9;
   }
 
@@ -229,8 +236,7 @@ static DOLPHIN_FORCE_INLINE u32 RunCommand(const u8* data, u32 available, T& cal
           (cmdbyte & OpcodeDecoder::GX_PRIMITIVE_MASK) >> OpcodeDecoder::GX_PRIMITIVE_SHIFT);
       const u8 vat = cmdbyte & OpcodeDecoder::GX_VAT_MASK;
 
-      const u32 vertex_size = VertexLoaderBase::GetVertexSize(callback.GetCPState().vtx_desc,
-                                                              callback.GetCPState().vtx_attr[vat]);
+      const u32 vertex_size = callback.GetVertexSize(vat);
       const u16 num_vertices = Common::swap16(&data[1]);
 
       if (available < 3 + num_vertices * vertex_size)
@@ -247,8 +253,8 @@ static DOLPHIN_FORCE_INLINE u32 RunCommand(const u8* data, u32 available, T& cal
 }
 }  // namespace detail
 
-template <typename T, typename = std::enable_if_t<std::is_base_of_v<Callback, T>>>
-DOLPHIN_FORCE_INLINE u32 RunCommand(const u8* data, u32 available, T& callback)
+DOLPHIN_FORCE_INLINE u32 RunCommand(const u8* data, u32 available,
+                                    std::derived_from<Callback> auto& callback)
 {
   const u32 size = detail::RunCommand(data, available, callback);
   if (size > 0)
@@ -258,8 +264,8 @@ DOLPHIN_FORCE_INLINE u32 RunCommand(const u8* data, u32 available, T& callback)
   return size;
 }
 
-template <typename T, typename = std::enable_if_t<std::is_base_of_v<Callback, T>>>
-DOLPHIN_FORCE_INLINE u32 Run(const u8* data, u32 available, T& callback)
+DOLPHIN_FORCE_INLINE u32 Run(const u8* data, u32 available,
+                             std::derived_from<Callback> auto& callback)
 {
   u32 size = 0;
   while (size < available)

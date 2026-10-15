@@ -4,36 +4,37 @@
 #pragma once
 
 #include <array>
-#include "DolphinQt/Config/Graphics/GraphicsWidget.h"
 
-class GraphicsBool;
-class GraphicsChoice;
-class GraphicsRadioInt;
-class GraphicsWindow;
-class QCheckBox;
-class QComboBox;
-class QRadioButton;
-class QGridLayout;
+#include <QWidget>
+
+class ConfigBool;
+class ConfigChoice;
+class ConfigInteger;
+class ConfigRadioInt;
+class ConfigStringChoice;
+class GraphicsPane;
+class QLabel;
 class ToolTipComboBox;
 
-namespace X11Utils
+namespace Config
 {
-class XRRConfiguration;
-}
+class Layer;
+}  // namespace Config
 
-class GeneralWidget final : public GraphicsWidget
+class GeneralWidget final : public QWidget
 {
   Q_OBJECT
 public:
-  explicit GeneralWidget(X11Utils::XRRConfiguration* xrr_config, GraphicsWindow* parent);
+  explicit GeneralWidget(GraphicsPane* gfx_pane);
+
 signals:
   void BackendChanged(const QString& backend);
 
 private:
-  void LoadSettings() override;
-  void SaveSettings() override;
+  void BackendWarning();
 
   void CreateWidgets();
+  void ToggleCustomAspectRatio(int index);
   void ConnectWidgets();
   void AddDescriptions();
 
@@ -41,22 +42,21 @@ private:
   void OnEmulationStateChanged(bool running);
 
   // Video
-  QGridLayout* m_video_layout;
-  ToolTipComboBox* m_backend_combo;
+  ConfigStringChoice* m_backend_combo;
   ToolTipComboBox* m_adapter_combo;
-  GraphicsChoice* m_aspect_combo;
-  GraphicsBool* m_enable_vsync;
-  GraphicsBool* m_enable_fullscreen;
+  ConfigChoice* m_aspect_combo;
+  QLabel* m_custom_aspect_label;
+  ConfigInteger* m_custom_aspect_width;
+  ConfigInteger* m_custom_aspect_height;
+  ConfigBool* m_enable_vsync;
+  ConfigBool* m_enable_fullscreen;
 
   // Options
-  GraphicsBool* m_show_fps;
-  GraphicsBool* m_show_ping;
-  GraphicsBool* m_log_render_time;
-  GraphicsBool* m_autoadjust_window_size;
-  GraphicsBool* m_show_messages;
-  GraphicsBool* m_render_main_window;
-  std::array<GraphicsRadioInt*, 4> m_shader_compilation_mode{};
-  GraphicsBool* m_wait_for_shaders;
+  ConfigBool* m_autoadjust_window_size;
+  ConfigBool* m_render_main_window;
 
-  X11Utils::XRRConfiguration* m_xrr_config;
+  std::array<ConfigRadioInt*, 4> m_shader_compilation_mode{};
+  ConfigBool* m_wait_for_shaders;
+  int m_previous_backend = 0;
+  Config::Layer* m_game_layer = nullptr;
 };

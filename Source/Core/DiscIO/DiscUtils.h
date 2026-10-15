@@ -4,8 +4,8 @@
 #pragma once
 
 #include <optional>
+#include <span>
 #include <string>
-#include <vector>
 
 #include "Common/CommonTypes.h"
 #include "DiscIO/Blob.h"
@@ -84,8 +84,8 @@ std::optional<u64> GetFSTOffset(const Volume& volume, const Partition& partition
 std::optional<u64> GetFSTSize(const Volume& volume, const Partition& partition);
 
 u64 GetBiggestReferencedOffset(const Volume& volume);
-u64 GetBiggestReferencedOffset(const Volume& volume, const std::vector<Partition>& partitions);
+u64 GetBiggestReferencedOffset(const Volume& volume, std::span<const Partition> partitions);
 
 bool IsGCZBlockSizeLegacyCompatible(int block_size, u64 file_size);
-bool IsDiscImageBlockSizeValid(int block_size, DiscIO::BlobType format);
+bool IsDiscImageBlockSizeValid(int block_size, BlobType format);
 }  // namespace DiscIO

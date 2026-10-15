@@ -177,7 +177,7 @@ struct HeaderData
   // 4 bytes at 0x001c: VI DTV status register value (u16 from 0xCC00206E)
   u32 m_dtv_status;
 
-  // 2 bytes at 0x0020: 0 if formated in slot A, 1 if formated in slot B
+  // 2 bytes at 0x0020: 0 if formatted in slot A, 1 if formatted in slot B
   Common::BigEndianValue<u16> m_device_id;
 
   // 2 bytes at 0x0022: Size of memcard in Mbits
@@ -192,7 +192,6 @@ void InitializeHeaderData(HeaderData* data, const CardFlashId& flash_id, u16 siz
                           bool shift_jis, u32 rtc_bias, u32 sram_language, u64 format_time);
 
 bool operator==(const HeaderData& lhs, const HeaderData& rhs);
-bool operator!=(const HeaderData& lhs, const HeaderData& rhs);
 
 struct Header
 {
@@ -231,6 +230,8 @@ struct Header
   std::pair<u16, u16> CalculateChecksums() const;
 
   GCMemcardErrorCode CheckForErrors(u16 card_size_mbits) const;
+
+  bool IsShiftJIS() const;
 };
 static_assert(sizeof(Header) == BLOCK_SIZE);
 static_assert(std::is_trivially_copyable_v<Header>);
@@ -238,9 +239,6 @@ static_assert(std::is_trivially_copyable_v<Header>);
 struct DEntry
 {
   DEntry();
-
-  // TODO: This probably shouldn't be here at all?
-  std::string GCI_FileName() const;
 
   static constexpr std::array<u8, 4> UNINITIALIZED_GAMECODE{{0xFF, 0xFF, 0xFF, 0xFF}};
 
@@ -453,19 +451,8 @@ public:
   // with that identity exists in this card.
   std::optional<u8> TitlePresent(const DEntry& d) const;
 
-  bool GCI_FileName(u8 index, std::string& filename) const;
   // DEntry functions, all take u8 index < DIRLEN (127)
-  std::string DEntry_GameCode(u8 index) const;
-  std::string DEntry_Makercode(u8 index) const;
-  std::string DEntry_BIFlags(u8 index) const;
   bool DEntry_IsPingPong(u8 index) const;
-  std::string DEntry_FileName(u8 index) const;
-  u32 DEntry_ModTime(u8 index) const;
-  u32 DEntry_ImageOffset(u8 index) const;
-  std::string DEntry_IconFmt(u8 index) const;
-  std::string DEntry_AnimSpeed(u8 index) const;
-  std::string DEntry_Permissions(u8 index) const;
-  u8 DEntry_CopyCounter(u8 index) const;
   // get first block for file
   u16 DEntry_FirstBlock(u8 index) const;
   // get file length in blocks

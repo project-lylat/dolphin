@@ -11,17 +11,20 @@
 #include <utility>
 #include <vector>
 
+#include "Common/Projection.h"
+
 namespace Config
 {
 using Layers = std::map<LayerType, std::shared_ptr<Layer>>;
 
 static Layers s_layers;
-static std::vector<std::pair<size_t, ConfigChangedCallback>> s_callbacks;
+static std::vector<std::pair<ConfigChangedCallbackID, ConfigChangedCallback>> s_callbacks;
 static size_t s_next_callback_id = 0;
-static u32 s_callback_guards = 0;
+static std::atomic<u32> s_callback_guards = 0;
 static std::atomic<u64> s_config_version = 0;
 
 static std::shared_mutex s_layers_rw_lock;
+static std::recursive_mutex s_callbacks_lock;
 
 using ReadLock = std::shared_lock<std::shared_mutex>;
 using WriteLock = std::unique_lock<std::shared_mutex>;
@@ -65,16 +68,18 @@ void RemoveLayer(LayerType layer)
   OnConfigChanged();
 }
 
-size_t AddConfigChangedCallback(ConfigChangedCallback func)
+ConfigChangedCallbackID AddConfigChangedCallback(ConfigChangedCallback func)
 {
-  const size_t callback_id = s_next_callback_id;
+  std::lock_guard lock(s_callbacks_lock);
+  const ConfigChangedCallbackID callback_id{s_next_callback_id};
   ++s_next_callback_id;
   s_callbacks.emplace_back(std::make_pair(callback_id, std::move(func)));
   return callback_id;
 }
 
-void RemoveConfigChangedCallback(size_t callback_id)
+void RemoveConfigChangedCallback(ConfigChangedCallbackID callback_id)
 {
+  std::lock_guard lock(s_callbacks_lock);
   for (auto it = s_callbacks.begin(); it != s_callbacks.end(); ++it)
   {
     if (it->first == callback_id)
@@ -94,6 +99,8 @@ void OnConfigChanged()
 
   if (s_callback_guards)
     return;
+
+  std::lock_guard lock(s_callbacks_lock);
 
   for (const auto& callback : s_callbacks)
     callback.second();
@@ -138,7 +145,6 @@ void Shutdown()
   WriteLock lock(s_layers_rw_lock);
 
   s_layers.clear();
-  s_callbacks.clear();
 }
 
 void ClearCurrentRunLayer()
@@ -155,11 +161,12 @@ static const std::map<System, std::string> system_to_name = {
     {System::GCKeyboard, "GCKeyboard"},
     {System::GFX, "Graphics"},
     {System::Logger, "Logger"},
-    {System::Debugger, "Debugger"},
     {System::SYSCONF, "SYSCONF"},
     {System::DualShockUDPClient, "DualShockUDPClient"},
     {System::FreeLook, "FreeLook"},
-    {System::Session, "Session"}};
+    {System::Session, "Session"},
+    {System::GameSettingsOnly, "GameSettingsOnly"},
+    {System::Achievements, "Achievements"}};
 
 const std::string& GetSystemName(System system)
 {
@@ -168,8 +175,7 @@ const std::string& GetSystemName(System system)
 
 std::optional<System> GetSystemFromName(const std::string& name)
 {
-  const auto system = std::find_if(system_to_name.begin(), system_to_name.end(),
-                                   [&name](const auto& entry) { return entry.second == name; });
+  const auto system = std::ranges::find(system_to_name, name, Common::Projection::Value{});
   if (system != system_to_name.end())
     return system->first;
 

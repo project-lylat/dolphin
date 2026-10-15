@@ -4,12 +4,18 @@
 #pragma once
 
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "DiscIO/DirectoryBlob.h"
 #include "DiscIO/RiivolutionParser.h"
+
+namespace Core
+{
+class CPUThreadGuard;
+}
 
 namespace DiscIO::Riivolution
 {
@@ -39,7 +45,7 @@ public:
   ResolveSavegameRedirectPath(std::string_view external_relative_path) = 0;
 };
 
-class FileDataLoaderHostFS : public FileDataLoader
+class FileDataLoaderHostFS final : public FileDataLoader
 {
 public:
   // sd_root should be an absolute path to the folder representing our virtual SD card
@@ -59,18 +65,23 @@ public:
   ResolveSavegameRedirectPath(std::string_view external_relative_path) override;
 
 private:
-  std::optional<std::string> MakeAbsoluteFromRelative(std::string_view external_relative_path);
+  std::optional<std::string>
+  MakeAbsoluteFromRelative(std::string_view external_relative_path) const;
 
   std::string m_sd_root;
   std::string m_patch_root;
 };
 
-void ApplyPatchesToFiles(const std::vector<Patch>& patches,
-                         std::vector<DiscIO::FSTBuilderNode>* fst,
-                         DiscIO::FSTBuilderNode* dol_node);
-void ApplyGeneralMemoryPatches(const std::vector<Patch>& patches);
-void ApplyApploaderMemoryPatches(const std::vector<Patch>& patches, u32 ram_address,
-                                 u32 ram_length);
-std::optional<SavegameRedirect>
-ExtractSavegameRedirect(const std::vector<Patch>& riivolution_patches);
+enum class PatchIndex
+{
+  FileSystem,
+  DolphinSysFiles,
+};
+
+void ApplyPatchesToFiles(std::span<const Patch> patches, PatchIndex index,
+                         std::vector<FSTBuilderNode>* fst, FSTBuilderNode* dol_node);
+void ApplyGeneralMemoryPatches(const Core::CPUThreadGuard& guard, std::span<const Patch> patches);
+void ApplyApploaderMemoryPatches(const Core::CPUThreadGuard& guard, std::span<const Patch> patches,
+                                 u32 ram_address, u32 ram_length);
+std::optional<SavegameRedirect> ExtractSavegameRedirect(std::span<const Patch> riivolution_patches);
 }  // namespace DiscIO::Riivolution

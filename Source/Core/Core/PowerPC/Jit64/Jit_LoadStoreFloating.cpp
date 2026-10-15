@@ -7,7 +7,7 @@
 #include "Common/CommonTypes.h"
 #include "Common/x64Emitter.h"
 #include "Core/PowerPC/Jit64/RegCache/JitRegCache.h"
-#include "Core/PowerPC/Jit64Common/Jit64PowerPCState.h"
+#include "Core/PowerPC/Jit64Common/Jit64Constants.h"
 
 using namespace Gen;
 
@@ -22,13 +22,15 @@ void Jit64::lfXXX(UGeckoInstruction inst)
   bool indexed = inst.OPCD == 31;
   bool update = indexed ? !!(inst.SUBOP10 & 0x20) : !!(inst.OPCD & 1);
   bool single = indexed ? !(inst.SUBOP10 & 0x40) : !(inst.OPCD & 2);
-  update &= indexed || inst.SIMM_16;
+  update &= indexed || (inst.SIMM_16 != 0);
 
   int d = inst.RD;
   int a = inst.RA;
   int b = inst.RB;
 
   FALLBACK_IF(!indexed && !a);
+
+  FlushRegistersBeforeSlowAccess();
 
   s32 offset = 0;
   RCOpArg addr = gpr.Bind(a, update ? RCMode::ReadWrite : RCMode::Read);
@@ -93,7 +95,7 @@ void Jit64::stfXXX(UGeckoInstruction inst)
   bool indexed = inst.OPCD == 31;
   bool update = indexed ? !!(inst.SUBOP10 & 0x20) : !!(inst.OPCD & 1);
   bool single = indexed ? !(inst.SUBOP10 & 0x40) : !(inst.OPCD & 2);
-  update &= indexed || inst.SIMM_16;
+  update &= indexed || (inst.SIMM_16 != 0);
 
   int s = inst.RS;
   int a = inst.RA;
@@ -101,7 +103,9 @@ void Jit64::stfXXX(UGeckoInstruction inst)
   s32 imm = (s16)inst.SIMM_16;
   int accessSize = single ? 32 : 64;
 
-  FALLBACK_IF(update && jo.memcheck && a == b);
+  FALLBACK_IF(update && jo.memcheck && indexed && a == b);
+
+  FlushRegistersBeforeSlowAccess();
 
   if (single)
   {
@@ -144,10 +148,10 @@ void Jit64::stfXXX(UGeckoInstruction inst)
       }
       else
       {
-        RCOpArg Ra = gpr.UseNoImm(a, RCMode::ReadWrite);
+        RCOpArg Ra = gpr.RevertableBind(a, RCMode::Write);
         RegCache::Realize(Ra);
         MemoryExceptionCheck();
-        ADD(32, Ra, Imm32((u32)imm));
+        MOV(32, Ra, Imm32(addr));
       }
     }
     return;
@@ -195,6 +199,8 @@ void Jit64::stfiwx(UGeckoInstruction inst)
   int s = inst.RS;
   int a = inst.RA;
   int b = inst.RB;
+
+  FlushRegistersBeforeSlowAccess();
 
   RCOpArg Ra = a ? gpr.Use(a, RCMode::Read) : RCOpArg::Imm32(0);
   RCOpArg Rb = gpr.Use(b, RCMode::Read);

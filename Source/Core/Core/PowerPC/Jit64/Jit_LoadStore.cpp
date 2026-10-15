@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 // TODO(ector): Tons of pshufb optimization of the loads/stores, for SSSE3+, possibly SSE4, only.
-// Should give a very noticable speed boost to paired single heavy code.
+// Should give a very noticeable speed boost to paired single heavy code.
 
 #include "Core/PowerPC/Jit64/Jit.h"
 
 #include "Common/Assert.h"
 #include "Common/BitSet.h"
+#include "Common/CPUDetect.h"
 #include "Common/CommonTypes.h"
 #include "Common/MsgHandler.h"
 #include "Common/x64ABI.h"
@@ -15,6 +16,7 @@
 
 #include "Core/ConfigManager.h"
 #include "Core/CoreTiming.h"
+#include "Core/Debugger/BranchWatch.h"
 #include "Core/HW/CPU.h"
 #include "Core/HW/Memmap.h"
 #include "Core/PowerPC/Jit64/RegCache/JitRegCache.h"
@@ -22,6 +24,7 @@
 #include "Core/PowerPC/JitInterface.h"
 #include "Core/PowerPC/MMU.h"
 #include "Core/PowerPC/PowerPC.h"
+#include "Core/System.h"
 
 using namespace Gen;
 
@@ -107,6 +110,8 @@ void Jit64::lXXx(UGeckoInstruction inst)
   default:
     PanicAlertFmt("Invalid instruction");
   }
+
+  FlushRegistersBeforeSlowAccess();
 
   // PowerPC has no 8-bit sign extended load, but x86 does, so merge extsb with the load if we find
   // it.
@@ -231,6 +236,7 @@ void Jit64::dcbx(UGeckoInstruction inst)
 {
   INSTRUCTION_START
   JITDISABLE(bJITLoadStoreOff);
+  FALLBACK_IF(m_accurate_cpu_cache_enabled);
 
   // Check if the next instructions match a known looping pattern:
   // - dcbx rX
@@ -265,17 +271,17 @@ void Jit64::dcbx(UGeckoInstruction inst)
 
     // Alright, now figure out how many loops we want to do.
     const u8 cycle_count_per_loop =
-        js.op[0].opinfo->numCycles + js.op[1].opinfo->numCycles + js.op[2].opinfo->numCycles;
+        js.op[0].opinfo->num_cycles + js.op[1].opinfo->num_cycles + js.op[2].opinfo->num_cycles;
 
     // This is both setting the adjusted loop count to 0 for the downcount <= 0 case and clearing
     // the upper bits for the DIV instruction in the downcount > 0 case.
     XOR(32, R(RSCRATCH2), R(RSCRATCH2));
 
-    MOV(32, R(reg_downcount), PPCSTATE(downcount));
-    TEST(32, R(reg_downcount), R(reg_downcount));             // if (downcount <= 0)
+    MOV(32, R(RSCRATCH), PPCSTATE(downcount));
+    TEST(32, R(RSCRATCH), R(RSCRATCH));                       // if (downcount <= 0)
     FixupBranch downcount_is_zero_or_negative = J_CC(CC_LE);  // only do 1 invalidation; else:
     MOV(32, R(loop_counter), PPCSTATE_CTR);
-    MOV(32, R(RSCRATCH), R(reg_downcount));
+    MOV(32, R(reg_downcount), R(RSCRATCH));
     MOV(32, R(reg_cycle_count), Imm32(cycle_count_per_loop));
     DIV(32, R(reg_cycle_count));                  // RSCRATCH = downcount / cycle_count
     LEA(32, RSCRATCH2, MDisp(loop_counter, -1));  // RSCRATCH2 = CTR - 1
@@ -288,20 +294,40 @@ void Jit64::dcbx(UGeckoInstruction inst)
     // registers.
     SUB(32, R(loop_counter), R(RSCRATCH2));
     MOV(32, PPCSTATE_CTR, R(loop_counter));  // CTR -= RSCRATCH2
-    MOV(32, R(RSCRATCH), R(RSCRATCH2));
-    IMUL(32, RSCRATCH, R(reg_cycle_count));
+    IMUL(32, reg_cycle_count, R(RSCRATCH2));
     // ^ Note that this cannot overflow because it's limited by (downcount/cycle_count).
-    SUB(32, R(reg_downcount), R(RSCRATCH));
+    SUB(32, R(reg_downcount), R(reg_cycle_count));
     MOV(32, PPCSTATE(downcount), R(reg_downcount));  // downcount -= (RSCRATCH2 * reg_cycle_count)
 
     SetJumpTarget(downcount_is_zero_or_negative);
 
     // Load the loop_counter register with the amount of invalidations to execute.
     LEA(32, loop_counter, MDisp(RSCRATCH2, 1));
+
+    if (IsBranchWatchEnabled())
+    {
+      const BitSet32 bw_caller_save = (CallerSavedRegistersInUse() | BitSet32{RSCRATCH2}) &
+                                      ~BitSet32{int(reg_cycle_count), int(reg_downcount)};
+
+      // Assert RSCRATCH2 won't be clobbered before it is moved from.
+      static_assert(RSCRATCH2 != ABI_PARAM1);
+
+      ABI_PushRegistersAndAdjustStack(bw_caller_save, 0);
+      MOV(64, R(ABI_PARAM1), ImmPtr(&m_branch_watch));
+      // RSCRATCH2 holds the amount of faked branch watch hits. Move RSCRATCH2 first, because
+      // ABI_PARAM2 clobbers RSCRATCH2 on Windows and ABI_PARAM3 clobbers RSCRATCH2 on Linux!
+      MOV(32, R(ABI_PARAM4), R(RSCRATCH2));
+      const PPCAnalyst::CodeOp& op = js.op[2];
+      MOV(64, R(ABI_PARAM2), Imm64(Core::FakeBranchWatchCollectionKey{op.address, op.branchTo}));
+      MOV(32, R(ABI_PARAM3), Imm32(op.inst.hex));
+      ABI_CallFunction(m_ppc_state.msr.IR ? &Core::BranchWatch::HitVirtualTrue_fk_n :
+                                            &Core::BranchWatch::HitPhysicalTrue_fk_n);
+      ABI_PopRegistersAndAdjustStack(bw_caller_save, 0);
+    }
   }
 
-  X64Reg addr = RSCRATCH;
-  MOV_sum(32, addr, Ra, Rb);
+  X64Reg effective_address = RSCRATCH;
+  MOV_sum(32, effective_address, Ra, Rb);
 
   if (make_loop)
   {
@@ -312,19 +338,19 @@ void Jit64::dcbx(UGeckoInstruction inst)
   }
 
   X64Reg tmp = RSCRATCH2;
-  RCX64Reg effective_address = gpr.Scratch();
-  RegCache::Realize(effective_address);
+  RCX64Reg addr = gpr.Scratch();
+  RegCache::Realize(addr);
 
   FixupBranch bat_lookup_failed;
-  MOV(32, R(effective_address), R(addr));
   const u8* loop_start = GetCodePtr();
-  if (MSR.IR)
+  MOV(32, R(addr), R(effective_address));
+  if (m_ppc_state.feature_flags & FEATURE_FLAG_MSR_IR)
   {
     // Translate effective address to physical address.
-    bat_lookup_failed = BATAddressLookup(addr, tmp, PowerPC::ibat_table.data());
+    bat_lookup_failed = BATAddressLookup(addr, tmp, m_jit.m_mmu.GetIBATTable().data());
     MOV(32, R(tmp), R(effective_address));
-    AND(32, R(tmp), Imm32(0x0001ffff));
-    AND(32, R(addr), Imm32(0xfffe0000));
+    AND(32, R(tmp), Imm32(PowerPC::BAT_PAGE_SIZE - 1));
+    AND(32, R(addr), Imm32(~(PowerPC::BAT_PAGE_SIZE - 1)));
     OR(32, R(addr), R(tmp));
   }
 
@@ -335,42 +361,41 @@ void Jit64::dcbx(UGeckoInstruction inst)
   MOV(32, R(tmp), R(effective_address));
   SHR(32, R(tmp), Imm8(5));
   BT(32, R(addr), R(tmp));
-  FixupBranch invalidate_needed = J_CC(CC_C, true);
+  FixupBranch invalidate_needed = J_CC(CC_C, Jump::Near);
 
   if (make_loop)
   {
     ADD(32, R(effective_address), Imm8(32));
-    MOV(32, R(addr), R(effective_address));
     SUB(32, R(loop_counter), Imm8(1));
     J_CC(CC_NZ, loop_start);
   }
 
   SwitchToFarCode();
   SetJumpTarget(invalidate_needed);
-  if (MSR.IR)
+  if (m_ppc_state.feature_flags & FEATURE_FLAG_MSR_IR)
     SetJumpTarget(bat_lookup_failed);
 
   BitSet32 registersInUse = CallerSavedRegistersInUse();
   registersInUse[X64Reg(tmp)] = false;
   registersInUse[X64Reg(effective_address)] = false;
+  registersInUse[X64Reg(addr)] = false;
   if (make_loop)
     registersInUse[X64Reg(loop_counter)] = false;
   ABI_PushRegistersAndAdjustStack(registersInUse, 0);
   if (make_loop)
   {
-    MOV(32, R(ABI_PARAM1), R(effective_address));
-    MOV(32, R(ABI_PARAM2), R(loop_counter));
-    ABI_CallFunction(JitInterface::InvalidateICacheLines);
+    ABI_CallFunctionPRR(JitInterface::InvalidateICacheLinesFromJIT, &m_system.GetJitInterface(),
+                        effective_address, loop_counter);
   }
   else
   {
-    MOV(32, R(ABI_PARAM1), R(effective_address));
-    ABI_CallFunction(JitInterface::InvalidateICacheLine);
+    ABI_CallFunctionPR(JitInterface::InvalidateICacheLineFromJIT, &m_system.GetJitInterface(),
+                       effective_address);
   }
   ABI_PopRegistersAndAdjustStack(registersInUse, 0);
   asm_routines.ResetStack(*this);
 
-  FixupBranch done = J(true);
+  FixupBranch done = J(Jump::Near);
   SwitchToNearCode();
   SetJumpTarget(done);
 }
@@ -403,6 +428,8 @@ void Jit64::dcbz(UGeckoInstruction inst)
   int a = inst.RA;
   int b = inst.RB;
 
+  FlushRegistersBeforeSlowAccess();
+
   {
     RCOpArg Ra = a ? gpr.Use(a, RCMode::Read) : RCOpArg::Imm32(0);
     RCOpArg Rb = gpr.Use(b, RCMode::Read);
@@ -420,36 +447,46 @@ void Jit64::dcbz(UGeckoInstruction inst)
     end_dcbz_hack = J_CC(CC_L);
   }
 
-  bool emit_fast_path = MSR.DR && m_jit.jo.fastmem_arena;
+  bool emit_fast_path = (m_ppc_state.feature_flags & FEATURE_FLAG_MSR_DR) &&
+                        m_jit.jo.fastmem_arena && !m_accurate_cpu_cache_enabled;
 
   if (emit_fast_path)
   {
     // Perform lookup to see if we can use fast path.
-    MOV(64, R(RSCRATCH2), ImmPtr(&PowerPC::dbat_table[0]));
+    MOV(64, R(RSCRATCH2), ImmPtr(m_mmu.GetDBATTable().data()));
     PUSH(RSCRATCH);
     SHR(32, R(RSCRATCH), Imm8(PowerPC::BAT_INDEX_SHIFT));
     TEST(32, MComplex(RSCRATCH2, RSCRATCH, SCALE_4, 0), Imm32(PowerPC::BAT_PHYSICAL_BIT));
     POP(RSCRATCH);
-    FixupBranch slow = J_CC(CC_Z, true);
+    FixupBranch slow = J_CC(CC_Z, Jump::Near);
 
     // Fast path: compute full address, then zero out 32 bytes of memory.
-    XORPS(XMM0, R(XMM0));
-    MOVAPS(MComplex(RMEM, RSCRATCH, SCALE_1, 0), XMM0);
-    MOVAPS(MComplex(RMEM, RSCRATCH, SCALE_1, 16), XMM0);
+    if (cpu_info.bAVX)
+    {
+      VXORPS(XMM0, XMM0, R(XMM0));
+      VMOVAPS(MComplex(RMEM, RSCRATCH, SCALE_1, 0), YMM0);
+      VZEROUPPER();
+    }
+    else
+    {
+      XORPS(XMM0, R(XMM0));
+      MOVAPS(MComplex(RMEM, RSCRATCH, SCALE_1, 0), XMM0);
+      MOVAPS(MComplex(RMEM, RSCRATCH, SCALE_1, 16), XMM0);
+    }
 
     // Slow path: call the general-case code.
     SwitchToFarCode();
     SetJumpTarget(slow);
   }
-  MOV(32, PPCSTATE(pc), Imm32(js.compilerPC));
+  FlushPCBeforeSlowAccess();
   BitSet32 registersInUse = CallerSavedRegistersInUse();
   ABI_PushRegistersAndAdjustStack(registersInUse, 0);
-  ABI_CallFunctionR(PowerPC::ClearCacheLine, RSCRATCH);
+  ABI_CallFunctionPR(PowerPC::ClearDCacheLineFromJit, &m_mmu, RSCRATCH);
   ABI_PopRegistersAndAdjustStack(registersInUse, 0);
 
   if (emit_fast_path)
   {
-    FixupBranch end_far_code = J(true);
+    FixupBranch end_far_code = J(Jump::Near);
     SwitchToNearCode();
     SetJumpTarget(end_far_code);
   }
@@ -488,6 +525,8 @@ void Jit64::stX(UGeckoInstruction inst)
     return;
   }
 
+  FlushRegistersBeforeSlowAccess();
+
   // If we already know the address of the write
   if (!a || gpr.IsImm(a))
   {
@@ -505,10 +544,10 @@ void Jit64::stX(UGeckoInstruction inst)
       }
       else
       {
-        RCOpArg Ra = gpr.UseNoImm(a, RCMode::ReadWrite);
+        RCOpArg Ra = gpr.RevertableBind(a, RCMode::Write);
         RegCache::Realize(Ra);
         MemoryExceptionCheck();
-        ADD(32, Ra, Imm32((u32)offset));
+        MOV(32, Ra, Imm32(addr));
       }
     }
   }
@@ -516,12 +555,19 @@ void Jit64::stX(UGeckoInstruction inst)
   {
     RCX64Reg Ra = gpr.Bind(a, update ? RCMode::ReadWrite : RCMode::Read);
     RCOpArg reg_value;
-    if (!gpr.IsImm(s) && WriteClobbersRegValue(accessSize, /* swap */ true))
+    if (WriteClobbersRegValue(accessSize, /* swap */ true))
     {
-      RCOpArg Rs = gpr.Use(s, RCMode::Read);
-      RegCache::Realize(Rs);
-      reg_value = RCOpArg::R(RSCRATCH2);
-      MOV(32, reg_value, Rs);
+      if (gpr.IsImm(s))
+      {
+        reg_value = RCOpArg::Imm32(gpr.Imm32(s));
+      }
+      else
+      {
+        RCOpArg Rs = gpr.Use(s, RCMode::Read);
+        RegCache::Realize(Rs);
+        reg_value = RCOpArg::R(RSCRATCH2);
+        MOV(32, reg_value, Rs);
+      }
     }
     else
     {
@@ -566,11 +612,15 @@ void Jit64::stXx(UGeckoInstruction inst)
     break;
   }
 
+  FlushRegistersBeforeSlowAccess();
+
   const bool does_clobber = WriteClobbersRegValue(accessSize, /* swap */ !byte_reverse);
 
   RCOpArg Ra = update ? gpr.Bind(a, RCMode::ReadWrite) : gpr.Use(a, RCMode::Read);
   RCOpArg Rb = gpr.Use(b, RCMode::Read);
-  RCOpArg Rs = does_clobber ? gpr.Use(s, RCMode::Read) : gpr.BindOrImm(s, RCMode::Read);
+  RCOpArg Rs = does_clobber ?
+                   (gpr.IsImm(s) ? RCOpArg::Imm32(gpr.Imm32(s)) : gpr.Use(s, RCMode::Read)) :
+                   gpr.BindOrImm(s, RCMode::Read);
   RegCache::Realize(Ra, Rb, Rs);
 
   MOV_sum(32, RSCRATCH2, Ra, Rb);
@@ -598,6 +648,8 @@ void Jit64::lmw(UGeckoInstruction inst)
 
   int a = inst.RA, d = inst.RD;
 
+  FlushRegistersBeforeSlowAccess();
+
   // TODO: This doesn't handle rollback on DSI correctly
   {
     RCOpArg Ra = a ? gpr.Use(a, RCMode::Read) : RCOpArg::Imm32(0);
@@ -620,6 +672,8 @@ void Jit64::stmw(UGeckoInstruction inst)
   JITDISABLE(bJITLoadStoreOff);
 
   int a = inst.RA, d = inst.RD;
+
+  FlushRegistersBeforeSlowAccess();
 
   // TODO: This doesn't handle rollback on DSI correctly
   for (int i = d; i < 32; i++)

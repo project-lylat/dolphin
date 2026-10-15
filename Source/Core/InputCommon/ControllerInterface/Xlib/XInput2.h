@@ -6,6 +6,8 @@
 #pragma once
 
 #include <array>
+#include <string>
+#include <vector>
 
 extern "C" {
 #include <X11/Xlib.h>
@@ -13,12 +15,14 @@ extern "C" {
 #include <X11/keysym.h>
 }
 
+#include "Common/CommonTypes.h"
 #include "Common/Matrix.h"
 #include "InputCommon/ControllerInterface/ControllerInterface.h"
+#include "InputCommon/ControllerInterface/InputBackend.h"
 
 namespace ciface::XInput2
 {
-void PopulateDevices(void* const hwnd);
+std::unique_ptr<ciface::InputBackend> CreateInputBackend(ControllerInterface* controller_interface);
 
 class KeyboardMouse : public Core::Device
 {
@@ -26,10 +30,10 @@ private:
   struct State
   {
     std::array<char, 32> keyboard;
-    unsigned int buttons;
+    u32 buttons;
     Common::Vec2 cursor;
-    Common::Vec2 axis;
-    Common::Vec2 relative_mouse;
+    Common::Vec3 axis;
+    Common::Vec3 relative_mouse;
   };
 
   class Key : public Input
@@ -37,26 +41,31 @@ private:
     friend class KeyboardMouse;
 
   public:
+    Key(std::string name, KeyCode keycode, const char* keyboard);
+
     std::string GetName() const override { return m_keyname; }
-    Key(Display* display, KeyCode keycode, const char* keyboard);
     ControlState GetState() const override;
 
+    static const char* GetNameForKeyCode(Display* display, KeyCode keycode);
+
   private:
-    std::string m_keyname;
-    Display* const m_display;
+    void AddKeyCode(KeyCode);
+    bool IsKeyCodePressed(KeyCode) const;
+
+    const std::string m_keyname;
     const char* const m_keyboard;
-    const KeyCode m_keycode;
+    std::vector<KeyCode> m_keycodes;
   };
 
   class Button : public Input
   {
   public:
     std::string GetName() const override { return name; }
-    Button(unsigned int index, unsigned int* buttons);
+    Button(unsigned int index, u32* buttons);
     ControlState GetState() const override;
 
   private:
-    const unsigned int* m_buttons;
+    const u32* m_buttons;
     const unsigned int m_index;
     std::string name;
   };
@@ -107,17 +116,18 @@ private:
   };
 
 private:
-  void SelectEventsForDevice(XIEventMask* mask, int deviceid);
-  void UpdateCursor();
+  void UpdateCursor(bool should_center_mouse);
 
 public:
-  void UpdateInput() override;
+  Core::DeviceRemoval UpdateInput() override;
 
-  KeyboardMouse(Window window, int opcode, int pointer_deviceid, int keyboard_deviceid);
+  KeyboardMouse(Window window, int opcode, int pointer_deviceid, int keyboard_deviceid,
+                double scroll_increment);
   ~KeyboardMouse();
 
   std::string GetName() const override;
   std::string GetSource() const override;
+  int GetSortPriority() const override;
 
 private:
   Window m_window;
@@ -126,6 +136,7 @@ private:
   const int xi_opcode;
   const int pointer_deviceid;
   const int keyboard_deviceid;
+  const double scroll_increment;
   std::string name;
 };
 }  // namespace ciface::XInput2

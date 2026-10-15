@@ -4,10 +4,9 @@
 
 #include "Core/DSP/DSPDisassembler.h"
 
-#include <algorithm>
 #include <limits>
 #include <string>
-#include <vector>
+#include <utility>
 
 #include <fmt/format.h>
 
@@ -23,7 +22,7 @@ DSPDisassembler::DSPDisassembler(const AssemblerSettings& settings) : settings_(
 {
 }
 
-bool DSPDisassembler::Disassemble(const std::vector<u16>& code, std::string& text)
+bool DSPDisassembler::Disassemble(std::span<const u16> code, std::string& text)
 {
   if (code.size() > std::numeric_limits<u16>::max())
   {
@@ -33,9 +32,10 @@ bool DSPDisassembler::Disassemble(const std::vector<u16>& code, std::string& tex
 
   for (u16 pc = 0; pc < code.size();)
   {
-    if (!DisassembleOpcode(code.data(), &pc, text))
-      return false;
+    bool failed = !DisassembleOpcode(code, &pc, text);
     text.append("\n");
+    if (failed)
+      return false;
   }
   return true;
 }
@@ -106,8 +106,8 @@ std::string DSPDisassembler::DisassembleParameters(const DSPOPCTemplate& opc, u1
         if (opc.params[j].mask == 0x003f)
         {
           // Left and right shifts function essentially as a single shift by a 7-bit signed value,
-          // but are split into two intructions for clarity.
-          buf += fmt::format("#{}", (val & 0x20) != 0 ? (64 - val) : val);
+          // but are split into two instructions for clarity.
+          buf += fmt::format("#{}", (val & 0x20) != 0 ? (int(val) - 64) : int(val));
         }
         else
         {
@@ -131,7 +131,7 @@ std::string DSPDisassembler::DisassembleParameters(const DSPOPCTemplate& opc, u1
       break;
 
     default:
-      ERROR_LOG_FMT(DSPLLE, "Unknown parameter type: {:x}", opc.params[j].type);
+      ERROR_LOG_FMT(DSPLLE, "Unknown parameter type: {:x}", std::to_underlying(opc.params[j].type));
       break;
     }
   }
@@ -139,16 +139,23 @@ std::string DSPDisassembler::DisassembleParameters(const DSPOPCTemplate& opc, u1
   return buf;
 }
 
-bool DSPDisassembler::DisassembleOpcode(const u16* binbuf, u16* pc, std::string& dest)
+bool DSPDisassembler::DisassembleOpcode(std::span<const u16> code, u16* pc, std::string& dest)
 {
-  if ((*pc & 0x7fff) >= 0x1000)
+  return DisassembleOpcode(code.data(), code.size(), pc, dest);
+}
+
+bool DSPDisassembler::DisassembleOpcode(const u16* binbuf, size_t binbuf_size, u16* pc,
+                                        std::string& dest)
+{
+  const u16 wrapped_pc = (*pc & 0x7fff);
+  if (wrapped_pc >= binbuf_size)
   {
     ++pc;
     dest.append("; outside memory");
     return false;
   }
 
-  const u16 op1 = binbuf[*pc & 0x0fff];
+  const u16 op1 = binbuf[wrapped_pc];
 
   // Find main opcode
   const DSPOPCTemplate* opc = FindOpInfoByOpcode(op1);
@@ -179,14 +186,23 @@ bool DSPDisassembler::DisassembleOpcode(const u16* binbuf, u16* pc, std::string&
   // printing
 
   if (settings_.show_pc)
-    dest += fmt::format("{:04x} ", *pc);
+    dest += fmt::format("{:04x} ", wrapped_pc);
 
   u16 op2;
 
   // Size 2 - the op has a large immediate.
   if (opc->size == 2)
   {
-    op2 = binbuf[(*pc + 1) & 0x0fff];
+    if (wrapped_pc + 1u >= binbuf_size)
+    {
+      if (settings_.show_hex)
+        dest += fmt::format("{:04x} ???? ", op1);
+      dest += fmt::format("; Insufficient data for large immediate");
+      *pc += opc->size;
+      return false;
+    }
+
+    op2 = binbuf[wrapped_pc + 1];
     if (settings_.show_hex)
       dest += fmt::format("{:04x} {:04x} ", op1, op2);
   }

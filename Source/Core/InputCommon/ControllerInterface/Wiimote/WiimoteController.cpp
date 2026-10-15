@@ -51,7 +51,7 @@ public:
 
   std::string GetName() const override { return m_name; }
 
-  ControlState GetState() const final override { return ControlState(m_value) / m_extent; }
+  ControlState GetState() const final { return ControlState(m_value) / m_extent; }
 
 protected:
   const T& m_value;
@@ -200,6 +200,17 @@ Device::Device(std::unique_ptr<WiimoteReal::Wiimote> wiimote) : m_wiimote(std::m
   AddInput(new UndetectableAnalogInput<bool>(&m_ir_state.is_hidden, "IR Hidden", 1));
 
   AddInput(new UndetectableAnalogInput<float>(&m_ir_state.distance, "IR Distance", 1));
+
+  // Raw IR Objects.
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    AddInput(new UndetectableAnalogInput<float>(&m_ir_state.raw_ir_object_position[i].x,
+                                                fmt::format("IR Object {} X", i + 1), 1));
+    AddInput(new UndetectableAnalogInput<float>(&m_ir_state.raw_ir_object_position[i].y,
+                                                fmt::format("IR Object {} Y", i + 1), 1));
+    AddInput(new UndetectableAnalogInput<float>(&m_ir_state.raw_ir_object_size[i],
+                                                fmt::format("IR Object {} Size", i + 1), 1));
+  }
 
   // Raw gyroscope.
   static constexpr std::array<std::array<const char*, 2>, 3> gyro_names = {{
@@ -494,7 +505,7 @@ void Device::RunTasks()
   {
     static constexpr u16 MPLUS_POLL_ADDR = WiimoteEmu::MotionPlus::PASSTHROUGH_MODE_OFFSET;
     ReadData(AddressSpace::I2CBus, WiimoteEmu::MotionPlus::INACTIVE_DEVICE_ADDR, MPLUS_POLL_ADDR, 1,
-             [this](ReadResponse response) {
+             [this](const ReadResponse& response) {
                if (!response)
                {
                  DEBUG_LOG_FMT(WIIMOTE, "WiiRemote: M+ poll failed.");
@@ -726,7 +737,7 @@ void Device::ProcessExtensionID(u8 id_0, u8 id_4, u8 id_5)
   }
   else
   {
-    // This is a normal occurance before extension initialization.
+    // This is a normal occurrence before extension initialization.
     DEBUG_LOG_FMT(WIIMOTE, "WiiRemote: Unknown extension: {} {} {}.", id_0, id_4, id_5);
     m_extension_id = ExtensionID::Unsupported;
   }
@@ -1178,8 +1189,7 @@ void Device::ProcessInputReport(WiimoteReal::Report& report)
   // Process IR data.
   if (manipulator->HasIR() && m_ir_state.IsFullyConfigured())
   {
-    m_ir_state.ProcessData(
-        Common::BitCastPtr<std::array<WiimoteEmu::IRBasic, 2>>(manipulator->GetIRDataPtr()));
+    m_ir_state.ProcessData(*manipulator);
   }
 
   // Process extension data.
@@ -1251,30 +1261,66 @@ void Device::UpdateOrientation()
       float(MathUtil::PI);
 }
 
-void Device::IRState::ProcessData(const std::array<WiimoteEmu::IRBasic, 2>& data)
+void Device::IRState::ProcessData(const DataReportManipulator& manipulator)
 {
   // A better implementation might extrapolate points when they fall out of camera view.
   // But just averaging visible points actually seems to work very well.
 
-  using IRObject = WiimoteEmu::IRBasic::IRObject;
+  using IRObject = WiimoteEmu::IRObject;
 
   MathUtil::RunningVariance<Common::Vec2> points;
 
   const auto camera_max = IRObject(WiimoteEmu::CameraLogic::CAMERA_RES_X - 1,
                                    WiimoteEmu::CameraLogic::CAMERA_RES_Y - 1);
 
-  const auto add_point = [&](IRObject point) {
+  const auto add_point = [&](IRObject point, u8 size, size_t idx) {
     // Non-visible points are 0xFF-filled.
     if (point.y > camera_max.y)
+    {
+      raw_ir_object_position[idx].x = 0.0f;
+      raw_ir_object_position[idx].y = 0.0f;
+      raw_ir_object_size[idx] = 0.0f;
       return;
+    }
+
+    raw_ir_object_position[idx].x = static_cast<float>(point.x) / camera_max.x;
+    raw_ir_object_position[idx].y = static_cast<float>(point.y) / camera_max.y;
+    raw_ir_object_size[idx] = static_cast<float>(size) / 15.0f;
 
     points.Push(Common::Vec2(point));
   };
 
-  for (auto& block : data)
+  size_t object_index = 0;
+  switch (manipulator.GetIRReportFormat())
   {
-    add_point(block.GetObject1());
-    add_point(block.GetObject2());
+  case IRReportFormat::Basic:
+  {
+    const std::array<WiimoteEmu::IRBasic, 2> data =
+        Common::BitCastPtr<std::array<WiimoteEmu::IRBasic, 2>>(manipulator.GetIRDataPtr());
+    for (const auto& block : data)
+    {
+      // size is not reported by IRBasic, just assume a typical size
+      add_point(block.GetObject1(), 2, object_index);
+      ++object_index;
+      add_point(block.GetObject2(), 2, object_index);
+      ++object_index;
+    }
+    break;
+  }
+  case IRReportFormat::Extended:
+  {
+    const std::array<WiimoteEmu::IRExtended, 4> data =
+        Common::BitCastPtr<std::array<WiimoteEmu::IRExtended, 4>>(manipulator.GetIRDataPtr());
+    for (const auto& object : data)
+    {
+      add_point(object.GetPosition(), object.size, object_index);
+      ++object_index;
+    }
+    break;
+  }
+  default:
+    // unsupported format
+    return;
   }
 
   is_hidden = !points.Count();
@@ -1282,7 +1328,7 @@ void Device::IRState::ProcessData(const std::array<WiimoteEmu::IRBasic, 2>& data
   if (points.Count() >= 2)
   {
     const auto variance = points.PopulationVariance();
-    // Adjusts Y coorinate to match horizontal FOV.
+    // Adjusts Y coordinate to match horizontal FOV.
     const auto separation =
         Common::Vec2(std::sqrt(variance.x), std::sqrt(variance.y)) /
         Common::Vec2(WiimoteEmu::CameraLogic::CAMERA_RES_X,
@@ -1395,14 +1441,10 @@ void Device::UpdateRumble()
   QueueReport(OutputReportRumble{});
 }
 
-void Device::UpdateInput()
+Core::DeviceRemoval Device::UpdateInput()
 {
   if (!m_wiimote->IsConnected())
-  {
-    g_controller_interface.RemoveDevice(
-        [this](const Core::Device* device) { return device == this; });
-    return;
-  }
+    return Core::DeviceRemoval::Remove;
 
   UpdateRumble();
   RunTasks();
@@ -1413,6 +1455,8 @@ void Device::UpdateInput()
     ProcessInputReport(report);
     RunTasks();
   }
+
+  return Core::DeviceRemoval::Keep;
 }
 
 void Device::MotionPlusState::ProcessData(const WiimoteEmu::MotionPlus::DataFormat& data)

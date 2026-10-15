@@ -27,7 +27,8 @@ class UDrawTablet : public Extension3rdParty
 public:
   UDrawTablet();
 
-  void Update() override;
+  void BuildDesiredExtensionState(DesiredExtensionState* target_state) override;
+  void Update(const DesiredExtensionState& target_state) override;
   void Reset() override;
 
   ControllerEmu::ControlGroup* GetGroup(UDrawTabletGroup group);
@@ -55,8 +56,9 @@ public:
     // 0x04 is always unset (neutral state is 0xfb)
     u8 buttons;
   };
-
   static_assert(6 == sizeof(DataFormat), "Wrong size.");
+
+  using DesiredState = DataFormat;
 
 private:
   ControllerEmu::Buttons* m_buttons;

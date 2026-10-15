@@ -3,21 +3,16 @@
 
 #include "UICommon/X11Utils.h"
 
-#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <spawn.h>
 #include <string>
-#include <sys/wait.h>
-#include <unistd.h>
 
 #include <fmt/format.h>
 
+#include "Common/Contains.h"
 #include "Common/Logging/Log.h"
-#include "Common/StringUtil.h"
 #include "Core/Config/MainSettings.h"
-#include "Core/Core.h"
 
 extern char** environ;
 
@@ -43,24 +38,6 @@ bool ToggleFullscreen(Display* dpy, Window win)
   }
 
   return true;
-}
-
-void InhibitScreensaver(Window win, bool suspend)
-{
-  char id[11];
-  snprintf(id, sizeof(id), "0x%lx", win);
-
-  // Call xdg-screensaver
-  char* argv[4] = {(char*)"xdg-screensaver", (char*)(suspend ? "suspend" : "resume"), id, nullptr};
-  pid_t pid;
-  if (!posix_spawnp(&pid, "xdg-screensaver", nullptr, nullptr, argv, environ))
-  {
-    int status;
-    while (waitpid(pid, &status, 0) == -1)
-      ;
-
-    INFO_LOG_FMT(VIDEO, "Started xdg-screensaver (PID = {})", pid);
-  }
 }
 
 #ifdef HAVE_XRANDR
@@ -124,11 +101,11 @@ void XRRConfiguration::Update()
   }
   fullMode = 0;
 
-  // Get the resolution setings for fullscreen mode
+  // Get the resolution settings for fullscreen mode
   unsigned int fullWidth, fullHeight;
   char* output_name = nullptr;
   char auxFlag = '\0';
-  if (fullscreen_display_res.find(':') == std::string::npos)
+  if (!fullscreen_display_res.contains(':'))
   {
     fullWidth = fb_width;
     fullHeight = fb_height;
@@ -262,7 +239,7 @@ void XRRConfiguration::AddResolutions(std::vector<std::string>& resos)
                                        std::string(screenResources->modes[k].name) +
                                        (interlaced ? "i" : "");
             // Only add unique resolutions
-            if (std::find(resos.begin(), resos.end(), strRes) == resos.end())
+            if (!Common::Contains(resos, strRes))
             {
               resos.push_back(strRes);
             }

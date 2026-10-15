@@ -7,8 +7,6 @@
 #include <optional>
 #include <string>
 
-#include <fmt/printf.h>
-
 #include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
@@ -17,6 +15,8 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
+#include <QMenuBar>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScrollArea>
@@ -25,18 +25,22 @@
 #include <QTableWidget>
 #include <QVBoxLayout>
 
-#include "Common/BitUtils.h"
 #include "Common/FileUtil.h"
 #include "Common/IOFile.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/HW/AddressSpace.h"
+#include "Core/PowerPC/PPCSymbolDB.h"
+#include "Core/System.h"
 #include "DolphinQt/Debugger/MemoryViewWidget.h"
 #include "DolphinQt/Host.h"
 #include "DolphinQt/QtUtils/ModalMessageBox.h"
 #include "DolphinQt/Settings.h"
 
-MemoryWidget::MemoryWidget(QWidget* parent) : QDockWidget(parent)
+using Type = MemoryViewWidget::Type;
+
+MemoryWidget::MemoryWidget(Core::System& system, QWidget* parent)
+    : QDockWidget(parent), m_system(system), m_ppc_symbol_db(system.GetPPCSymbolDB())
 {
   setWindowTitle(tr("Memory"));
   setObjectName(QStringLiteral("memory"));
@@ -53,7 +57,7 @@ MemoryWidget::MemoryWidget(QWidget* parent) : QDockWidget(parent)
   // macOS: setHidden() needs to be evaluated before setFloating() for proper window presentation
   // according to Settings
   setFloating(settings.value(QStringLiteral("memorywidget/floating")).toBool());
-  m_splitter->restoreState(settings.value(QStringLiteral("codewidget/splitter")).toByteArray());
+  m_splitter->restoreState(settings.value(QStringLiteral("memorywidget/splitter")).toByteArray());
 
   connect(&Settings::Instance(), &Settings::MemoryVisibilityChanged, this,
           [this](bool visible) { setHidden(!visible); });
@@ -61,9 +65,13 @@ MemoryWidget::MemoryWidget(QWidget* parent) : QDockWidget(parent)
   connect(&Settings::Instance(), &Settings::DebugModeToggled, this,
           [this](bool enabled) { setHidden(!enabled || !Settings::Instance().IsMemoryVisible()); });
 
-  connect(&Settings::Instance(), &Settings::EmulationStateChanged, this, &MemoryWidget::Update);
-  connect(Host::GetInstance(), &Host::UpdateDisasmDialog, this, &MemoryWidget::Update);
-
+  connect(this, &QDockWidget::visibilityChanged, this, [this](bool visible) {
+    // Stop auto-update if MemoryView is tabbed out.
+    if (visible && m_auto_update_enabled)
+      RegisterAfterFrameEventCallback();
+    else
+      RemoveAfterFrameEventCallback();
+  });
   LoadSettings();
 
   ConnectWidgets();
@@ -94,10 +102,13 @@ void MemoryWidget::CreateWidgets()
   // Search
   auto* m_address_splitter = new QSplitter(Qt::Horizontal);
 
-  m_search_address = new QLineEdit;
+  m_search_address = new QComboBox;
+  m_search_address->setInsertPolicy(QComboBox::InsertAtTop);
+  m_search_address->setDuplicatesEnabled(false);
+  m_search_address->setEditable(true);
+  m_search_address->setMaxVisibleItems(8);
   m_search_offset = new QLineEdit;
 
-  m_search_address->setMaxLength(8);
   m_search_offset->setMaxLength(9);
   m_search_address->setPlaceholderText(tr("Search Address"));
   m_search_offset->setPlaceholderText(tr("Offset"));
@@ -112,7 +123,6 @@ void MemoryWidget::CreateWidgets()
   m_data_edit = new QLineEdit;
   m_base_check = new QCheckBox(tr("Hex"));
   m_set_value = new QPushButton(tr("Set &Value"));
-  m_from_file = new QPushButton(tr("Set Value From File"));
   m_data_preview = new QLabel;
 
   m_base_check->setLayoutDirection(Qt::RightToLeft);
@@ -127,30 +137,16 @@ void MemoryWidget::CreateWidgets()
   m_input_combo = new QComboBox;
   m_input_combo->setMaxVisibleItems(20);
   // Order here determines combo list order.
-  m_input_combo->addItem(tr("Hex Byte String"), int(InputID::HEXSTR));
-  m_input_combo->addItem(tr("ASCII"), int(InputID::ASCII));
-  m_input_combo->addItem(tr("Float"), int(InputID::FLOAT));
-  m_input_combo->addItem(tr("Double"), int(InputID::DOUBLE));
-  m_input_combo->addItem(tr("Unsigned 8"), int(InputID::U8));
-  m_input_combo->addItem(tr("Unsigned 16"), int(InputID::U16));
-  m_input_combo->addItem(tr("Unsigned 32"), int(InputID::U32));
-  m_input_combo->addItem(tr("Signed 8"), int(InputID::S8));
-  m_input_combo->addItem(tr("Signed 16"), int(InputID::S16));
-  m_input_combo->addItem(tr("Signed 32"), int(InputID::S32));
-
-  // Dump
-  auto* dump_group = new QGroupBox(tr("Dump"));
-  auto* dump_layout = new QVBoxLayout;
-  dump_group->setLayout(dump_layout);
-  m_dump_mram = new QPushButton(tr("Dump &MRAM"));
-  m_dump_exram = new QPushButton(tr("Dump &ExRAM"));
-  m_dump_aram = new QPushButton(tr("Dump &ARAM"));
-  m_dump_fake_vmem = new QPushButton(tr("Dump &FakeVMEM"));
-
-  dump_layout->addWidget(m_dump_mram);
-  dump_layout->addWidget(m_dump_exram);
-  dump_layout->addWidget(m_dump_aram);
-  dump_layout->addWidget(m_dump_fake_vmem);
+  m_input_combo->addItem(tr("Hex Byte String"), int(Type::HexString));
+  m_input_combo->addItem(tr("ASCII"), int(Type::ASCII));
+  m_input_combo->addItem(tr("Float"), int(Type::Float32));
+  m_input_combo->addItem(tr("Double"), int(Type::Double));
+  m_input_combo->addItem(tr("Unsigned 8"), int(Type::Unsigned8));
+  m_input_combo->addItem(tr("Unsigned 16"), int(Type::Unsigned16));
+  m_input_combo->addItem(tr("Unsigned 32"), int(Type::Unsigned32));
+  m_input_combo->addItem(tr("Signed 8"), int(Type::Signed8));
+  m_input_combo->addItem(tr("Signed 16"), int(Type::Signed16));
+  m_input_combo->addItem(tr("Signed 32"), int(Type::Signed32));
 
   // Search Options
   auto* search_group = new QGroupBox(tr("Search"));
@@ -171,13 +167,14 @@ void MemoryWidget::CreateWidgets()
   auto* address_space_layout = new QVBoxLayout;
   address_space_group->setLayout(address_space_layout);
 
-  // i18n: "Effective" addresses are the addresses used directly by the CPU and may be subject to
-  // translation via the MMU to physical addresses.
+  // i18n: One of the options shown below "Address Space". "Effective" addresses are the addresses
+  // used directly by the CPU and may be subject to translation via the MMU to physical addresses.
   m_address_space_effective = new QRadioButton(tr("Effective"));
-  // i18n: The "Auxiliary" address space is the address space of ARAM (Auxiliary RAM).
+  // i18n: One of the options shown below "Address Space". "Auxiliary" is the address space of ARAM
+  // (Auxiliary RAM).
   m_address_space_auxiliary = new QRadioButton(tr("Auxiliary"));
-  // i18n: The "Physical" address space is the address space that reflects how devices (e.g. RAM) is
-  // physically wired up.
+  // i18n: One of the options shown below "Address Space". "Physical" is the address space that
+  // reflects how devices (e.g. RAM) is physically wired up.
   m_address_space_physical = new QRadioButton(tr("Physical"));
 
   address_space_layout->addWidget(m_address_space_effective);
@@ -192,20 +189,21 @@ void MemoryWidget::CreateWidgets()
 
   m_display_combo = new QComboBox;
   m_display_combo->setMaxVisibleItems(20);
-  m_display_combo->addItem(tr("Hex 8"), int(MemoryViewWidget::Type::Hex8));
-  m_display_combo->addItem(tr("Hex 16"), int(MemoryViewWidget::Type::Hex16));
-  m_display_combo->addItem(tr("Hex 32"), int(MemoryViewWidget::Type::Hex32));
-  m_display_combo->addItem(tr("Unsigned 8"), int(MemoryViewWidget::Type::Unsigned8));
-  m_display_combo->addItem(tr("Unsigned 16"), int(MemoryViewWidget::Type::Unsigned16));
-  m_display_combo->addItem(tr("Unsigned 32"), int(MemoryViewWidget::Type::Unsigned32));
-  m_display_combo->addItem(tr("Signed 8"), int(MemoryViewWidget::Type::Signed8));
-  m_display_combo->addItem(tr("Signed 16"), int(MemoryViewWidget::Type::Signed16));
-  m_display_combo->addItem(tr("Signed 32"), int(MemoryViewWidget::Type::Signed32));
-  m_display_combo->addItem(tr("ASCII"), int(MemoryViewWidget::Type::ASCII));
-  m_display_combo->addItem(tr("Float"), int(MemoryViewWidget::Type::Float32));
-  m_display_combo->addItem(tr("Double"), int(MemoryViewWidget::Type::Double));
+  m_display_combo->addItem(tr("Hex 8"), int(Type::Hex8));
+  m_display_combo->addItem(tr("Hex 16"), int(Type::Hex16));
+  m_display_combo->addItem(tr("Hex 32"), int(Type::Hex32));
+  m_display_combo->addItem(tr("Unsigned 8"), int(Type::Unsigned8));
+  m_display_combo->addItem(tr("Unsigned 16"), int(Type::Unsigned16));
+  m_display_combo->addItem(tr("Unsigned 32"), int(Type::Unsigned32));
+  m_display_combo->addItem(tr("Signed 8"), int(Type::Signed8));
+  m_display_combo->addItem(tr("Signed 16"), int(Type::Signed16));
+  m_display_combo->addItem(tr("Signed 32"), int(Type::Signed32));
+  m_display_combo->addItem(tr("ASCII"), int(Type::ASCII));
+  m_display_combo->addItem(tr("Float"), int(Type::Float32));
+  m_display_combo->addItem(tr("Double"), int(Type::Double));
 
   m_align_combo = new QComboBox;
+  // i18n: "Fixed" here means that the alignment is always the same
   m_align_combo->addItem(tr("Fixed Alignment"));
   m_align_combo->addItem(tr("Type-based Alignment"), 0);
   m_align_combo->addItem(tr("No Alignment"), 1);
@@ -248,17 +246,90 @@ void MemoryWidget::CreateWidgets()
   bp_layout->addWidget(m_bp_log_check);
   bp_layout->setSpacing(1);
 
+  // Notes
+  m_labels_group = new QGroupBox(tr("Labels"));
+  auto* symbols_box = new QTabWidget;
+  m_note_list = new QListWidget;
+  m_data_list = new QListWidget;
+  m_symbols_list = new QListWidget;
+  symbols_box->addTab(m_note_list, tr("Notes"));
+  symbols_box->addTab(m_data_list, tr("Data"));
+  symbols_box->addTab(m_symbols_list, tr("Symbols"));
+  m_symbols_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
+  auto* labels_layout = new QVBoxLayout;
+  m_search_labels = new QLineEdit;
+  // i18n: Filter is a verb. Typing into this text box will filter the label list so that only
+  // labels containing the typed text are shown.
+  m_search_labels->setPlaceholderText(tr("Filter Label List"));
+
+  m_labels_group->setLayout(labels_layout);
+  labels_layout->addWidget(symbols_box);
+  labels_layout->addWidget(m_search_labels);
+
   // Sidebar
   auto* sidebar = new QWidget;
   auto* sidebar_layout = new QVBoxLayout;
+
+  // Sidebar top menu
+  QMenuBar* menubar = new QMenuBar(sidebar);
+  menubar->setNativeMenuBar(false);
+  QMenu* menu_views = new QMenu(tr("&View"), menubar);
+  menubar->addMenu(menu_views);
+
+  QMenu* menu_import = new QMenu(tr("&Import"), menubar);
+  menu_import->addAction(tr("&Load file to current address"), this,
+                         &MemoryWidget::OnSetValueFromFile);
+  menubar->addMenu(menu_import);
+
+  // View Menu
+  auto* auto_update_action =
+      menu_views->addAction(tr("&Auto update memory values"), this, [this](bool checked) {
+        m_auto_update_enabled = checked;
+        if (checked)
+          RegisterAfterFrameEventCallback();
+        else
+          RemoveAfterFrameEventCallback();
+      });
+  auto_update_action->setCheckable(true);
+  auto_update_action->setChecked(true);
+
+  auto* highlight_update_action =
+      // i18n: Highlight is a verb (this is the label of a checkbox)
+      menu_views->addAction(tr("&Highlight recently changed values"), this,
+                            [this](bool checked) { m_memory_view->ToggleHighlights(checked); });
+  highlight_update_action->setCheckable(true);
+  highlight_update_action->setChecked(true);
+
+  // i18n: Highlight is a noun (clicking this lets you select a color)
+  menu_views->addAction(tr("Highlight &color"), this,
+                        [this] { m_memory_view->SetHighlightColor(); });
+
+  auto* show_notes =
+      menu_views->addAction(tr("&Show symbols and notes"), this, [this](bool checked) {
+        m_labels_visible = checked;
+        m_memory_view->ShowSymbols(checked);
+        UpdateNotes();
+      });
+  show_notes->setCheckable(true);
+  show_notes->setChecked(true);
+
+  QMenu* menu_export = new QMenu(tr("&Export"), menubar);
+  menu_export->addAction(tr("Dump &MRAM"), this, &MemoryWidget::OnDumpMRAM);
+  menu_export->addAction(tr("Dump &ExRAM"), this, &MemoryWidget::OnDumpExRAM);
+  menu_export->addAction(tr("Dump &ARAM"), this, &MemoryWidget::OnDumpARAM);
+  menu_export->addAction(tr("Dump &FakeVMEM"), this, &MemoryWidget::OnDumpFakeVMEM);
+  menubar->addMenu(menu_export);
+
   sidebar_layout->setSpacing(1);
   sidebar->setLayout(sidebar_layout);
+  sidebar_layout->addItem(new QSpacerItem(1, 20));
   sidebar_layout->addWidget(m_address_splitter);
   sidebar_layout->addLayout(input_layout);
   sidebar_layout->addWidget(m_input_combo);
+  sidebar_layout->addItem(new QSpacerItem(1, 10));
   sidebar_layout->addWidget(m_data_preview);
   sidebar_layout->addWidget(m_set_value);
-  sidebar_layout->addWidget(m_from_file);
   sidebar_layout->addItem(new QSpacerItem(1, 10));
   sidebar_layout->addWidget(search_group);
   sidebar_layout->addItem(new QSpacerItem(1, 10));
@@ -267,8 +338,7 @@ void MemoryWidget::CreateWidgets()
   sidebar_layout->addWidget(address_space_group);
   sidebar_layout->addItem(new QSpacerItem(1, 10));
   sidebar_layout->addWidget(bp_group);
-  sidebar_layout->addItem(new QSpacerItem(1, 10));
-  sidebar_layout->addWidget(dump_group);
+  sidebar_layout->addWidget(m_labels_group);
   sidebar_layout->addItem(new QSpacerItem(0, 0, QSizePolicy::Expanding, QSizePolicy::Expanding));
 
   // Splitter
@@ -278,7 +348,7 @@ void MemoryWidget::CreateWidgets()
   sidebar_scroll->setWidget(sidebar);
   sidebar_scroll->setWidgetResizable(true);
 
-  m_memory_view = new MemoryViewWidget(this);
+  m_memory_view = new MemoryViewWidget(m_system, this);
 
   m_splitter->addWidget(m_memory_view);
   m_splitter->addWidget(sidebar_scroll);
@@ -290,24 +360,18 @@ void MemoryWidget::CreateWidgets()
   auto* widget = new QWidget;
   widget->setLayout(layout);
   setWidget(widget);
+  UpdateNotes();
 }
 
 void MemoryWidget::ConnectWidgets()
 {
-  connect(m_search_address, &QLineEdit::textChanged, this, &MemoryWidget::OnSearchAddress);
+  connect(m_search_address, &QComboBox::currentTextChanged, this, &MemoryWidget::OnSearchAddress);
   connect(m_search_offset, &QLineEdit::textChanged, this, &MemoryWidget::OnSearchAddress);
   connect(m_data_edit, &QLineEdit::textChanged, this, &MemoryWidget::ValidateAndPreviewInputValue);
 
-  connect(m_input_combo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+  connect(m_input_combo, &QComboBox::currentIndexChanged, this,
           &MemoryWidget::ValidateAndPreviewInputValue);
-
   connect(m_set_value, &QPushButton::clicked, this, &MemoryWidget::OnSetValue);
-  connect(m_from_file, &QPushButton::clicked, this, &MemoryWidget::OnSetValueFromFile);
-
-  connect(m_dump_mram, &QPushButton::clicked, this, &MemoryWidget::OnDumpMRAM);
-  connect(m_dump_exram, &QPushButton::clicked, this, &MemoryWidget::OnDumpExRAM);
-  connect(m_dump_aram, &QPushButton::clicked, this, &MemoryWidget::OnDumpARAM);
-  connect(m_dump_fake_vmem, &QPushButton::clicked, this, &MemoryWidget::OnDumpFakeVMEM);
 
   connect(m_find_next, &QPushButton::clicked, this, &MemoryWidget::OnFindNextValue);
   connect(m_find_previous, &QPushButton::clicked, this, &MemoryWidget::OnFindPreviousValue);
@@ -319,8 +383,7 @@ void MemoryWidget::ConnectWidgets()
   }
   for (auto* combo : {m_display_combo, m_align_combo, m_row_length_combo})
   {
-    connect(combo, qOverload<int>(&QComboBox::currentIndexChanged), this,
-            &MemoryWidget::OnDisplayChanged);
+    connect(combo, &QComboBox::currentIndexChanged, this, &MemoryWidget::OnDisplayChanged);
   }
 
   connect(m_dual_check, &QCheckBox::toggled, this, &MemoryWidget::OnDisplayChanged);
@@ -330,20 +393,51 @@ void MemoryWidget::ConnectWidgets()
 
   connect(m_base_check, &QCheckBox::toggled, this, &MemoryWidget::ValidateAndPreviewInputValue);
   connect(m_bp_log_check, &QCheckBox::toggled, this, &MemoryWidget::OnBPLogChanged);
-  connect(m_memory_view, &MemoryViewWidget::BreakpointsChanged, this,
-          &MemoryWidget::BreakpointsChanged);
+
+  for (auto* list : {m_symbols_list, m_data_list, m_note_list})
+    connect(list, &QListWidget::itemClicked, this, &MemoryWidget::OnSelectLabel);
+
+  connect(Host::GetInstance(), &Host::PPCSymbolsChanged, this, &MemoryWidget::RefreshLabelBox);
+  connect(m_search_labels, &QLineEdit::textChanged, this, &MemoryWidget::RefreshLabelBox);
   connect(m_memory_view, &MemoryViewWidget::ShowCode, this, &MemoryWidget::ShowCode);
   connect(m_memory_view, &MemoryViewWidget::RequestWatch, this, &MemoryWidget::RequestWatch);
+  connect(m_memory_view, &MemoryViewWidget::ActivateSearch, this,
+          &MemoryWidget::ActivateSearchAddress);
 }
 
 void MemoryWidget::closeEvent(QCloseEvent*)
 {
   Settings::Instance().SetMemoryVisible(false);
+  RemoveAfterFrameEventCallback();
 }
 
 void MemoryWidget::showEvent(QShowEvent* event)
 {
+  if (m_auto_update_enabled)
+    RegisterAfterFrameEventCallback();
+
   Update();
+}
+
+void MemoryWidget::hideEvent(QHideEvent* event)
+{
+  RemoveAfterFrameEventCallback();
+}
+
+void MemoryWidget::RegisterAfterFrameEventCallback()
+{
+  m_vi_end_field_event =
+      m_system.GetVideoEvents().vi_end_field_event.Register([this] { AutoUpdateTable(); });
+}
+
+void MemoryWidget::RemoveAfterFrameEventCallback()
+{
+  m_vi_end_field_event.reset();
+}
+
+void MemoryWidget::AutoUpdateTable()
+{
+  m_memory_view->UpdateOnFrameEnd();
 }
 
 void MemoryWidget::Update()
@@ -351,7 +445,7 @@ void MemoryWidget::Update()
   if (!isVisible())
     return;
 
-  m_memory_view->Update();
+  m_memory_view->UpdateDispatcher(MemoryViewWidget::UpdateType::Addresses);
   update();
 }
 
@@ -435,12 +529,12 @@ void MemoryWidget::OnAddressSpaceChanged()
 
 void MemoryWidget::OnDisplayChanged()
 {
-  const auto type = static_cast<MemoryViewWidget::Type>(m_display_combo->currentData().toInt());
+  const auto type = static_cast<Type>(m_display_combo->currentData().toInt());
   int bytes_per_row = m_row_length_combo->currentData().toInt();
   int alignment;
   bool dual_view = m_dual_check->isChecked();
 
-  if (type == MemoryViewWidget::Type::Double && bytes_per_row == 4)
+  if (type == Type::Double && bytes_per_row == 4)
     bytes_per_row = 8;
 
   // Alignment: First (fixed) option equals bytes per row. 'currentData' is correct for other
@@ -483,11 +577,41 @@ void MemoryWidget::OnBPTypeChanged()
 
 void MemoryWidget::SetAddress(u32 address)
 {
+  // Store current and target address in combo box
+  const QSignalBlocker blocker(m_search_address);
+  const QString current_text = m_search_address->currentText();
+  const QString target_addr = QString::number(address, 16);
+  bool good;
+  const u32 current_addr = current_text.toUInt(&good, 16);
+
+  if (good)
+  {
+    AddressSpace::Accessors* accessors =
+        AddressSpace::GetAccessors(m_memory_view->GetAddressSpace());
+
+    const Core::CPUThreadGuard guard(m_system);
+    good = accessors->IsValidAddress(guard, current_addr);
+  }
+
+  if (m_search_address->findText(current_text) == -1 && good)
+    m_search_address->insertItem(0, current_text);
+
+  if (m_search_address->findText(target_addr) == -1)
+    m_search_address->insertItem(0, target_addr);
+
+  m_search_address->setCurrentText(target_addr);
+
   m_memory_view->SetAddress(address);
   Settings::Instance().SetMemoryVisible(true);
   raise();
 
   m_memory_view->setFocus();
+}
+
+void MemoryWidget::ActivateSearchAddress()
+{
+  m_search_address->setFocus();
+  m_search_address->lineEdit()->selectAll();
 }
 
 void MemoryWidget::OnSearchAddress()
@@ -522,119 +646,54 @@ void MemoryWidget::ValidateAndPreviewInputValue()
 {
   m_data_preview->clear();
   QString input_text = m_data_edit->text();
-  const auto combo_id = static_cast<InputID>(m_input_combo->currentData().toInt());
+  const auto input_type = static_cast<Type>(m_input_combo->currentData().toInt());
 
-  m_base_check->setEnabled(combo_id == InputID::U32 || combo_id == InputID::S32 ||
-                           combo_id == InputID::U16 || combo_id == InputID::S16 ||
-                           combo_id == InputID::U8 || combo_id == InputID::S8);
+  m_base_check->setEnabled(input_type == Type::Unsigned32 || input_type == Type::Signed32 ||
+                           input_type == Type::Unsigned16 || input_type == Type::Signed16 ||
+                           input_type == Type::Unsigned8 || input_type == Type::Signed8);
 
   if (input_text.isEmpty())
     return;
 
   // Remove any spaces
-  if (combo_id != InputID::ASCII)
+  if (input_type != Type::ASCII)
     input_text.remove(QLatin1Char(' '));
+
+  if (input_type == Type::HexString)
+  {
+    // Hex strings are parsed using QByteArray::fromHex which doesn't expect a 0x prefix. If the
+    // user has inserted one, remove it.
+    if (input_text.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive))
+      input_text.remove(0, 2);
+  }
+  else if (m_base_check->isChecked())
+  {
+    // Add 0x to the front of the input (after the '-', if present), but only if the user didn't
+    // already do so.
+    if (input_text.startsWith(QLatin1Char('-')))
+    {
+      if (!input_text.startsWith(QStringLiteral("-0x"), Qt::CaseInsensitive))
+        input_text.insert(1, QStringLiteral("0x"));
+    }
+    else if (!input_text.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive))
+    {
+      input_text.prepend(QStringLiteral("0x"));
+    }
+  }
 
   QFont font;
   QPalette palette;
-  QString hex_string;
-  bool good = false;
-  const int radix = (m_base_check->isChecked() && m_base_check->isEnabled()) ? 16 : 0;
+  std::vector<u8> bytes = m_memory_view->ConvertTextToBytes(input_type, input_text);
 
-  switch (combo_id)
+  if (!bytes.empty())
   {
-  case InputID::ASCII:
-  {
-    good = true;
-    const QByteArray bytes = input_text.toLatin1();
-    hex_string = QString::fromLatin1(bytes.toHex());
-    break;
-  }
-  case InputID::FLOAT:
-  {
-    const float value_float = input_text.toFloat(&good);
+    QString hex_string;
+    std::string s;
 
-    if (good)
-    {
-      const u32 hex_out = Common::BitCast<u32>(value_float);
-      hex_string = QString::fromStdString(fmt::format("{:08X}", hex_out));
-    }
-    break;
-  }
-  case InputID::DOUBLE:
-  {
-    const double value_double = input_text.toDouble(&good);
+    for (const u8 c : bytes)
+      s.append(fmt::format("{:02x}", c));
 
-    if (good)
-    {
-      const u64 hex_out = Common::BitCast<u64>(value_double);
-      hex_string = QString::fromStdString(fmt::format("{:016X}", hex_out));
-    }
-    break;
-  }
-  case InputID::S8:
-  {
-    const short value = input_text.toShort(&good, radix);
-    good &= std::numeric_limits<signed char>::min() <= value &&
-            value <= std::numeric_limits<signed char>::max();
-    if (good)
-      hex_string = QString::fromStdString(fmt::sprintf("%02hhX", value));
-    break;
-  }
-  case InputID::S16:
-  {
-    const short value = input_text.toShort(&good, radix);
-    if (good)
-      hex_string = QString::fromStdString(fmt::sprintf("%04hX", value));
-    break;
-  }
-  case InputID::S32:
-  {
-    const int value_int = input_text.toInt(&good, radix);
-    if (good)
-      hex_string = QString::fromStdString(fmt::sprintf("%08X", value_int));
-    break;
-  }
-  case InputID::U8:
-  {
-    const unsigned short value = input_text.toUShort(&good, radix);
-    good &= (value & 0xFF00) == 0;
-    if (good)
-      hex_string = QString::fromStdString(fmt::format("{:02X}", value));
-    break;
-  }
-  case InputID::U16:
-  {
-    const unsigned short value = input_text.toUShort(&good, radix);
-    if (good)
-      hex_string = QString::fromStdString(fmt::format("{:04X}", value));
-    break;
-  }
-  case InputID::U32:
-  {
-    const u32 value = input_text.toUInt(&good, radix);
-    if (good)
-      hex_string = QString::fromStdString(fmt::format("{:08X}", value));
-    break;
-  }
-  case InputID::HEXSTR:
-  {
-    // Confirm it is only hex bytes
-    const QRegularExpression is_hex(QStringLiteral("^([0-9A-F]{2})*$"),
-                                    QRegularExpression::CaseInsensitiveOption);
-    const QRegularExpressionMatch match = is_hex.match(input_text);
-    good = match.hasMatch();
-    if (good)
-    {
-      const QByteArray hbytes = QByteArray::fromHex(input_text.toUtf8());
-      hex_string = QString::fromLatin1(hbytes.toHex());
-    }
-    break;
-  }
-  }
-
-  if (good)
-  {
+    hex_string = QString::fromStdString(s);
     int output_length = hex_string.length();
 
     if (output_length > 16)
@@ -665,14 +724,14 @@ QByteArray MemoryWidget::GetInputData() const
   if (m_data_preview->text().isEmpty())
     return QByteArray();
 
-  const auto combo_id = static_cast<InputID>(m_input_combo->currentData().toInt());
+  const auto input_type = static_cast<Type>(m_input_combo->currentData().toInt());
 
   // Ascii might be truncated, pull from data edit box.
-  if (combo_id == InputID::ASCII)
+  if (input_type == Type::ASCII)
     return QByteArray(m_data_edit->text().toUtf8());
 
-  // If we are doing a large aray of hex bytes
-  if (combo_id == InputID::HEXSTR)
+  // If we are doing a large array of hex bytes
+  if (input_type == Type::HexString)
     return QByteArray::fromHex(m_data_edit->text().toUtf8());
 
   // Data preview has exactly what we want to input, so pull it from there.
@@ -681,7 +740,7 @@ QByteArray MemoryWidget::GetInputData() const
 
 void MemoryWidget::OnSetValue()
 {
-  if (!Core::IsRunning())
+  if (!Core::IsRunning(m_system))
     return;
 
   auto target_addr = GetTargetAddress();
@@ -707,17 +766,27 @@ void MemoryWidget::OnSetValue()
     return;
   }
 
+  const Core::CPUThreadGuard guard(m_system);
+
   AddressSpace::Accessors* accessors = AddressSpace::GetAccessors(m_memory_view->GetAddressSpace());
+  u32 end_address = target_addr.address + static_cast<u32>(bytes.size()) - 1;
+
+  if (!accessors->IsValidAddress(guard, target_addr.address) ||
+      !accessors->IsValidAddress(guard, end_address))
+  {
+    ModalMessageBox::critical(this, tr("Error"), tr("Target address range is invalid."));
+    return;
+  }
 
   for (const char c : bytes)
-    accessors->WriteU8(target_addr.address++, static_cast<u8>(c));
+    accessors->WriteU8(guard, target_addr.address++, static_cast<u8>(c));
 
   Update();
 }
 
 void MemoryWidget::OnSetValueFromFile()
 {
-  if (!Core::IsRunning())
+  if (!Core::IsRunning(m_system))
     return;
 
   auto target_addr = GetTargetAddress();
@@ -759,10 +828,104 @@ void MemoryWidget::OnSetValueFromFile()
 
   AddressSpace::Accessors* accessors = AddressSpace::GetAccessors(m_memory_view->GetAddressSpace());
 
+  const Core::CPUThreadGuard guard(m_system);
+
   for (u8 b : file_contents)
-    accessors->WriteU8(target_addr.address++, b);
+    accessors->WriteU8(guard, target_addr.address++, b);
 
   Update();
+}
+
+void MemoryWidget::RefreshLabelBox()
+{
+  if (!m_labels_visible || m_ppc_symbol_db.IsEmpty())
+  {
+    m_labels_group->hide();
+    return;
+  }
+
+  m_labels_group->show();
+
+  UpdateSymbols();
+  UpdateNotes();
+}
+
+void MemoryWidget::OnSelectLabel()
+{
+  QList<QListWidgetItem*> items;
+  if (m_note_list->isVisible())
+    items = m_note_list->selectedItems();
+  else if (m_symbols_list->isVisible())
+    items = m_symbols_list->selectedItems();
+  else if (m_data_list->isVisible())
+    items = m_data_list->selectedItems();
+
+  if (items.isEmpty())
+    return;
+
+  const u32 address = items[0]->data(Qt::UserRole).toUInt();
+
+  SetAddress(address);
+}
+
+void MemoryWidget::UpdateSymbols()
+{
+  const QString selection = m_symbols_list->selectedItems().isEmpty() ?
+                                QString{} :
+                                m_symbols_list->selectedItems()[0]->text();
+  m_symbols_list->clear();
+  m_data_list->clear();
+
+  m_ppc_symbol_db.ForEachSymbol([&](const Common::Symbol& symbol) {
+    QString name = QString::fromStdString(symbol.name);
+
+    // If the symbol has an object name, add it to the entry name.
+    if (!symbol.object_name.empty())
+    {
+      name += QString::fromStdString(fmt::format(" ({})", symbol.object_name));
+    }
+
+    auto* item = new QListWidgetItem(name);
+    if (name == selection)
+      item->setSelected(true);
+
+    item->setData(Qt::UserRole, symbol.address);
+
+    if (!name.contains(m_search_labels->text(), Qt::CaseInsensitive))
+      return;
+
+    if (symbol.type != Common::Symbol::Type::Function)
+      m_data_list->addItem(item);
+    else
+      m_symbols_list->addItem(item);
+  });
+
+  m_symbols_list->sortItems();
+}
+
+void MemoryWidget::UpdateNotes()
+{
+  // Save selection to re-apply.
+  const QString selection = m_note_list->selectedItems().isEmpty() ?
+                                QStringLiteral("") :
+                                m_note_list->selectedItems()[0]->text();
+  m_note_list->clear();
+
+  m_ppc_symbol_db.ForEachNote([&](const Common::Note& note) {
+    const QString name = QString::fromStdString(note.name);
+
+    auto* item = new QListWidgetItem(name);
+    if (name == selection)
+      item->setSelected(true);
+
+    item->setData(Qt::UserRole, note.address);
+
+    // Filter notes based on the search text.
+    if (name.contains(m_search_labels->text(), Qt::CaseInsensitive))
+      m_note_list->addItem(item);
+  });
+
+  m_note_list->sortItems();
 }
 
 static void DumpArray(const std::string& filename, const u8* data, size_t length)
@@ -821,8 +984,8 @@ MemoryWidget::TargetAddress MemoryWidget::GetTargetAddress() const
   TargetAddress target;
 
   // Returns 0 if conversion fails
-  const u32 addr = m_search_address->text().toUInt(&target.is_good_address, 16);
-  target.is_good_address |= m_search_address->text().isEmpty();
+  const u32 addr = m_search_address->currentText().toUInt(&target.is_good_address, 16);
+  target.is_good_address |= m_search_address->currentText().isEmpty();
   const s32 offset = m_search_offset->text().toInt(&target.is_good_offset, 16);
   const u32 neg_offset = offset != std::numeric_limits<s32>::min() ?
                              -offset :
@@ -865,17 +1028,21 @@ void MemoryWidget::FindValue(bool next)
     return;
   }
 
-  if (!m_search_address->text().isEmpty())
+  if (!m_search_address->currentText().isEmpty())
   {
     // skip the quoted address so we don't potentially refind the last result
     target_addr.address += next ? 1 : -1;
   }
 
-  AddressSpace::Accessors* accessors = AddressSpace::GetAccessors(m_memory_view->GetAddressSpace());
+  const std::optional<u32> found_addr = [&] {
+    AddressSpace::Accessors* accessors =
+        AddressSpace::GetAccessors(m_memory_view->GetAddressSpace());
 
-  const auto found_addr =
-      accessors->Search(target_addr.address, reinterpret_cast<const u8*>(search_for.data()),
-                        static_cast<u32>(search_for.size()), next);
+    const Core::CPUThreadGuard guard(m_system);
+    return accessors->Search(guard, target_addr.address,
+                             reinterpret_cast<const u8*>(search_for.data()),
+                             static_cast<u32>(search_for.size()), next);
+  }();
 
   if (found_addr.has_value())
   {
@@ -883,7 +1050,7 @@ void MemoryWidget::FindValue(bool next)
 
     u32 offset = *found_addr;
 
-    m_search_address->setText(QStringLiteral("%1").arg(offset, 8, 16, QLatin1Char('0')));
+    m_search_address->setCurrentText(QStringLiteral("%1").arg(offset, 8, 16, QLatin1Char('0')));
     m_search_offset->clear();
 
     m_memory_view->SetAddress(offset);

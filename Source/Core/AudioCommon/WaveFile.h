@@ -30,23 +30,28 @@ public:
   WaveFileWriter(WaveFileWriter&&) = delete;
   WaveFileWriter& operator=(WaveFileWriter&&) = delete;
 
-  bool Start(const std::string& filename, unsigned int HLESampleRate);
+  bool Start(const std::string& filename, u32 sample_rate_divisor);
   void Stop();
 
-  void SetSkipSilence(bool skip) { skip_silence = skip; }
-  void AddStereoSamplesBE(const short* sample_data, u32 count, int sample_rate);  // big endian
-  u32 GetAudioSize() const { return audio_size; }
+  void SetSkipSilence(bool skip) { m_skip_silence = skip; }
+  // big endian
+  void AddStereoSamplesBE(const short* sample_data, u32 count, u32 sample_rate_divisor,
+                          int l_volume, int r_volume);
+  u32 GetAudioSize() const { return m_audio_size; }
 
 private:
   static constexpr size_t BUFFER_SIZE = 32 * 1024;
 
-  File::IOFile file;
-  bool skip_silence = false;
-  u32 audio_size = 0;
-  std::array<short, BUFFER_SIZE> conv_buffer{};
   void Write(u32 value);
   void Write4(const char* ptr);
-  std::string basename;
-  int current_sample_rate;
-  int file_index = 0;
+
+  File::IOFile m_file;
+  std::string m_basename;
+  u32 m_file_index = 0;
+  u32 m_audio_size = 0;
+
+  u32 m_current_sample_rate_divisor;
+  std::array<short, BUFFER_SIZE> m_conv_buffer{};
+
+  bool m_skip_silence = false;
 };

@@ -3,24 +3,19 @@
 
 #include "Core/HW/WiimoteEmu/Speaker.h"
 
-#include <memory>
+#include <cassert>
 
 #include "AudioCommon/AudioCommon.h"
+
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
-#include "Common/MathUtil.h"
+
 #include "Core/ConfigManager.h"
 #include "Core/HW/WiimoteEmu/WiimoteEmu.h"
+#include "Core/System.h"
+
 #include "InputCommon/ControllerEmu/ControlGroup/ControlGroup.h"
 #include "InputCommon/ControllerEmu/Setting/NumericSetting.h"
-
-//#define WIIMOTE_SPEAKER_DUMP
-#ifdef WIIMOTE_SPEAKER_DUMP
-#include <cstdlib>
-#include <fstream>
-#include "AudioCommon/WaveFile.h"
-#include "Common/FileUtil.h"
-#endif
 
 namespace WiimoteEmu
 {
@@ -59,17 +54,6 @@ static s16 adpcm_yamaha_expand_nibble(ADPCMState& s, u8 nibble)
   return s.predictor;
 }
 
-#ifdef WIIMOTE_SPEAKER_DUMP
-std::ofstream ofile;
-WaveFileWriter wav;
-
-void stopdamnwav()
-{
-  wav.Stop();
-  ofile.close();
-}
-#endif
-
 void SpeakerLogic::SpeakerData(const u8* data, int length, float speaker_pan)
 {
   // TODO: should we still process samples for the decoder state?
@@ -81,8 +65,9 @@ void SpeakerLogic::SpeakerData(const u8* data, int length, float speaker_pan)
 
   // Even if volume is zero we process samples to maintain proper decoder state.
 
-  // TODO consider using static max size instead of new
-  std::unique_ptr<s16[]> samples(new s16[length * 2]);
+  // Potentially 40 resulting samples.
+  std::array<s16, WiimoteCommon::OutputReportSpeakerData::DATA_SIZE * 2> samples;
+  assert(length * 2 <= static_cast<int>(samples.size()));
 
   unsigned int sample_rate_dividend, sample_length;
   u8 volume_divisor;
@@ -141,34 +126,16 @@ void SpeakerLogic::SpeakerData(const u8* data, int length, float speaker_pan)
   const u32 l_volume = std::min(u32(std::min(1.f - speaker_pan, 1.f) * volume), 255u);
   const u32 r_volume = std::min(u32(std::min(1.f + speaker_pan, 1.f) * volume), 255u);
 
-  g_sound_stream->GetMixer()->SetWiimoteSpeakerVolume(l_volume, r_volume);
+  auto& system = Core::System::GetInstance();
+  SoundStream* sound_stream = system.GetSoundStream();
+
+  sound_stream->GetMixer()->SetWiimoteSpeakerVolume(m_wiimote_index, l_volume, r_volume);
 
   // ADPCM sample rate is thought to be x2.(3000 x2 = 6000).
   const unsigned int sample_rate = sample_rate_dividend / reg_data.sample_rate;
-  g_sound_stream->GetMixer()->PushWiimoteSpeakerSamples(samples.get(), sample_length,
-                                                        sample_rate * 2);
-
-#ifdef WIIMOTE_SPEAKER_DUMP
-  static int num = 0;
-
-  if (num == 0)
-  {
-    File::Delete("rmtdump.wav");
-    File::Delete("rmtdump.bin");
-    atexit(stopdamnwav);
-    File::OpenFStream(ofile, "rmtdump.bin", ofile.binary | ofile.out);
-    wav.Start("rmtdump.wav", 6000);
-  }
-  wav.AddMonoSamples(samples.get(), length * 2);
-  if (ofile.good())
-  {
-    for (int i = 0; i < length; i++)
-    {
-      ofile << data[i];
-    }
-  }
-  num++;
-#endif
+  sound_stream->GetMixer()->PushWiimoteSpeakerSamples(
+      m_wiimote_index, samples.data(), sample_length,
+      Mixer::FIXED_SAMPLE_RATE_DIVIDEND / (sample_rate * 2));
 }
 
 void SpeakerLogic::Reset()
@@ -204,7 +171,7 @@ int SpeakerLogic::BusWrite(u8 slave_addr, u8 addr, int count, const u8* data_in)
   if (I2C_ADDR != slave_addr)
     return 0;
 
-  if (0x00 == addr)
+  if (addr == SPEAKER_DATA_OFFSET)
   {
     SpeakerData(data_in, count, m_speaker_pan_setting.GetValue() / 100);
     return count;

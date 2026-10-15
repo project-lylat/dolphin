@@ -10,6 +10,7 @@
 
 #include "Common/CommonTypes.h"
 #include "Common/IOFile.h"
+#include "Core/CPUThreadConfigCallback.h"
 #include "Core/IOS/Device.h"
 #include "Core/IOS/IOS.h"
 
@@ -18,10 +19,10 @@ class PointerWrap;
 namespace IOS::HLE
 {
 // The front SD slot
-class SDIOSlot0Device : public Device
+class SDIOSlot0Device : public EmulationDevice
 {
 public:
-  SDIOSlot0Device(Kernel& ios, const std::string& device_name);
+  SDIOSlot0Device(EmulationKernel& ios, const std::string& device_name);
   ~SDIOSlot0Device() override;
 
   void DoState(PointerWrap& p) override;
@@ -62,6 +63,7 @@ private:
   {
     RET_OK,
     RET_FAIL,
+    RET_LOCKED = -10,
     RET_EVENT_REGISTER,  // internal state only - not actually returned
   };
 
@@ -69,7 +71,8 @@ private:
   enum
   {
     CARD_NOT_EXIST = 0,
-    CARD_INSERTED = 1,
+    CARD_INSERTED = 0x1,
+    CARD_LOCKED = 0x4,
     CARD_INITIALIZED = 0x10000,
     CARD_SDHC = 0x100000,
   };
@@ -166,7 +169,7 @@ private:
 
   File::IOFile m_card;
 
-  size_t m_config_callback_id;
+  CPUThreadConfigCallback::ConfigChangedCallbackID m_config_callback_id;
   bool m_sd_card_inserted = false;
 };
 }  // namespace IOS::HLE

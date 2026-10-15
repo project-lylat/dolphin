@@ -14,35 +14,37 @@ ShaderHostConfig ShaderHostConfig::GetCurrent()
 {
   ShaderHostConfig bits = {};
   bits.msaa = g_ActiveConfig.iMultisamples > 1;
-  bits.ssaa = g_ActiveConfig.iMultisamples > 1 && g_ActiveConfig.bSSAA &&
-              g_ActiveConfig.backend_info.bSupportsSSAA;
+  bits.ssaa =
+      g_ActiveConfig.iMultisamples > 1 && g_ActiveConfig.bSSAA && g_backend_info.bSupportsSSAA;
   bits.stereo = g_ActiveConfig.stereo_mode != StereoMode::Off;
   bits.wireframe = g_ActiveConfig.bWireFrame;
   bits.per_pixel_lighting = g_ActiveConfig.bEnablePixelLighting;
   bits.vertex_rounding = g_ActiveConfig.UseVertexRounding();
   bits.fast_depth_calc = g_ActiveConfig.bFastDepthCalc;
   bits.bounding_box = g_ActiveConfig.bBBoxEnable;
-  bits.backend_dual_source_blend = g_ActiveConfig.backend_info.bSupportsDualSourceBlend;
-  bits.backend_geometry_shaders = g_ActiveConfig.backend_info.bSupportsGeometryShaders;
-  bits.backend_early_z = g_ActiveConfig.backend_info.bSupportsEarlyZ;
-  bits.backend_bbox = g_ActiveConfig.backend_info.bSupportsBBox;
-  bits.backend_gs_instancing = g_ActiveConfig.backend_info.bSupportsGSInstancing;
-  bits.backend_clip_control = g_ActiveConfig.backend_info.bSupportsClipControl;
-  bits.backend_ssaa = g_ActiveConfig.backend_info.bSupportsSSAA;
-  bits.backend_atomics = g_ActiveConfig.backend_info.bSupportsFragmentStoresAndAtomics;
-  bits.backend_depth_clamp = g_ActiveConfig.backend_info.bSupportsDepthClamp;
-  bits.backend_reversed_depth_range = g_ActiveConfig.backend_info.bSupportsReversedDepthRange;
-  bits.backend_bitfield = g_ActiveConfig.backend_info.bSupportsBitfield;
-  bits.backend_dynamic_sampler_indexing =
-      g_ActiveConfig.backend_info.bSupportsDynamicSamplerIndexing;
-  bits.backend_shader_framebuffer_fetch = g_ActiveConfig.backend_info.bSupportsFramebufferFetch;
-  bits.backend_logic_op = g_ActiveConfig.backend_info.bSupportsLogicOp;
-  bits.backend_palette_conversion = g_ActiveConfig.backend_info.bSupportsPaletteConversion;
+  bits.backend_dual_source_blend = g_backend_info.bSupportsDualSourceBlend;
+  bits.backend_geometry_shaders = g_backend_info.bSupportsGeometryShaders;
+  bits.backend_early_z = g_backend_info.bSupportsEarlyZ;
+  bits.backend_bbox = g_backend_info.bSupportsBBox;
+  bits.backend_gs_instancing = g_backend_info.bSupportsGSInstancing;
+  bits.backend_clip_control = g_backend_info.bSupportsClipControl;
+  bits.backend_ssaa = g_backend_info.bSupportsSSAA;
+  bits.backend_atomics = g_backend_info.bSupportsFragmentStoresAndAtomics;
+  bits.backend_depth_clamp = g_backend_info.bSupportsDepthClamp;
+  bits.backend_reversed_depth_range = g_backend_info.bSupportsReversedDepthRange;
+  bits.backend_bitfield = g_backend_info.bSupportsBitfield;
+  bits.backend_dynamic_sampler_indexing = g_backend_info.bSupportsDynamicSamplerIndexing;
+  bits.backend_shader_framebuffer_fetch = g_backend_info.bSupportsFramebufferFetch;
+  bits.backend_logic_op = g_backend_info.bSupportsLogicOp;
+  bits.backend_palette_conversion = g_backend_info.bSupportsPaletteConversion;
   bits.enable_validation_layer = g_ActiveConfig.bEnableValidationLayer;
   bits.manual_texture_sampling = !g_ActiveConfig.bFastTextureSampling;
   bits.manual_texture_sampling_custom_texture_sizes =
-      g_ActiveConfig.ManualTextureSamplingWithHiResTextures();
-  bits.backend_sampler_lod_bias = g_ActiveConfig.backend_info.bSupportsLodBiasInSampler;
+      g_ActiveConfig.ManualTextureSamplingWithCustomTextureSizes();
+  bits.backend_sampler_lod_bias = g_backend_info.bSupportsLodBiasInSampler;
+  bits.backend_dynamic_vertex_loader = g_backend_info.bSupportsDynamicVertexLoader;
+  bits.backend_vs_point_line_expand = g_ActiveConfig.UseVSForLinePointExpand();
+  bits.backend_gl_layer_in_fs = g_backend_info.bSupportsGLLayerInFS;
   return bits;
 }
 
@@ -59,6 +61,9 @@ std::string GetDiskShaderCacheFileName(APIType api_type, const char* type, bool 
     {
     case APIType::D3D:
       filename += "D3D";
+      break;
+    case APIType::Metal:
+      filename += "Metal";
       break;
     case APIType::OpenGL:
       filename += "OpenGL";
@@ -99,9 +104,9 @@ void WriteIsNanHeader(ShaderCode& out, APIType api_type)
               "  // Workaround for the HLSL compiler deciding that isnan can never be true and\n"
               "  // optimising away the call, even though the value can actually be NaN\n"
               "  // Just look for the bit pattern that indicates NaN instead\n"
-              "  return (asint(f) & 0x7FFFFFFF) > 0x7F800000;\n"
+              "  return (floatBitsToInt(f) & 0x7FFFFFFF) > 0x7F800000;\n"
               "}}\n\n");
-    // If isfinite is needed, (asint(f) & 0x7F800000) != 0x7F800000 can be used
+    // If isfinite is needed, (floatBitsToInt(f) & 0x7F800000) != 0x7F800000 can be used
   }
   else
   {
@@ -135,14 +140,15 @@ void WriteBitfieldExtractHeader(ShaderCode& out, APIType api_type,
 
 static void DefineOutputMember(ShaderCode& object, APIType api_type, std::string_view qualifier,
                                std::string_view type, std::string_view name, int var_index,
-                               std::string_view semantic = {}, int semantic_index = -1)
+                               ShaderStage stage, std::string_view semantic = {},
+                               int semantic_index = -1)
 {
   object.Write("\t{} {} {}", qualifier, type, name);
 
   if (var_index != -1)
     object.Write("{}", var_index);
 
-  if (api_type == APIType::D3D && !semantic.empty())
+  if (api_type == APIType::D3D && !semantic.empty() && stage == ShaderStage::Geometry)
   {
     if (semantic_index != -1)
       object.Write(" : {}{}", semantic, semantic_index);
@@ -154,30 +160,83 @@ static void DefineOutputMember(ShaderCode& object, APIType api_type, std::string
 }
 
 void GenerateVSOutputMembers(ShaderCode& object, APIType api_type, u32 texgens,
-                             const ShaderHostConfig& host_config, std::string_view qualifier)
+                             const ShaderHostConfig& host_config, std::string_view qualifier,
+                             ShaderStage stage)
 {
-  DefineOutputMember(object, api_type, qualifier, "float4", "pos", -1, "SV_Position");
-  DefineOutputMember(object, api_type, qualifier, "float4", "colors_", 0, "COLOR", 0);
-  DefineOutputMember(object, api_type, qualifier, "float4", "colors_", 1, "COLOR", 1);
-
-  for (unsigned int i = 0; i < texgens; ++i)
-    DefineOutputMember(object, api_type, qualifier, "float3", "tex", i, "TEXCOORD", i);
-
-  if (!host_config.fast_depth_calc)
-    DefineOutputMember(object, api_type, qualifier, "float4", "clipPos", -1, "TEXCOORD", texgens);
-
-  if (host_config.per_pixel_lighting)
+  // SPIRV-Cross names all semantics as "TEXCOORD"
+  // Unfortunately Geometry shaders (which also uses this function)
+  // aren't supported.  The output semantic name needs to match
+  // up with the input semantic name for both the next stage (pixel shader)
+  // and the previous stage (vertex shader), so
+  // we need to handle geometry in a special way...
+  if (api_type == APIType::D3D && stage == ShaderStage::Geometry)
   {
-    DefineOutputMember(object, api_type, qualifier, "float3", "Normal", -1, "TEXCOORD",
-                       texgens + 1);
-    DefineOutputMember(object, api_type, qualifier, "float3", "WorldPos", -1, "TEXCOORD",
-                       texgens + 2);
+    DefineOutputMember(object, api_type, qualifier, "float4", "pos", -1, stage, "TEXCOORD", 0);
+    DefineOutputMember(object, api_type, qualifier, "float4", "colors_", 0, stage, "TEXCOORD", 1);
+    DefineOutputMember(object, api_type, qualifier, "float4", "colors_", 1, stage, "TEXCOORD", 2);
+
+    const unsigned int index_base = 3;
+    unsigned int index_offset = 0;
+    if (host_config.backend_geometry_shaders)
+    {
+      DefineOutputMember(object, api_type, qualifier, "float", "clipDist", 0, stage, "TEXCOORD",
+                         index_base + index_offset);
+      DefineOutputMember(object, api_type, qualifier, "float", "clipDist", 1, stage, "TEXCOORD",
+                         index_base + index_offset + 1);
+      index_offset += 2;
+    }
+
+    for (unsigned int i = 0; i < texgens; ++i)
+    {
+      DefineOutputMember(object, api_type, qualifier, "float3", "tex", i, stage, "TEXCOORD",
+                         index_base + index_offset + i);
+    }
+    index_offset += texgens;
+
+    if (!host_config.fast_depth_calc)
+    {
+      DefineOutputMember(object, api_type, qualifier, "float4", "clipPos", -1, stage, "TEXCOORD",
+                         index_base + index_offset);
+      index_offset++;
+    }
+
+    if (host_config.per_pixel_lighting)
+    {
+      DefineOutputMember(object, api_type, qualifier, "float3", "Normal", -1, stage, "TEXCOORD",
+                         index_base + index_offset);
+      DefineOutputMember(object, api_type, qualifier, "float3", "WorldPos", -1, stage, "TEXCOORD",
+                         index_base + index_offset + 1);
+      index_offset += 2;
+    }
   }
-
-  if (host_config.backend_geometry_shaders)
+  else
   {
-    DefineOutputMember(object, api_type, qualifier, "float", "clipDist", 0, "SV_ClipDistance", 0);
-    DefineOutputMember(object, api_type, qualifier, "float", "clipDist", 1, "SV_ClipDistance", 1);
+    DefineOutputMember(object, api_type, qualifier, "float4", "pos", -1, stage, "SV_Position");
+    DefineOutputMember(object, api_type, qualifier, "float4", "colors_", 0, stage, "COLOR", 0);
+    DefineOutputMember(object, api_type, qualifier, "float4", "colors_", 1, stage, "COLOR", 1);
+
+    if (host_config.backend_geometry_shaders)
+    {
+      DefineOutputMember(object, api_type, qualifier, "float", "clipDist", 0, stage,
+                         "SV_ClipDistance", 0);
+      DefineOutputMember(object, api_type, qualifier, "float", "clipDist", 1, stage,
+                         "SV_ClipDistance", 1);
+    }
+
+    for (unsigned int i = 0; i < texgens; ++i)
+      DefineOutputMember(object, api_type, qualifier, "float3", "tex", i, stage, "TEXCOORD", i);
+
+    if (!host_config.fast_depth_calc)
+      DefineOutputMember(object, api_type, qualifier, "float4", "clipPos", -1, stage, "TEXCOORD",
+                         texgens);
+
+    if (host_config.per_pixel_lighting)
+    {
+      DefineOutputMember(object, api_type, qualifier, "float3", "Normal", -1, stage, "TEXCOORD",
+                         texgens + 1);
+      DefineOutputMember(object, api_type, qualifier, "float3", "WorldPos", -1, stage, "TEXCOORD",
+                         texgens + 2);
+    }
   }
 }
 
@@ -207,6 +266,78 @@ void AssignVSOutputMembers(ShaderCode& object, std::string_view a, std::string_v
   }
 }
 
+void GenerateLineOffset(ShaderCode& object, std::string_view indent0, std::string_view indent1,
+                        std::string_view pos_a, std::string_view pos_b, std::string_view sign)
+{
+  // GameCube/Wii's line drawing algorithm is a little quirky. It does not
+  // use the correct line caps. Instead, the line caps are vertical or
+  // horizontal depending the slope of the line.
+  object.Write("{indent0}float2 offset;\n"
+               "{indent0}float2 to = abs({pos_a}.xy / {pos_a}.w - {pos_b}.xy / {pos_b}.w);\n"
+               // FIXME: What does real hardware do when line is at a 45-degree angle?
+               // FIXME: Lines aren't drawn at the correct width. See Twilight Princess map.
+               "{indent0}if (" I_LINEPTPARAMS ".y * to.y > " I_LINEPTPARAMS ".x * to.x) {{\n"
+               // Line is more tall. Extend geometry left and right.
+               // Lerp LineWidth/2 from [0..VpWidth] to [-1..1]
+               "{indent1}offset = float2({sign}" I_LINEPTPARAMS ".z / " I_LINEPTPARAMS ".x, 0);\n"
+               "{indent0}}} else {{\n"
+               // Line is more wide. Extend geometry up and down.
+               // Lerp LineWidth/2 from [0..VpHeight] to [1..-1]
+               "{indent1}offset = float2(0, {sign}-" I_LINEPTPARAMS ".z / " I_LINEPTPARAMS ".y);\n"
+               "{indent0}}}\n",
+               fmt::arg("indent0", indent0), fmt::arg("indent1", indent1),  //
+               fmt::arg("pos_a", pos_a), fmt::arg("pos_b", pos_b), fmt::arg("sign", sign));
+}
+
+void GenerateVSLineExpansion(ShaderCode& object, std::string_view indent, u32 texgens)
+{
+  std::string indent1 = std::string(indent) + "  ";
+  object.Write("{0}other_pos = float4(dot(" I_PROJECTION "[0], other_pos), dot(" I_PROJECTION
+               "[1], other_pos), dot(" I_PROJECTION "[2], other_pos), dot(" I_PROJECTION
+               "[3], other_pos));\n"
+               "\n"
+               "{0}float expand_sign = is_right ? 1.0f : -1.0f;\n",
+               indent);
+  GenerateLineOffset(object, indent, indent1, "o.pos", "other_pos", "expand_sign * ");
+  object.Write("\n"
+               "{}o.pos.xy += offset * o.pos.w;\n",
+               indent);
+  if (texgens > 0)
+  {
+    object.Write("{}if ((" I_TEXOFFSET "[2] != 0) && is_right) {{\n", indent);
+    object.Write("{}  float texOffset = 1.0 / float(" I_TEXOFFSET "[2]);\n", indent);
+    for (u32 i = 0; i < texgens; i++)
+    {
+      object.Write("{}  if (((" I_TEXOFFSET "[0] >> {}) & 0x1) != 0)\n", indent, i);
+      object.Write("{}    o.tex{}.x += texOffset;\n", indent, i);
+    }
+    object.Write("{}}}\n", indent);
+  }
+}
+
+void GenerateVSPointExpansion(ShaderCode& object, std::string_view indent, u32 texgens)
+{
+  object.Write(
+      "{0}float2 expand_sign = float2(is_right ? 1.0f : -1.0f, is_bottom ? -1.0f : 1.0f);\n"
+      "{0}float2 offset = expand_sign * " I_LINEPTPARAMS ".ww / " I_LINEPTPARAMS ".xy;\n"
+      "{0}o.pos.xy += offset * o.pos.w;\n",
+      indent);
+  if (texgens > 0)
+  {
+    object.Write("{0}if (" I_TEXOFFSET "[3] != 0) {{\n"
+                 "{0}  float texOffsetMagnitude = 1.0f / float(" I_TEXOFFSET "[3]);\n"
+                 "{0}  float2 texOffset = float2(is_right ? texOffsetMagnitude : 0.0f, "
+                 "is_bottom ? texOffsetMagnitude : 0.0f);",
+                 indent);
+    for (u32 i = 0; i < texgens; i++)
+    {
+      object.Write("{}  if (((" I_TEXOFFSET "[1] >> {}) & 0x1) != 0)\n", indent, i);
+      object.Write("{}    o.tex{}.xy += texOffset;\n", indent, i);
+    }
+    object.Write("{}}}\n", indent);
+  }
+}
+
 const char* GetInterpolationQualifier(bool msaa, bool ssaa, bool in_glsl_interface_block, bool in)
 {
   if (!msaa)
@@ -214,7 +345,7 @@ const char* GetInterpolationQualifier(bool msaa, bool ssaa, bool in_glsl_interfa
 
   // Without GL_ARB_shading_language_420pack support, the interpolation qualifier must be
   // "centroid in" and not "centroid", even within an interface block.
-  if (in_glsl_interface_block && !g_ActiveConfig.backend_info.bSupportsBindingLayout)
+  if (in_glsl_interface_block && !g_backend_info.bSupportsBindingLayout)
   {
     if (!ssaa)
       return in ? "centroid in" : "centroid out";

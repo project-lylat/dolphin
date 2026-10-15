@@ -12,8 +12,6 @@
 #include <QPushButton>
 #include <QTimer>
 
-#include "Core/ConfigManager.h"
-
 #include "DolphinQt/Settings.h"
 
 // Delay in ms between calls of UpdateLog()
@@ -52,15 +50,16 @@ LogWidget::LogWidget(QWidget* parent) : QDockWidget(parent), m_timer(new QTimer(
 
   connect(&Settings::Instance(), &Settings::DebugFontChanged, this, &LogWidget::UpdateFont);
 
-  Common::Log::LogManager::GetInstance()->RegisterListener(LogListener::LOG_WINDOW_LISTENER, this);
+  Common::Log::LogManager::GetInstance()->RegisterListener(
+      Common::Log::LogListener::LOG_WINDOW_LISTENER, std::make_unique<LogListenerImpl>(this));
 }
 
 LogWidget::~LogWidget()
 {
   SaveSettings();
 
-  Common::Log::LogManager::GetInstance()->RegisterListener(LogListener::LOG_WINDOW_LISTENER,
-                                                           nullptr);
+  Common::Log::LogManager::GetInstance()->RegisterListener(
+      Common::Log::LogListener::LOG_WINDOW_LISTENER, nullptr);
 }
 
 void LogWidget::UpdateLog()
@@ -102,7 +101,7 @@ void LogWidget::UpdateLog()
     const std::string_view str_view(std::get<std::string>(line));
 
     m_log_text->appendHtml(
-        QStringLiteral("%1 <span style=\"color: %2; white-space: pre\">%3</span>")
+        QStringLiteral("%1<span style=\"color: %2; white-space: pre\">%3</span>")
             .arg(QStringFromStringView(str_view.substr(0, TIMESTAMP_LENGTH)),
                  QString::fromUtf8(color),
                  QStringFromStringView(str_view.substr(TIMESTAMP_LENGTH)).toHtmlEscaped()));
@@ -152,10 +151,8 @@ void LogWidget::CreateWidgets()
   m_log_text->setUndoRedoEnabled(false);
   m_log_text->setMaximumBlockCount(MAX_LOG_LINES);
 
-  QPalette palette = m_log_text->palette();
-  palette.setColor(QPalette::Base, Qt::black);
-  palette.setColor(QPalette::Text, Qt::white);
-  m_log_text->setPalette(palette);
+  m_log_text->setStyleSheet(
+      QStringLiteral("QPlainTextEdit { background-color: black; color: white; }"));
 }
 
 void LogWidget::ConnectWidgets()
@@ -165,8 +162,7 @@ void LogWidget::ConnectWidgets()
     m_log_ring_buffer.clear();
   });
   connect(m_log_wrap, &QCheckBox::toggled, this, &LogWidget::SaveSettings);
-  connect(m_log_font, qOverload<int>(&QComboBox::currentIndexChanged), this,
-          &LogWidget::SaveSettings);
+  connect(m_log_font, &QComboBox::currentIndexChanged, this, &LogWidget::SaveSettings);
   connect(this, &QDockWidget::topLevelChanged, this, &LogWidget::SaveSettings);
   connect(&Settings::Instance(), &Settings::LogVisibilityChanged, this, &LogWidget::setVisible);
 }
@@ -186,8 +182,7 @@ void LogWidget::LoadSettings()
                                                                      Qt::ScrollBarAlwaysOn);
 
   // Log - Font Selection
-  // Currently "Debugger Font" is not supported as there is no Qt Debugger, defaulting to Monospace
-  m_log_font->setCurrentIndex(std::min(settings.value(QStringLiteral("logging/font")).toInt(), 1));
+  m_log_font->setCurrentIndex(settings.value(QStringLiteral("logging/font")).toInt());
   UpdateFont();
 }
 

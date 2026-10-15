@@ -3,12 +3,9 @@
 
 #pragma once
 
-#include <array>
-
 #include "Common/MathUtil.h"
 #include "Common/Matrix.h"
-#include "Core/HW/WiimoteCommon/DataReport.h"
-#include "InputCommon/ControllerEmu/ControlGroup/Buttons.h"
+#include "Core/HW/WiimoteCommon/WiimoteReport.h"
 #include "InputCommon/ControllerEmu/ControlGroup/Cursor.h"
 #include "InputCommon/ControllerEmu/ControlGroup/Force.h"
 #include "InputCommon/ControllerEmu/ControlGroup/IMUAccelerometer.h"
@@ -81,7 +78,8 @@ void ApproachAngleWithAccel(RotationalState* state, const Common::Vec3& target, 
 void EmulateShake(PositionalState* state, ControllerEmu::Shake* shake_group, float time_elapsed);
 void EmulateTilt(RotationalState* state, ControllerEmu::Tilt* tilt_group, float time_elapsed);
 void EmulateSwing(MotionState* state, ControllerEmu::Force* swing_group, float time_elapsed);
-void EmulatePoint(MotionState* state, ControllerEmu::Cursor* ir_group, float time_elapsed);
+void EmulatePoint(MotionState* state, ControllerEmu::Cursor* ir_group,
+                  const ControllerEmu::InputOverrideFunction& override_func, float time_elapsed);
 void EmulateIMUCursor(IMUCursorState* state, ControllerEmu::IMUCursor* imu_ir_group,
                       ControllerEmu::IMUAccelerometer* imu_accelerometer_group,
                       ControllerEmu::IMUGyroscope* imu_gyroscope_group, float time_elapsed);
