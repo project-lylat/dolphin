@@ -311,3 +311,24 @@ Build status: not built yet (C: is full).
 - Not checked: the QR content was not decoded by a scanner, the real Lylat
   server, the 404 fallback, Retry, Manual login, the expired state, Linux or
   macOS, and any matchmaking or gameplay.
+
+## Master build with Visual Studio 2026 (2026-10-14)
+
+- Compiler: VS 2026 Build Tools, MSVC 14.51.36231, cl 19.51.36260.
+- Command: `tmp-dolphin\build.bat configure` (CMake + Ninja, Release x64,
+  `-j 2`, no extra warning switches, no source workarounds). The first run was
+  stopped at [1967/2055] when the machine ran low on memory, with no compile
+  errors up to then; the rerun (`tmp-dolphin\build.bat`) finished [90/90] with
+  exit 0. Output: `tmp-dolphin\build\Binaries\Dolphin.exe` (version string
+  2609-225).
+- No new fixes were needed beyond the commits already on this branch. libspng's
+  C4706 is not raised by MSVC 19.51, so the `CL=/wd4706` note above only
+  applies to VS 2022 17.6.
+- QR sign-in on the master binary, same mock and steps as the 2603 check:
+  approve (QR, `MOCK-7Q4X`, pick 42, "Approved!", "Logged in", `lylat.json`
+  written, NetPlay Setup shows "Mock Player" and Sign Out), deny ("Sign-in
+  denied" with Retry) and server error ("Server error (500)." with Retry) all
+  match. Screenshots are in `tmp-dolphin\shots\master\`.
+- Still not checked: a phone scan of the QR code, the real Lylat server, the
+  404 fallback, Retry, Manual login, the expired state, CI, Linux, macOS,
+  matchmaking and gameplay.
