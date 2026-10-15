@@ -3,6 +3,7 @@
 
 #include "DolphinQt/WiiKeysDialog.h"
 
+#include <string>
 #include <variant>
 
 #include <QDesktopServices>
