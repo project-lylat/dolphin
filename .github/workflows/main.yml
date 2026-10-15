@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - lylat/dolphin-matchmaking
+      - "lylat/ci-*"
     paths-ignore:
       - "**.md"
       - "**.ini"
@@ -12,236 +13,131 @@ on:
     paths-ignore:
       - "**.md"
       - "**.ini"
+  workflow_dispatch:
+
+# Upstream Dolphin master needs Visual Studio 2026 (Source/PCH/pch.h refuses older MSVC),
+# C++23 (GCC 13 or later on Linux) and macOS 11 or later. windows-2025 carries VS 2026 since
+# June 2026. The artifact actions before v4 are switched off by GitHub, and macos-10.15 no
+# longer exists, which is why the old workflow failed or waited before building anything.
 
 jobs:
   windows:
-    strategy:
-      fail-fast: false
-      matrix:
-        build_type: [ Netplay ]
-        include:
-          - build_type: Netplay
-            artifact_name: windows64-netplay
-            build_config: -G "Ninja" -DCMAKE_SYSTEM_VERSION="10.0.22621" -DCMAKE_BUILD_TYPE="Release"
-    env:
-      DXSDK_DIR: "C:\\Program Files (x86)\\Microsoft DirectX SDK (June 2010)\\"
-    name: "Windows ${{ matrix.build_type }}"
-    runs-on: windows-2022
+    name: "Windows Netplay"
+    runs-on: windows-2025
     steps:
       - name: "Checkout"
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: 'Fetch Git Tags'
+          fetch-depth: 0
+      - name: "Version info"
         shell: bash
-        if: success()
         run: |
-          git fetch --prune --unshallow
-          echo "GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_ENV
           echo "GIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "GIT_TAG=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
+          echo "GIT_TAG=$(git describe --tags --abbrev=0 || echo untagged)" >> $GITHUB_ENV
           echo "CURR_DATE=$(date +%Y-%m-%d)" >> $GITHUB_ENV
-      - uses: seanmiddleditch/gha-setup-ninja@master
-      - uses: egor-tensin/vs-shell@v2
-      # - name: "Install Windows SDK"
-      #   shell: pwsh
-      #   working-directory: ${{ github.workspace }}
-      #   run: | 
-      #     powershell -NoLogo -Sta -NoProfile -NonInteractive -ExecutionPolicy Unrestricted -Command ./install-windows-sdk.ps1 22621
-      - name: "Build ${{ matrix.build_type }} Dolphin"
-        shell: cmd
-        working-directory: ${{ github.workspace }}
-        run: |
-          SET PATH=%PATH%;C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64;C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x86;C:\Program Files\7-Zip;C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin;C:\Python27\;C:\Python27\Scripts;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin;C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja;C:\Program Files\Microsoft VS Code\bin;C:\Program Files\Git\cmd
-          cmake -S . -B Build\x64 -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build Build\x64
-          xcopy /Y /E /I .\Build\x64\Binaries .\Binary\x64
-      - name: "Package ${{ matrix.build_type }}"
-        working-directory: ${{ github.workspace }}
-        run: |
-          Xcopy /Y /E /I .\Data\Sys .\Binary\x64\Sys
-          cd .\Binary\x64\
-          fsutil file createnew FIX-VCRUNTIME140-ERROR.txt 0
-          echo "Download and install this: https://aka.ms/vs/16/release/vc_redist.x64.exe" > .\FIX-VCRUNTIME140-ERROR.txt
-      - name: Package Artifact
-        working-directory: ${{ github.workspace }}
-        run: |
-          $FILE_NAME="${{ env.CURR_DATE }}-${{ env.GIT_HASH }}-${{ env.GIT_TAG }}-${{ matrix.artifact_name }}.zip"
-          mkdir artifact
-          cd .\Binary\x64\
-          fsutil file createnew portable.txt 0
-          7z a $FILE_NAME .\*
-          move $FILE_NAME ..\..\artifact\
-      - name: "Publish"
-        if: success()
-        uses: actions/upload-artifact@v2-preview
+      - uses: seanmiddleditch/gha-setup-ninja@v5
+      - uses: ilammy/msvc-dev-cmd@v1
         with:
-          name: ${{ matrix.artifact_name }}
-          path: "./artifact/"
+          arch: x64
+      - name: "Build Netplay Dolphin"
+        shell: cmd
+        run: |
+          cmake -S . -B Build\x64 -G Ninja -DCMAKE_BUILD_TYPE=Release || exit /b 1
+          cmake --build Build\x64 || exit /b 1
+          xcopy /Y /E /I .\Build\x64\Binaries .\Binary\x64
+      - name: "Package"
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse -Force .\Data\Sys .\Binary\x64\Sys
+          New-Item -ItemType File -Force .\Binary\x64\portable.txt | Out-Null
+          Set-Content .\Binary\x64\FIX-VCRUNTIME140-ERROR.txt "Download and install this: https://aka.ms/vs/17/release/vc_redist.x64.exe"
+          $name = "${{ env.CURR_DATE }}-${{ env.GIT_HASH }}-${{ env.GIT_TAG }}-windows64-netplay.zip"
+          New-Item -ItemType Directory -Force artifact | Out-Null
+          7z a "artifact\$name" .\Binary\x64\*
+      - name: "Publish"
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows64-netplay
+          path: ./artifact/
+
   linux:
-    strategy:
-      fail-fast: false
-      matrix:
-        build_type: [ Netplay ]
-        include:
-          - build_type: Netplay
-            artifact_name: linux
-            build_config: netplay
-    name: "Linux ${{ matrix.build_type }}"
-    runs-on: ubuntu-22.04
+    name: "Linux Netplay"
+    runs-on: ubuntu-24.04
     steps:
       - name: "Checkout"
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: 'Fetch Git Tags'
-        if: success()
+          fetch-depth: 0
+      - name: "Version info"
         run: |
-          git fetch --prune --unshallow
-          echo "GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_ENV
           echo "GIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "GIT_TAG=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
+          echo "GIT_TAG=$(git describe --tags --abbrev=0 || echo untagged)" >> $GITHUB_ENV
           echo "CURR_DATE=$(date +%Y-%m-%d)" >> $GITHUB_ENV
       - name: "Install prerequisites"
-        if: success()
-        shell: bash
         run: |
-          sudo dpkg --add-architecture amd64
-          sudo apt update
-          sudo apt install -y software-properties-common 
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt install -y gcc-11 g++-11
-          sudo apt update
-          sudo apt install \
-          cmake \
-          pkg-config \
-          git \
-          wget \
-          libfuse2 \
-          libao-dev \
-          libasound2-dev \
-          libavcodec-dev \
-          libavformat-dev \
-          libbluetooth-dev \
-          libenet-dev \
-          libgtk2.0-dev \
-          liblzo2-dev \
-          libminiupnpc-dev \
-          libopenal-dev \
-          libpulse-dev \
-          libreadline-dev \
-          libsfml-dev \
-          libsoil-dev \
-          libsoundtouch-dev \
-          libswscale-dev \
-          libusb-1.0-0-dev \
-          libwebkit2gtk-4.0-dev \
-          libxext-dev \
-          libxrandr-dev \
-          portaudio19-dev \
-          zlib1g-dev \
-          libudev-dev \
-          libevdev-dev \
-          libmbedtls-dev \
-          libcurl4-openssl-dev \
-          libegl1-mesa-dev \
-          libpng-dev \
-          qt6-base-private-dev \
-          libxxf86vm-dev \
-          x11proto-xinerama-dev
-      - name: "Build ${{ matrix.build_type }} Dolphin"
-        if: success()
-        working-directory: ${{ github.workspace }}
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-14 g++-14 cmake make pkg-config git wget file libfuse2 \
+            qt6-base-dev qt6-base-private-dev qt6-svg-dev \
+            libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
+            libxi-dev libxrandr-dev libudev-dev libevdev-dev libsfml-dev \
+            libminiupnpc-dev libmbedtls-dev libcurl4-openssl-dev libhidapi-dev \
+            libsystemd-dev libbluetooth-dev libasound2-dev libpulse-dev \
+            libpugixml-dev libbz2-dev libzstd-dev liblzo2-dev libpng-dev \
+            libusb-1.0-0-dev libegl1-mesa-dev gettext
+      - name: "Build Netplay Dolphin"
         run: |
-          git config core.fileMode false ; chmod +x ./build-linux.sh && ./build-linux.sh ${{ matrix.build_config }}
-      - name: "Build ${{ matrix.build_type }} AppImage"
-        if: success()
-        working-directory: ${{ github.workspace }}
+          git config core.fileMode false
+          chmod +x ./build-linux.sh && ./build-linux.sh netplay
+      - name: "Build AppImage"
         run: |
-          git config core.fileMode false ; chmod +x ./build-appimage.sh && ./build-appimage.sh ${{ matrix.build_config }}
+          chmod +x ./build-appimage.sh && ./build-appimage.sh netplay
       - name: "Package"
-        if: success()
-        working-directory: ${{ github.workspace }}
         run: |
-          mkdir artifact
-          FILE_NAME=${{ env.CURR_DATE }}-${{ env.GIT_HASH }}-${{ env.GIT_TAG }}-${{ matrix.artifact_name }}.zip
+          mkdir -p artifact
+          FILE_NAME="${CURR_DATE}-${GIT_HASH}-${GIT_TAG}-linux.zip"
           chmod +x ./*.AppImage
           zip -r "${FILE_NAME}" ./*.AppImage*
           mv "${FILE_NAME}" ./artifact/
       - name: "Publish"
-        if: success()
-        uses: actions/upload-artifact@v2-preview
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: "./artifact/"
+          name: linux
+          path: ./artifact/
+
   macOS:
-    strategy:
-      fail-fast: false
-      matrix:
-        build_type: [ Netplay ]
-        include:
-          - build_type: Netplay
-            artifact_name: macOS-netplay
-            build_config: netplay
-    name: "macOS ${{ matrix.build_type }}"
-    runs-on: macos-10.15
+    name: "macOS Netplay"
+    runs-on: macos-15
     steps:
       - name: "Checkout"
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: 'Fetch Git Tags'
-        if: success()
+          fetch-depth: 0
+      - name: "Version info"
         run: |
-          git fetch --prune --unshallow
-          echo "GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_ENV
           echo "GIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "GIT_TAG=$(git describe --tags --abbrev=0)" >> $GITHUB_ENV
+          echo "GIT_TAG=$(git describe --tags --abbrev=0 || echo untagged)" >> $GITHUB_ENV
           echo "CURR_DATE=$(date +%Y-%m-%d)" >> $GITHUB_ENV
-      - name: "Install 10.15 SDK"
-        if: success()
-        shell: bash
-        working-directory: ${{ github.workspace }}
+      - name: "Install prerequisites"
         run: |
-          wget https://github.com/phracker/MacOSX-SDKs/releases/download/10.15/MacOSX10.15.sdk.tar.xz
-          tar -xf MacOSX10.15.sdk.tar.xz
-          rm MacOSX10.15.sdk.tar.xz
-          sudo mv MacOSX10.15.sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/
-      - name: "Download and Install prerequisites"
-        if: success()
-        shell: bash
-        run: |
-          rm '/usr/local/bin/2to3' || true
           echo "HOMEBREW_NO_AUTO_UPDATE=1" >> $GITHUB_ENV
-          brew upgrade cmake
-          brew install \
-          ffmpeg \
-          libpng \
-          libav \
-          pkgconfig \
-          libao \
-          sound-touch \
-          hidapi \
-          qt@6
-      - name: "Build ${{ matrix.build_type }} Dolphin"
-        if: success()
-        shell: bash
-        working-directory: ${{ github.workspace }}
+          brew install qt@6 pkgconf
+      - name: "Build Netplay Dolphin"
         run: |
-          git config core.fileMode false ; chmod +x ./build-mac.sh && ./build-mac.sh ${{ matrix.build_config }}
-      - name: Package ${{ matrix.build_type }}
-        if: success()
-        shell: bash
-        working-directory: ${{ github.workspace }}
+          git config core.fileMode false
+          chmod +x ./build-mac.sh && ./build-mac.sh netplay
+      - name: "Package"
         run: |
-          FILE_NAME=${{ env.CURR_DATE }}-${{ env.GIT_HASH }}-${{ env.GIT_TAG }}-${{ matrix.artifact_name }}.tar.gz
-          mkdir artifact
+          mkdir -p artifact
+          FILE_NAME="${CURR_DATE}-${GIT_HASH}-${GIT_TAG}-macOS-netplay.zip"
           cd ./build/Binaries/
-          zip -r "${FILE_NAME}" "Dolphin.app"
+          zip -r -y "${FILE_NAME}" "Dolphin.app"
           mv "${FILE_NAME}" ../../artifact/
       - name: "Publish"
-        if: success()
-        uses: actions/upload-artifact@v2-preview
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: "./artifact/"
+          name: macOS-netplay
+          path: ./artifact/
