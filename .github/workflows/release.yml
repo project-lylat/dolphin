@@ -1,0 +1,41 @@
+name: Upload Latest Artifacts to Release
+
+# Publishing a GitHub Release (tag vX.Y.Z) attaches the newest builds that
+# main.yml made on lylat/dolphin-matchmaking, renamed for players:
+# Lylat-Dolphin-<version>-Win.zip, -Mac.zip and -Linux.zip. Let CI finish on
+# the commit first; the artifacts it keeps expire after 90 days.
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  package:
+    name: Release New Lylat Dolphin
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Get version"
+        run: |
+          echo "VERSION=$(echo ${{ github.ref }} | cut -d "v" -f 2)" >> $GITHUB_ENV
+      - name: "Download latest artifacts"
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow: main.yml
+          branch: lylat/dolphin-matchmaking
+      - name: "Organize release files"
+        run: |
+          find ./ -mindepth 2 -type f -exec mv -t ./ -i '{}' +
+          find . -type d -empty -delete
+          mv *windows64-netplay* "Lylat-Dolphin-${{ env.VERSION }}-Win.zip"
+          mv *macOS-netplay* "Lylat-Dolphin-${{ env.VERSION }}-Mac.zip"
+          mv *-linux.zip "Lylat-Dolphin-${{ env.VERSION }}-Linux.zip"
+          ls -la
+      - name: "Upload binaries to release"
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./*
+          tag: ${{ github.ref }}
+          overwrite: true
+          file_glob: true
