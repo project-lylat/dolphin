@@ -13,7 +13,10 @@ cmake .. ${CMAKE_FLAGS}
 make -j"$(nproc)"
 popd
 
-# Copy the Sys folder in
-cp -r -n ${DATA_SYS_PATH} ${BINARY_PATH}
+# Copy the Sys folder in, unless the build already put it there (upstream CMake links
+# Data/Sys into Binaries, and cp refuses to copy a folder over that link)
+if [ ! -e "${BINARY_PATH}Sys" ]; then
+	cp -r ${DATA_SYS_PATH} ${BINARY_PATH}
+fi
 
 touch ./build/Binaries/portable.txt
