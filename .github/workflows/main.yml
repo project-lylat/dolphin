@@ -15,10 +15,7 @@ on:
       - "**.ini"
   workflow_dispatch:
 
-# Upstream Dolphin master needs Visual Studio 2026 (Source/PCH/pch.h refuses older MSVC),
-# C++23 (GCC 13 or later on Linux) and macOS 11 or later. windows-2025 carries VS 2026 since
-# June 2026. The artifact actions before v4 are switched off by GitHub, and macos-10.15 no
-# longer exists, which is why the old workflow failed or waited before building anything.
+# Dolphin master needs VS 2026, GCC 13 and Xcode 26 (AppleClang 21)
 
 jobs:
   windows:
@@ -109,7 +106,7 @@ jobs:
 
   macOS:
     name: "macOS Netplay"
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - name: "Checkout"
         uses: actions/checkout@v4
