@@ -1,0 +1,40 @@
+name: Upload Latest Artifacts to Release
+
+# Let CI finish on the tagged commit first: its artifacts expire after 90 days.
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  package:
+    name: Release New Lylat Dolphin
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Get version"
+        run: |
+          # Dolphin-style tags with an L (i.e: 2609L); a leading v is dropped
+          TAG="${{ github.ref_name }}"
+          echo "VERSION=${TAG#v}" >> $GITHUB_ENV
+      - name: "Download latest artifacts"
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow: main.yml
+          commit: ${{ github.sha }}
+      - name: "Organize release files"
+        run: |
+          find ./ -mindepth 2 -type f -exec mv -t ./ -i '{}' +
+          find . -type d -empty -delete
+          mv *windows64-netplay* "Lylat-Dolphin-${{ env.VERSION }}-Win.zip"
+          mv *macOS-netplay* "Lylat-Dolphin-${{ env.VERSION }}-Mac.zip"
+          mv *-linux.zip "Lylat-Dolphin-${{ env.VERSION }}-Linux.zip"
+          ls -la
+      - name: "Upload binaries to release"
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./*
+          tag: ${{ github.ref }}
+          overwrite: true
+          file_glob: true
