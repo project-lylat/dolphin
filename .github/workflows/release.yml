@@ -1,9 +1,6 @@
 name: Upload Latest Artifacts to Release
 
-# Publishing a GitHub Release (tag 2610L: Dolphin's year-month scheme plus L) attaches the newest builds that
-# main.yml made on lylat/dolphin-matchmaking, renamed for players:
-# Lylat-Dolphin-<version>-Win.zip, -Mac.zip and -Linux.zip. Let CI finish on
-# the commit first; the artifacts it keeps expire after 90 days.
+# Let CI finish on the tagged commit first: its artifacts expire after 90 days.
 
 on:
   release:
@@ -16,7 +13,7 @@ jobs:
     steps:
       - name: "Get version"
         run: |
-          # Dolphin-style tags (2610L: year, month, L for Lylat); a leading v is dropped too.
+          # Dolphin-style tags with an L (i.e: 2609L); a leading v is dropped
           TAG="${{ github.ref_name }}"
           echo "VERSION=${TAG#v}" >> $GITHUB_ENV
       - name: "Download latest artifacts"
@@ -24,7 +21,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           workflow: main.yml
-          branch: lylat/dolphin-matchmaking
+          commit: ${{ github.sha }}
       - name: "Organize release files"
         run: |
           find ./ -mindepth 2 -type f -exec mv -t ./ -i '{}' +
