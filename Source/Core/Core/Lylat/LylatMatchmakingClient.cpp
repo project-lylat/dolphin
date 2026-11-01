@@ -7,6 +7,7 @@
 #include "Common/Timer.h"
 #include "Common/Version.h"
 #include "UICommon/GameFile.h"
+#include "Core/Lylat/LylatDeviceLogin.h"
 
 LylatMatchmakingClient* LylatMatchmakingClient::singleton = nullptr;
 std::string MmMessageType::CREATE_TICKET = "create-ticket";
@@ -158,7 +159,14 @@ void LylatMatchmakingClient::startMatchmaking()
   }
 
   ENetAddress addr;
-  auto effectiveHost = MM_HOST;
+  // The matchmaking server runs on the same host as the web origin (LylatURL),
+  // so https://staging.lylat.gg matches on staging.lylat.gg.
+  std::string effectiveHost = Lylat::GetLylatBaseUrl();
+  if (const size_t scheme = effectiveHost.find("://"); scheme != std::string::npos)
+    effectiveHost.erase(0, scheme + 3);
+  effectiveHost = effectiveHost.substr(0, effectiveHost.find_first_of(":/"));
+  if (effectiveHost.empty())
+    effectiveHost = "lylat.gg";
   WARN_LOG_FMT(LYLAT, "[Matchmaking] HOST: {}", effectiveHost.c_str());
 
   enet_address_set_host(&addr, effectiveHost.c_str());
